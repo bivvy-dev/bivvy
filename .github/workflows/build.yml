@@ -1,0 +1,164 @@
+name: Build
+
+on:
+  workflow_call:
+    outputs:
+      artifact-names:
+        description: "Comma-separated list of artifact names"
+        value: ${{ jobs.summary.outputs.artifact-names }}
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'src/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux-x64:
+    name: Build (linux-x64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target x86_64-unknown-linux-gnu
+
+      - name: Archive
+        run: |
+          cd target/x86_64-unknown-linux-gnu/release
+          tar -czvf bivvy-linux-x64.tar.gz bivvy
+          mv bivvy-linux-x64.tar.gz ../../../
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bivvy-linux-x64
+          path: bivvy-linux-x64.tar.gz
+          retention-days: 30
+
+  build-linux-arm64:
+    name: Build (linux-arm64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-unknown-linux-gnu
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install cross-compilation tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+
+      - name: Build
+        env:
+          CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+        run: cargo build --release --target aarch64-unknown-linux-gnu
+
+      - name: Archive
+        run: |
+          cd target/aarch64-unknown-linux-gnu/release
+          tar -czvf bivvy-linux-arm64.tar.gz bivvy
+          mv bivvy-linux-arm64.tar.gz ../../../
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bivvy-linux-arm64
+          path: bivvy-linux-arm64.tar.gz
+          retention-days: 30
+
+  build-macos:
+    name: Build (macos)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build both architectures
+        run: |
+          cargo build --release --target x86_64-apple-darwin
+          cargo build --release --target aarch64-apple-darwin
+
+      - name: Archive x64
+        run: |
+          cd target/x86_64-apple-darwin/release
+          tar -czvf bivvy-darwin-x64.tar.gz bivvy
+          mv bivvy-darwin-x64.tar.gz ../../../
+
+      - name: Archive arm64
+        run: |
+          cd target/aarch64-apple-darwin/release
+          tar -czvf bivvy-darwin-arm64.tar.gz bivvy
+          mv bivvy-darwin-arm64.tar.gz ../../../
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bivvy-darwin
+          path: |
+            bivvy-darwin-x64.tar.gz
+            bivvy-darwin-arm64.tar.gz
+          retention-days: 30
+
+  build-windows-x64:
+    name: Build (windows-x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build
+        run: cargo build --release --target x86_64-pc-windows-msvc
+
+      - name: Archive
+        shell: bash
+        run: |
+          cd target/x86_64-pc-windows-msvc/release
+          7z a bivvy-windows-x64.zip bivvy.exe
+          mv bivvy-windows-x64.zip ../../../
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bivvy-windows-x64
+          path: bivvy-windows-x64.zip
+          retention-days: 30
+
+  summary:
+    name: Build Summary
+    needs:
+      - build-linux-x64
+      - build-linux-arm64
+      - build-macos
+      - build-windows-x64
+    runs-on: ubuntu-latest
+    outputs:
+      artifact-names: ${{ steps.set-output.outputs.artifact-names }}
+    steps:
+      - name: Set artifact names
+        id: set-output
+        run: echo "artifact-names=bivvy-linux-x64,bivvy-linux-arm64,bivvy-darwin,bivvy-windows-x64" >> $GITHUB_OUTPUT
