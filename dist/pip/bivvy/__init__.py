@@ -7,7 +7,7 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-__version__ = "1.0.0"
+__version__ = "1.0.1"
 
 BINARY_DIR = Path(__file__).parent / "bin"
 BINARY_NAME = "bivvy.exe" if sys.platform == "win32" else "bivvy"
@@ -35,7 +35,7 @@ def get_platform() -> str:
 def download_binary() -> None:
     """Download the bivvy binary for the current platform."""
     plat = get_platform()
-    url = f"https://github.com/{GITHUB_REPO}/releases/download/v{__version__}/bivvy-{plat}.tar.gz"
+    url = f"https://github.com/{GITHUB_REPO}/releases/download/{__version__}/bivvy-{plat}.tar.gz"
 
     print(f"Downloading bivvy from {url}")
 

@@ -36,7 +36,7 @@ function getPlatform() {
 function downloadBinary() {
   const platform = getPlatform();
   const ext = process.platform === "win32" ? "zip" : "tar.gz";
-  const url = `https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/bivvy-${platform}.${ext}`;
+  const url = `https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/bivvy-${platform}.${ext}`;
 
   console.log(`Downloading bivvy from ${url}`);
 

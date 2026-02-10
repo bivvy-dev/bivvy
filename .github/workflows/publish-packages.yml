@@ -59,12 +59,14 @@ jobs:
       - run: |
           mkdir -p ~/.gem
           echo "---" > ~/.gem/credentials
-          echo ":rubygems_api_key: ${{ secrets.RUBYGEMS_API_KEY }}" >> ~/.gem/credentials
+          echo ":rubygems_api_key: ${RUBYGEMS_API_KEY}" >> ~/.gem/credentials
           chmod 0600 ~/.gem/credentials
           cd dist/gem
           gem build bivvy.gemspec
           gem push bivvy-*.gem
           rm -f ~/.gem/credentials
+        env:
+          RUBYGEMS_API_KEY: ${{ secrets.RUBYGEMS_API_KEY }}
 
   publish-pip:
     name: Publish to PyPI

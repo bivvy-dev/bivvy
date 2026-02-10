@@ -33,7 +33,7 @@ for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
 
     # Use gh CLI to download (works for private repos)
     tmpdir=$(mktemp -d)
-    gh release download "v${VERSION}" --repo "${GITHUB_REPO}" --pattern "$asset" --dir "$tmpdir"
+    gh release download "${VERSION}" --repo "${GITHUB_REPO}" --pattern "$asset" --dir "$tmpdir"
     sha=$(shasum -a 256 "$tmpdir/$asset" | cut -d ' ' -f 1)
     rm -rf "$tmpdir"
 

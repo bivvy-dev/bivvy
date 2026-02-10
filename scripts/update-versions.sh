@@ -25,8 +25,8 @@ if [ -f dist/npm/package.json ]; then
 fi
 
 # Python package
-if [ -f dist/pip/bivvy_cli/__init__.py ]; then
-    sed -i '' "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" dist/pip/bivvy_cli/__init__.py
+if [ -f dist/pip/bivvy/__init__.py ]; then
+    sed -i '' "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" dist/pip/bivvy/__init__.py
     sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" dist/pip/pyproject.toml
     echo "Updated dist/pip/"
 fi
@@ -47,6 +47,6 @@ echo ""
 echo "Done! Don't forget to:"
 echo "  1. Update CHANGELOG.md"
 echo "  2. Commit changes"
-echo "  3. Create git tag: git tag v$VERSION"
+echo "  3. Create git tag: git tag $VERSION"
 echo "  4. Push: git push && git push --tags"
 echo "  5. Update Homebrew SHA256 hashes after release"

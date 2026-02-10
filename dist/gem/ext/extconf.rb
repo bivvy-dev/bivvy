@@ -30,7 +30,7 @@ def platform
 end
 
 def download_binary
-  url = "https://github.com/#{GITHUB_REPO}/releases/download/v#{VERSION}/bivvy-#{platform}.tar.gz"
+  url = "https://github.com/#{GITHUB_REPO}/releases/download/#{VERSION}/bivvy-#{platform}.tar.gz"
   puts "Downloading bivvy from #{url}"
 
   uri = URI(url)

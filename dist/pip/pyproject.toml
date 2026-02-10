@@ -24,4 +24,4 @@ Homepage = "https://bivvy.dev"
 Repository = "https://github.com/bivvy-dev/bivvy"
 
 [project.scripts]
-bivvy = "bivvy_cli:main"
+bivvy = "bivvy:main"

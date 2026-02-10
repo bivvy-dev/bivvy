@@ -17,7 +17,7 @@ if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
     exit 1
 fi
 
-echo "Preparing release v$VERSION"
+echo "Preparing release $VERSION"
 echo ""
 
 # Check for uncommitted changes
@@ -46,11 +46,11 @@ git commit -m "Bump version to $VERSION"
 
 # Create tag
 echo ""
-echo "Creating tag v$VERSION..."
-git tag -a "v$VERSION" -m "Release v$VERSION"
+echo "Creating tag $VERSION..."
+git tag -a "$VERSION" -m "Release $VERSION"
 
 echo ""
-echo "Release v$VERSION prepared!"
+echo "Release $VERSION prepared!"
 echo ""
 echo "To publish:"
 echo "  git push && git push --tags"
