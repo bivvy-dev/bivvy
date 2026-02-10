@@ -1,0 +1,27 @@
+name: yarn
+description: "Install Node.js dependencies using Yarn"
+category: node
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: yarn.lock
+  - file: package.json
+
+step:
+  title: "Install Node dependencies"
+  description: "Install packages using Yarn"
+  command: "yarn install"
+  completed_check:
+    type: command_succeeds
+    command: "yarn check --verify-tree"
+  env:
+    NODE_ENV: development
+  watches:
+    - yarn.lock
+    - package.json
+
+environment_impact:
+  path_additions:
+    - "./node_modules/.bin"
+  note: "Node binaries are available in node_modules/.bin"

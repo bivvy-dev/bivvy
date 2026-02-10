@@ -1,0 +1,27 @@
+name: npm
+description: "Install Node.js dependencies using npm"
+category: node
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: package-lock.json
+  - file: package.json
+
+step:
+  title: "Install Node dependencies"
+  description: "Install packages using npm"
+  command: "npm install"
+  completed_check:
+    type: file_exists
+    path: "node_modules"
+  env:
+    NODE_ENV: development
+  watches:
+    - package.json
+    - package-lock.json
+
+environment_impact:
+  path_additions:
+    - "./node_modules/.bin"
+  note: "Node binaries are available in node_modules/.bin"

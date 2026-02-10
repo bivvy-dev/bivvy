@@ -1,0 +1,25 @@
+name: asdf
+description: "Install tool versions using asdf"
+category: version_manager
+version: "1.0.0"
+platforms: [macos, linux]
+
+detects:
+  - file: .tool-versions
+
+step:
+  title: "Install tool versions"
+  description: "Install language runtimes and tools defined in .tool-versions"
+  command: "asdf install"
+  completed_check:
+    type: command_succeeds
+    command: "asdf current"
+  watches:
+    - .tool-versions
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zshrc
+    - ~/.bashrc
+  note: "asdf manages PATH shims for installed tools"

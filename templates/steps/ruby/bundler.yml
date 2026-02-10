@@ -1,0 +1,24 @@
+name: bundler
+description: "Install Ruby dependencies using Bundler"
+category: ruby
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: Gemfile
+
+step:
+  title: "Install Ruby dependencies"
+  description: "Install gems from Gemfile using Bundler"
+  command: "bundle install"
+  completed_check:
+    type: command_succeeds
+    command: "bundle check"
+  watches:
+    - Gemfile
+    - Gemfile.lock
+
+environment_impact:
+  path_additions:
+    - "./vendor/bundle/bin"
+  note: "Gems are installed to the configured bundle path"

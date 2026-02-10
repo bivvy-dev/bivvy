@@ -1,0 +1,16 @@
+name: pacman
+description: "Install system packages using pacman"
+category: system
+version: "1.0.0"
+platforms: [linux]
+
+detects:
+  - command: "pacman --version"
+
+step:
+  title: "Install system packages"
+  description: "Install packages using pacman package manager"
+  command: "sudo pacman -S --noconfirm"
+
+environment_impact:
+  note: "System packages are installed globally"

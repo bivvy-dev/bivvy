@@ -1,0 +1,17 @@
+name: scoop
+description: "Install Windows packages using Scoop"
+category: windows
+version: "1.0.0"
+platforms: [windows]
+
+detects:
+  - command: "scoop --version"
+
+step:
+  title: "Install Scoop packages"
+  description: "Install packages using the Scoop package manager"
+  command: "scoop install"
+
+environment_impact:
+  modifies_path: true
+  note: "Scoop packages are added to ~/scoop/shims"

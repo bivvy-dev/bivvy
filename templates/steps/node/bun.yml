@@ -1,0 +1,24 @@
+name: bun
+description: "Install Node.js dependencies using Bun"
+category: node
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: bun.lockb
+
+step:
+  title: "Install Node dependencies"
+  description: "Install packages using Bun"
+  command: "bun install"
+  completed_check:
+    type: file_exists
+    path: "node_modules"
+  watches:
+    - package.json
+    - bun.lockb
+
+environment_impact:
+  path_additions:
+    - "./node_modules/.bin"
+  note: "Node binaries are available in node_modules/.bin"

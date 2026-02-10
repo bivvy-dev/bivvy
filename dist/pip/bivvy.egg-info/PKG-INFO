@@ -1,0 +1,14 @@
+Metadata-Version: 2.4
+Name: bivvy
+Version: 0.1.2
+Summary: Cross-language development environment setup automation
+Author-email: Brenna Flood <hello@bivvy.dev>
+License: FSL-1.1-Apache-2.0
+Project-URL: Homepage, https://bivvy.dev
+Project-URL: Repository, https://github.com/bivvy-dev/bivvy
+Keywords: cli,setup,devtools,automation
+Classifier: Development Status :: 4 - Beta
+Classifier: Environment :: Console
+Classifier: Programming Language :: Python :: 3
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown

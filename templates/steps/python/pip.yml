@@ -1,0 +1,21 @@
+name: pip
+description: "Install Python dependencies using pip"
+category: python
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: requirements.txt
+
+step:
+  title: "Install Python dependencies"
+  description: "Install packages from requirements.txt using pip"
+  command: "pip install -r requirements.txt"
+  completed_check:
+    type: command_succeeds
+    command: "pip check"
+  watches:
+    - requirements.txt
+
+environment_impact:
+  note: "Packages are installed to the active Python environment"

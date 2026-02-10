@@ -1,0 +1,26 @@
+name: pnpm
+description: "Install Node.js dependencies using pnpm"
+category: node
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: pnpm-lock.yaml
+
+step:
+  title: "Install Node dependencies"
+  description: "Install packages using pnpm"
+  command: "pnpm install"
+  completed_check:
+    type: file_exists
+    path: "node_modules"
+  env:
+    NODE_ENV: development
+  watches:
+    - package.json
+    - pnpm-lock.yaml
+
+environment_impact:
+  path_additions:
+    - "./node_modules/.bin"
+  note: "Node binaries are available in node_modules/.bin"

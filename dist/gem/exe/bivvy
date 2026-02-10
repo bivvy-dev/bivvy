@@ -1,0 +1,7 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Ruby's Kernel#exec replaces the current process with the given command.
+# Arguments are passed as an array, avoiding shell interpretation.
+binary_path = File.expand_path("bivvy-bin", __dir__)
+exec(binary_path, *ARGV)

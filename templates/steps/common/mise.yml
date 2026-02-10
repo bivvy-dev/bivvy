@@ -1,0 +1,27 @@
+name: mise
+description: "Install tool versions using mise"
+category: version_manager
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: .mise.toml
+  - file: mise.toml
+
+step:
+  title: "Install tool versions"
+  description: "Install language runtimes and tools defined in mise config"
+  command: "mise install"
+  completed_check:
+    type: command_succeeds
+    command: "mise current"
+  watches:
+    - .mise.toml
+    - mise.toml
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zshrc
+    - ~/.bashrc
+  note: "mise manages PATH shims for installed tools"

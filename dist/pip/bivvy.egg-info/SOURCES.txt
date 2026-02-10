@@ -1,0 +1,7 @@
+pyproject.toml
+bivvy_cli/__init__.py
+bivvy_cli.egg-info/PKG-INFO
+bivvy_cli.egg-info/SOURCES.txt
+bivvy_cli.egg-info/dependency_links.txt
+bivvy_cli.egg-info/entry_points.txt
+bivvy_cli.egg-info/top_level.txt

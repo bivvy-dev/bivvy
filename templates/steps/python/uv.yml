@@ -1,0 +1,22 @@
+name: uv
+description: "Install Python dependencies using uv"
+category: python
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: uv.lock
+
+step:
+  title: "Install Python dependencies"
+  description: "Sync project dependencies using uv"
+  command: "uv sync"
+  completed_check:
+    type: file_exists
+    path: ".venv"
+  watches:
+    - pyproject.toml
+    - uv.lock
+
+environment_impact:
+  note: "uv creates a .venv virtual environment in the project"

@@ -1,0 +1,22 @@
+name: go
+description: "Download Go module dependencies"
+category: go
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: go.mod
+
+step:
+  title: "Download Go dependencies"
+  description: "Download module dependencies using go mod"
+  command: "go mod download"
+  completed_check:
+    type: command_succeeds
+    command: "go mod verify"
+  watches:
+    - go.mod
+    - go.sum
+
+environment_impact:
+  note: "Modules are cached in $GOPATH/pkg/mod"

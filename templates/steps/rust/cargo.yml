@@ -1,0 +1,22 @@
+name: cargo
+description: "Build Rust project using Cargo"
+category: rust
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: Cargo.toml
+
+step:
+  title: "Build Rust project"
+  description: "Compile the project and download dependencies using Cargo"
+  command: "cargo build"
+  completed_check:
+    type: file_exists
+    path: "target"
+  watches:
+    - Cargo.toml
+    - Cargo.lock
+
+environment_impact:
+  note: "Build artifacts are placed in the target/ directory"

@@ -1,0 +1,22 @@
+name: poetry
+description: "Install Python dependencies using Poetry"
+category: python
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: poetry.lock
+
+step:
+  title: "Install Python dependencies"
+  description: "Install packages using Poetry"
+  command: "poetry install"
+  completed_check:
+    type: command_succeeds
+    command: "poetry check"
+  watches:
+    - pyproject.toml
+    - poetry.lock
+
+environment_impact:
+  note: "Poetry manages a virtual environment for the project"

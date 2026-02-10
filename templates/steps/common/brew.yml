@@ -1,0 +1,26 @@
+name: brew
+description: "Install Homebrew packages from Brewfile"
+category: system
+version: "1.0.0"
+platforms: [macos, linux]
+
+detects:
+  - file: Brewfile
+
+step:
+  title: "Install Homebrew packages"
+  description: "Install dependencies from Brewfile using Homebrew"
+  command: "brew bundle install"
+  completed_check:
+    type: command_succeeds
+    command: "brew bundle check"
+  watches:
+    - Brewfile
+    - Brewfile.lock.json
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zshrc
+    - ~/.bashrc
+  note: "Some packages may add to PATH via shell config"

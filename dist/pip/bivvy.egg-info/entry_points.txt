@@ -1,0 +1,2 @@
+[console_scripts]
+bivvy = bivvy_cli:main

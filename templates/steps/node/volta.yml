@@ -1,0 +1,26 @@
+name: volta
+description: "Install Node.js toolchain using Volta"
+category: version_manager
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - command: "volta --version"
+
+step:
+  title: "Install Node toolchain"
+  description: "Install pinned Node.js version using Volta"
+  command: "volta install node"
+  completed_check:
+    type: command_succeeds
+    command: "volta which node"
+  watches:
+    - package.json
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zshrc
+    - ~/.bashrc
+    - ~/.bash_profile
+  note: "Volta manages Node.js versions and shims PATH entries"

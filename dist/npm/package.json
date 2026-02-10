@@ -1,0 +1,39 @@
+{
+  "name": "bivvy",
+  "version": "1.0.0",
+  "description": "Cross-language development environment setup automation",
+  "keywords": [
+    "cli",
+    "setup",
+    "devtools",
+    "automation"
+  ],
+  "homepage": "https://bivvy.dev",
+  "bugs": {
+    "url": "https://github.com/bivvy-dev/bivvy/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bivvy-dev/bivvy.git"
+  },
+  "license": "FSL-1.1-Apache-2.0",
+  "author": "Brenna Flood",
+  "bin": {
+    "bivvy": "./bin/bivvy"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js"
+  },
+  "engines": {
+    "node": ">=14"
+  },
+  "os": [
+    "darwin",
+    "linux",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ]
+}

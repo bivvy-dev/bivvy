@@ -1,0 +1,60 @@
+version: 1
+
+categories:
+  - name: system
+    description: "System-level package managers"
+    templates: [brew, apt, yum, pacman]
+
+  - name: windows
+    description: "Windows package managers"
+    templates: [chocolatey, scoop]
+
+  - name: version_manager
+    description: "Runtime version managers"
+    templates: [mise, asdf, volta]
+
+  - name: ruby
+    description: "Ruby ecosystem tools"
+    templates: [bundler]
+
+  - name: node
+    description: "Node.js ecosystem tools"
+    templates: [yarn, npm, pnpm, bun]
+
+  - name: python
+    description: "Python ecosystem tools"
+    templates: [pip, poetry, uv]
+
+  - name: rust
+    description: "Rust ecosystem tools"
+    templates: [cargo]
+
+  - name: go
+    description: "Go ecosystem tools"
+    templates: [go]
+
+  - name: swift
+    description: "Swift ecosystem tools"
+    templates: [swift]
+
+detection_order:
+  - brew
+  - chocolatey
+  - apt
+  - yum
+  - pacman
+  - scoop
+  - mise
+  - asdf
+  - volta
+  - bundler
+  - yarn
+  - npm
+  - pnpm
+  - bun
+  - poetry
+  - uv
+  - pip
+  - cargo
+  - go
+  - swift

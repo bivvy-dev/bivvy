@@ -1,0 +1,30 @@
+# This workflow triggers a rebuild of bivvy-site when docs change in the main repo.
+#
+# SETUP REQUIRED:
+# 1. Create a Personal Access Token (PAT) with 'repo' scope
+#    - Go to: https://github.com/settings/tokens
+#    - Generate new token (classic) with 'repo' scope
+# 2. Add the PAT as a secret in bivvy-dev/bivvy
+#    - Go to: https://github.com/bivvy-dev/bivvy/settings/secrets/actions
+#    - Add secret named: SITE_REBUILD_TOKEN
+#    - Paste your PAT as the value
+
+name: Trigger Site Rebuild
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+  workflow_dispatch:
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger bivvy-site rebuild
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.SITE_REBUILD_TOKEN }}
+          repository: bivvy-dev/bivvy-site
+          event-type: docs-updated

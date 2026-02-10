@@ -1,0 +1,16 @@
+name: yum
+description: "Install system packages using YUM"
+category: system
+version: "1.0.0"
+platforms: [linux]
+
+detects:
+  - command: "yum --version"
+
+step:
+  title: "Install system packages"
+  description: "Install packages using YUM package manager"
+  command: "sudo yum install -y"
+
+environment_impact:
+  note: "System packages are installed globally"

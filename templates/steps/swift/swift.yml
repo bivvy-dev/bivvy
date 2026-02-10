@@ -1,0 +1,22 @@
+name: swift
+description: "Resolve Swift package dependencies"
+category: swift
+version: "1.0.0"
+platforms: [macos, linux]
+
+detects:
+  - file: Package.swift
+
+step:
+  title: "Resolve Swift packages"
+  description: "Download and resolve Swift Package Manager dependencies"
+  command: "swift package resolve"
+  completed_check:
+    type: file_exists
+    path: ".build"
+  watches:
+    - Package.swift
+    - Package.resolved
+
+environment_impact:
+  note: "Dependencies are resolved into the .build directory"

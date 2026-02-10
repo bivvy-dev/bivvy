@@ -1,0 +1,12 @@
+/target
+Cargo.lock
+*.swp
+*.swo
+.DS_Store
+.bivvy/config.local.yml
+
+.env
+
+.local
+*.local
+*.local.*
