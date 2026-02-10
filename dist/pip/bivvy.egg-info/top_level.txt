@@ -1,1 +1,1 @@
-bivvy_cli
+bivvy

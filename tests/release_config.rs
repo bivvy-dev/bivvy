@@ -21,7 +21,7 @@ fn cargo_toml_has_release_profile() {
 
 #[test]
 fn release_workflow_exists() {
-    let workflow = include_str!("../.github/workflows/release.yml");
+    let workflow = include_str!("../.github/workflows/build.yml");
     assert!(
         workflow.contains("x86_64-unknown-linux-gnu"),
         "Release workflow must target Linux x64"

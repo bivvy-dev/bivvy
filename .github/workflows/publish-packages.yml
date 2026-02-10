@@ -42,7 +42,7 @@ jobs:
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
-      - run: cd dist/npm && npm publish
+      - run: cd dist/npm && npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
@@ -102,7 +102,8 @@ jobs:
           HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           TAG_NAME: ${{ inputs.tag }}
         run: |
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/bivvy-dev/homebrew-bivvy.git" /tmp/tap
+          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/bivvy-dev/bivvy.git" /tmp/tap
+          mkdir -p /tmp/tap/Formula
           cp dist/homebrew/bivvy.rb /tmp/tap/Formula/bivvy.rb
           cd /tmp/tap
           git config user.name "github-actions[bot]"

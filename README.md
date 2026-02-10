@@ -4,8 +4,6 @@
 [![codecov](https://codecov.io/gh/bivvy-dev/bivvy/branch/main/graph/badge.svg)](https://codecov.io/gh/bivvy-dev/bivvy)
 
 > Cross-language development environment setup automation, built in Rust.
->
-> "Set up your bivvy before the mission."
 
 Bivvy replaces ad-hoc `bin/setup` scripts with declarative YAML configuration, smart state tracking, and a polished CLI.
 

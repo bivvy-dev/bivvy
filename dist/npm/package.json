@@ -1,5 +1,5 @@
 {
-  "name": "bivvy",
+  "name": "@bivvy-dev/bivvy",
   "version": "1.0.0",
   "description": "Cross-language development environment setup automation",
   "keywords": [
