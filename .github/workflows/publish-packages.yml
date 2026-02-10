@@ -97,17 +97,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ inputs.tag }}
         run: ./scripts/update-homebrew-sha.sh "$TAG_NAME"
-      - name: Push updated formula to tap
-        env:
-          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          TAG_NAME: ${{ inputs.tag }}
-        run: |
-          git clone "https://x-access-token:${HOMEBREW_TAP_TOKEN}@github.com/bivvy-dev/bivvy.git" /tmp/tap
-          mkdir -p /tmp/tap/Formula
-          cp dist/homebrew/bivvy.rb /tmp/tap/Formula/bivvy.rb
-          cd /tmp/tap
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add Formula/bivvy.rb
-          git commit -m "Update bivvy to $TAG_NAME" || exit 0
-          git push
+      - name: Upload updated formula
+        uses: actions/upload-artifact@v4
+        with:
+          name: homebrew-formula
+          path: dist/homebrew/bivvy.rb

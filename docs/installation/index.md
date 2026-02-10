@@ -20,7 +20,7 @@ See [curl install docs](./curl.md) for options and troubleshooting.
 
 | Method | Command | Notes |
 |--------|---------|-------|
-| [Homebrew](./homebrew.md) | `brew install bivvy-dev/bivvy/bivvy` | macOS/Linux, auto-updates |
+| [Homebrew](./homebrew.md) | `brew install https://raw.githubusercontent.com/bivvy-dev/bivvy/main/dist/homebrew/bivvy.rb` | macOS/Linux |
 | [Cargo](./cargo.md) | `cargo install bivvy` | Requires Rust 1.93+ |
 | [npm](./npm.md) | `npm install -g bivvy` | Node.js 14+ |
 | [gem](./gem.md) | `gem install bivvy` | Ruby 2.7+ |

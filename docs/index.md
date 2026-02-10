@@ -212,7 +212,7 @@ curl -fsSL https://bivvy.dev/install.sh | sh
 ```
 
 ```bash
-brew install bivvy-dev/bivvy/bivvy
+brew install https://raw.githubusercontent.com/bivvy-dev/bivvy/main/dist/homebrew/bivvy.rb
 ```
 
 ```bash

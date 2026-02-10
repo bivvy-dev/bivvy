@@ -10,10 +10,8 @@ The recommended way to install Bivvy on macOS.
 ## Installation
 
 ```bash
-brew install bivvy-dev/bivvy/bivvy
+brew install https://raw.githubusercontent.com/bivvy-dev/bivvy/main/dist/homebrew/bivvy.rb
 ```
-
-This automatically taps the `bivvy-dev/bivvy` formula repository and installs bivvy in one step.
 
 ## Supported Platforms
 
@@ -32,7 +30,6 @@ brew upgrade bivvy
 
 ```bash
 brew uninstall bivvy
-brew untap bivvy-dev/bivvy
 ```
 
 ## Shell Completions
