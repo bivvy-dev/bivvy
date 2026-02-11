@@ -3,28 +3,28 @@
 class Bivvy < Formula
   desc "Cross-language development environment setup automation"
   homepage "https://bivvy.dev"
-  version "1.2.0"
+  version "1.3.0"
   license "FSL-1.1-Apache-2.0"
 
   on_macos do
     on_arm do
       url "https://github.com/bivvy-dev/bivvy/releases/download/#{version}/bivvy-darwin-arm64.tar.gz"
-      sha256 "07729178c16503f9a17b6e6df4038a6dd50a31415c8fe6674011ea2cf065d4bd"
+      sha256 "02e215ce44e69a1be23eb18314855372e43ac5a08de3a8bcf36d0e207c94a37b"
     end
     on_intel do
       url "https://github.com/bivvy-dev/bivvy/releases/download/#{version}/bivvy-darwin-x64.tar.gz"
-      sha256 "d9e2f2dd1777c2dcf27e90d968589c34f1ca549ca7185d20cb247ce88dc794f6"
+      sha256 "7b892f264ca59984ee56b314ba470cabf09db964bc4c0da5795530bad27f19f1"
     end
   end
 
   on_linux do
     on_arm do
       url "https://github.com/bivvy-dev/bivvy/releases/download/#{version}/bivvy-linux-arm64.tar.gz"
-      sha256 "a01fb720ad608a69722d6fa06ef5902a196982c6977aee16da437822d8bd812f"
+      sha256 "d38e499c5615b28a7fb31ecfbebd5e4ef66144fd9a0335e3470e29c517b8b4e8"
     end
     on_intel do
       url "https://github.com/bivvy-dev/bivvy/releases/download/#{version}/bivvy-linux-x64.tar.gz"
-      sha256 "34c3b2241d64e7f93a94547f3d3de3d5a804a272a2760fd6ec7ca8572ad1276f"
+      sha256 "0ab97f5529a8d329293398bf53966c587b04db1e6918b95e7ed5c16e2e34f056"
     end
   end
 
