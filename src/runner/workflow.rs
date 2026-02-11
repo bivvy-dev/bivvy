@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use tracing::warn;
+
 use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::config::BivvyConfig;
@@ -148,8 +150,15 @@ impl<'a> WorkflowRunner<'a> {
                 ..Default::default()
             };
 
+            let step_start = Instant::now();
             let result =
-                execute_step(step, project_root, context, global_env, &exec_options, None)?;
+                match execute_step(step, project_root, context, global_env, &exec_options, None) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        warn!("Step '{}' errored: {}", step_name, e);
+                        StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
+                    }
+                };
 
             on_progress(RunProgress::StepFinished {
                 name: step_name,
@@ -239,10 +248,10 @@ impl<'a> WorkflowRunner<'a> {
                 .and_then(|o| o.prompt_if_complete)
                 .unwrap_or(step.prompt_if_complete);
 
-            let forced = options.force.contains(step_name);
+            let mut needs_force = options.force.contains(step_name);
 
             // Check if already complete (unless forced)
-            if !forced && !options.dry_run {
+            if !needs_force && !options.dry_run {
                 if let Some(ref check) = step.completed_check {
                     let check_result = run_check(check, project_root);
                     if check_result.complete {
@@ -270,14 +279,15 @@ impl<'a> WorkflowRunner<'a> {
                                     results.push(StepResult::skipped(&step.name, check_result));
                                     continue;
                                 }
-                                // User wants to re-run, fall through to execute with force
+                                // User wants to re-run, force past the check in execute_step
+                                needs_force = true;
                             } else {
                                 // Not skippable, inform and re-run
                                 ui.message(&format!(
                                     "  '{}' is already complete, re-running (not skippable)",
                                     step.title
                                 ));
-                                // Fall through to execute with force
+                                needs_force = true;
                             }
                         } else {
                             // Not interactive or prompt_if_complete is false: silently skip
@@ -328,17 +338,21 @@ impl<'a> WorkflowRunner<'a> {
             ui.message(&format!("  Running {}...", step_name));
 
             let exec_options = ExecutionOptions {
-                force: forced
-                    || (step.completed_check.is_some()
-                        && interactive
-                        && effective_prompt_if_complete),
+                force: needs_force,
                 dry_run: options.dry_run,
                 capture_output: true,
                 ..Default::default()
             };
 
+            let step_start = Instant::now();
             let result =
-                execute_step(step, project_root, context, global_env, &exec_options, None)?;
+                match execute_step(step, project_root, context, global_env, &exec_options, None) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        warn!("Step '{}' errored: {}", step_name, e);
+                        StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
+                    }
+                };
 
             let duration = format_duration(result.duration);
             match result.status() {
@@ -347,6 +361,17 @@ impl<'a> WorkflowRunner<'a> {
                 }
                 StepStatus::Failed => {
                     ui.error(&format!("  {} failed ({})", step_name, duration));
+                    if let Some(ref err) = result.error {
+                        ui.error(&format!("    {}", err));
+                    }
+                    if let Some(ref output) = result.output {
+                        let trimmed = output.trim();
+                        if !trimmed.is_empty() {
+                            for line in trimmed.lines() {
+                                ui.message(&format!("    {}", line));
+                            }
+                        }
+                    }
                 }
                 StepStatus::Skipped => {
                     ui.warning(&format!("  {} skipped", step_name));
@@ -695,6 +720,154 @@ mod tests {
             sensitive: false,
             requires_sudo: false,
         }
+    }
+
+    #[test]
+    fn run_with_ui_executes_simple_step() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("ran.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "hello".to_string(),
+            make_step("hello", &format!("touch {}", marker.display()), vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.steps.len(), 1);
+        assert!(!result.steps[0].skipped);
+        // Verify the command actually ran
+        assert!(
+            marker.exists(),
+            "step command should have created marker file"
+        );
+    }
+
+    #[test]
+    fn run_with_ui_interactive_no_check_does_not_force() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "hello".to_string(),
+            make_step("hello", "echo hello", vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No prompts should appear for a step without completed_check
+        assert!(ui.prompts_shown().is_empty());
+    }
+
+    #[test]
+    fn run_with_ui_incomplete_check_runs_without_force() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("ran.txt");
+        // Don't create marker.txt — so the check will NOT pass
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                &format!("touch {}", marker.display()),
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No prompt — check didn't pass, so step runs normally
+        assert!(ui.prompts_shown().is_empty());
+        // Verify command actually ran
+        assert!(
+            marker.exists(),
+            "step should run when completed_check does not pass"
+        );
     }
 
     #[test]
@@ -1108,5 +1281,361 @@ mod tests {
         // Should NOT have prompted because override disables it
         assert!(ui.prompts_shown().is_empty());
         assert!(result.steps[0].skipped);
+    }
+
+    #[test]
+    fn failed_step_stops_dependent_step() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("after.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, after_fail]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+        steps.insert(
+            "after_fail".to_string(),
+            make_step(
+                "after_fail",
+                &format!("touch {}", marker.display()),
+                vec!["failing".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        // Should return Ok (not Err), but marked as failed
+        assert!(!result.success);
+        // Only the failing step ran; after_fail was blocked by the break
+        assert_eq!(result.steps.len(), 1);
+        assert_eq!(result.steps[0].name, "failing");
+        assert!(!result.steps[0].success);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn allow_failure_continues_to_next_step() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("after.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, after_fail]
+        "#,
+        )
+        .unwrap();
+
+        let mut failing_step = make_step("failing", "exit 1", vec![]);
+        failing_step.allow_failure = true;
+
+        let mut steps = HashMap::new();
+        steps.insert("failing".to_string(), failing_step);
+        steps.insert(
+            "after_fail".to_string(),
+            make_step(
+                "after_fail",
+                &format!("touch {}", marker.display()),
+                vec!["failing".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        // Workflow reports failure (a step failed)
+        assert!(!result.success);
+        // Both steps ran
+        assert_eq!(result.steps.len(), 2);
+
+        let failing = result.steps.iter().find(|s| s.name == "failing").unwrap();
+        let after = result
+            .steps
+            .iter()
+            .find(|s| s.name == "after_fail")
+            .unwrap();
+        assert!(!failing.success);
+        assert!(after.success);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn step_execution_error_does_not_abort_workflow() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("second.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [broken, healthy]
+        "#,
+        )
+        .unwrap();
+
+        // A step with a before-hook that fails causes execute_step to return Err.
+        // With allow_failure, the workflow should continue to the next step.
+        let mut broken_step = make_step("broken", "echo main", vec![]);
+        broken_step.before = vec!["exit 1".to_string()];
+        broken_step.allow_failure = true;
+
+        let mut steps = HashMap::new();
+        steps.insert("broken".to_string(), broken_step);
+        steps.insert(
+            "healthy".to_string(),
+            make_step(
+                "healthy",
+                &format!("touch {}", marker.display()),
+                vec!["broken".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        // Workflow completed (not Err), but not fully successful
+        assert!(!result.success);
+        // Both steps were processed
+        assert_eq!(result.steps.len(), 2);
+
+        let broken = result.steps.iter().find(|s| s.name == "broken").unwrap();
+        let healthy = result.steps.iter().find(|s| s.name == "healthy").unwrap();
+        assert!(!broken.success);
+        assert!(healthy.success);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn step_execution_error_stops_when_not_allow_failure() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("second.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [broken, healthy]
+        "#,
+        )
+        .unwrap();
+
+        // Before-hook failure with allow_failure = false (default).
+        // Previously this returned Err and aborted the entire run.
+        // Now it should produce a WorkflowResult with success=false.
+        let mut broken_step = make_step("broken", "echo main", vec![]);
+        broken_step.before = vec!["exit 1".to_string()];
+
+        let mut steps = HashMap::new();
+        steps.insert("broken".to_string(), broken_step);
+        steps.insert(
+            "healthy".to_string(),
+            make_step(
+                "healthy",
+                &format!("touch {}", marker.display()),
+                vec!["broken".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        // Returns Ok (not Err), marked as failed
+        assert!(!result.success);
+        // Only broken step ran; healthy was blocked
+        assert_eq!(result.steps.len(), 1);
+        assert!(!result.steps[0].success);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn run_with_ui_step_error_continues_with_allow_failure() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("second.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [broken, healthy]
+        "#,
+        )
+        .unwrap();
+
+        let mut broken_step = make_step("broken", "echo main", vec![]);
+        broken_step.before = vec!["exit 1".to_string()];
+        broken_step.allow_failure = true;
+
+        let mut steps = HashMap::new();
+        steps.insert("broken".to_string(), broken_step);
+        steps.insert(
+            "healthy".to_string(),
+            make_step(
+                "healthy",
+                &format!("touch {}", marker.display()),
+                vec!["broken".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(!result.success);
+        assert_eq!(result.steps.len(), 2);
+
+        let broken = result.steps.iter().find(|s| s.name == "broken").unwrap();
+        let healthy = result.steps.iter().find(|s| s.name == "healthy").unwrap();
+        assert!(!broken.success);
+        assert!(healthy.success);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn run_with_ui_shows_error_output_on_failure() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [broken]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "broken".to_string(),
+            make_step("broken", "echo 'something went wrong' >&2; exit 1", vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(!result.success);
+        // Error line should show the exit code
+        assert!(ui.has_error("Command failed with exit code"));
+        // Captured stderr should be surfaced as messages
+        assert!(ui.has_message("something went wrong"));
+    }
+
+    #[test]
+    fn allow_failure_lets_all_dependent_steps_run() {
+        let temp = TempDir::new().unwrap();
+        let marker_b = temp.path().join("b.txt");
+        let marker_c = temp.path().join("c.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [a, b, c]
+        "#,
+        )
+        .unwrap();
+
+        // Step a fails but has allow_failure; b and c form a chain
+        let mut step_a = make_step("a", "exit 1", vec![]);
+        step_a.allow_failure = true;
+
+        let mut steps = HashMap::new();
+        steps.insert("a".to_string(), step_a);
+        steps.insert(
+            "b".to_string(),
+            make_step(
+                "b",
+                &format!("touch {}", marker_b.display()),
+                vec!["a".to_string()],
+            ),
+        );
+        steps.insert(
+            "c".to_string(),
+            make_step(
+                "c",
+                &format!("touch {}", marker_c.display()),
+                vec!["b".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        assert!(!result.success);
+        // All 3 steps ran despite a's failure
+        assert_eq!(result.steps.len(), 3);
+
+        let step_a_result = result.steps.iter().find(|s| s.name == "a").unwrap();
+        let step_b_result = result.steps.iter().find(|s| s.name == "b").unwrap();
+        let step_c_result = result.steps.iter().find(|s| s.name == "c").unwrap();
+        assert!(!step_a_result.success);
+        assert!(step_b_result.success);
+        assert!(step_c_result.success);
+        assert!(marker_b.exists());
+        assert!(marker_c.exists());
     }
 }
