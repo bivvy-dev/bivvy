@@ -44,4 +44,5 @@
 - [Shell Refresh](guides/shell-refresh.md)
 
 ## Reference
+- [Configuration Reference](reference/config-reference.md)
 - [Lint Rules](reference/lint-rules.md)

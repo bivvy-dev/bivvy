@@ -1,0 +1,184 @@
+# ============================================================================
+# Bivvy Template Reference
+# ============================================================================
+#
+# Templates define reusable step definitions. Place custom templates in:
+#   - .bivvy/templates/steps/<name>.yml   (project-level)
+#   - ~/.bivvy/templates/steps/<name>.yml (user-level)
+#
+# Resolution order (first match wins):
+#   1. Project templates (.bivvy/templates/steps/)
+#   2. User templates (~/.bivvy/templates/steps/)
+#   3. Remote templates (from template_sources)
+#   4. Built-in templates (bundled with Bivvy)
+#
+# ============================================================================
+
+
+# --------------------------------------------------------------------------
+# Template Metadata
+# --------------------------------------------------------------------------
+
+# Template name — must be unique within its source
+# Type: string (required)
+name: my-custom-template
+
+# Human-readable description
+# Type: string (required)
+description: "Install and configure the custom tool"
+
+# Category for organization (e.g., "ruby", "node", "common", "custom")
+# Type: string (required)
+category: custom
+
+# Semantic version of this template
+# Default: "1.0.0"
+version: "1.0.0"
+
+# Minimum Bivvy version required to use this template
+# Type: string (optional)
+min_bivvy_version: "0.5.0"
+
+
+# --------------------------------------------------------------------------
+# Platform Support
+# --------------------------------------------------------------------------
+# Which platforms this template supports.
+# Values: macos, linux, windows
+# Default: all platforms [macos, linux, windows]
+platforms:
+  - macos
+  - linux
+
+
+# --------------------------------------------------------------------------
+# Auto-Detection Rules
+# --------------------------------------------------------------------------
+# When `bivvy init` runs, it checks these rules to suggest this template.
+# Multiple rules act as OR — any match triggers suggestion.
+# Type: list (optional)
+detects:
+  # Suggest if this file exists in the project
+  - file: Gemfile
+
+  # Suggest if this command succeeds (exit 0)
+  - command: "ruby --version"
+
+  # Can have multiple detection rules
+  - file: .ruby-version
+
+
+# --------------------------------------------------------------------------
+# Template Inputs — parameterize the template
+# --------------------------------------------------------------------------
+# Inputs let users customize template behavior without editing it.
+# Referenced in commands via ${input_name} interpolation.
+# Type: map (optional)
+inputs:
+
+  # --- String input ---
+  database_name:
+    # Human-readable description
+    # Type: string (required)
+    description: "Name of the database to create"
+    # Input type: string | number | boolean | enum
+    # Type: string (required)
+    type: string
+    # Whether this input must be provided
+    # Default: false
+    required: true
+    # Default value if not provided
+    # Type: varies by input type (optional)
+    default: "myapp_dev"
+
+  # --- Number input ---
+  port:
+    description: "Port number for the service"
+    type: number
+    required: false
+    default: 5432
+
+  # --- Boolean input ---
+  verbose:
+    description: "Enable verbose output"
+    type: boolean
+    required: false
+    default: false
+
+  # --- Enum input (constrained choices) ---
+  adapter:
+    description: "Database adapter to use"
+    type: enum
+    required: false
+    default: "postgresql"
+    # Valid values for enum type
+    values:
+      - postgresql
+      - mysql
+      - sqlite
+
+
+# --------------------------------------------------------------------------
+# Step Definition — what the template actually does
+# --------------------------------------------------------------------------
+# The step configuration this template provides. Same fields as an inline
+# step, but only the subset relevant to templates.
+step:
+
+  # Display title (supports ${input} interpolation)
+  # Type: string (optional)
+  title: "Set up ${database_name}"
+
+  # Description
+  # Type: string (optional)
+  description: "Create and configure the database"
+
+  # Shell command to execute (supports ${input} interpolation)
+  # Type: string (optional)
+  command: "createdb ${database_name} -p ${port}"
+
+  # Completed check — detect if step is already done
+  # Same types as step config: file_exists, command_succeeds, marker, all, any
+  completed_check:
+    type: command_succeeds
+    command: "psql -p ${port} -lqt | grep -qw ${database_name}"
+
+  # Step-level environment variables
+  # Type: map of string → string
+  env:
+    PGPORT: "${port}"
+
+  # Files to watch for change detection
+  # Type: list of glob patterns
+  watches:
+    - db/schema.rb
+    - db/migrate/**
+
+
+# --------------------------------------------------------------------------
+# Environment Impact — inform users of side effects
+# --------------------------------------------------------------------------
+# Describes how this step affects the user's shell environment.
+# Bivvy uses this to prompt for shell refresh when needed.
+# Type: object (optional)
+environment_impact:
+
+  # Whether this step modifies the PATH
+  # Default: false
+  modifies_path: true
+
+  # Shell config files that may be modified
+  # Type: list of paths
+  shell_files:
+    - ~/.bashrc
+    - ~/.zshrc
+
+  # Paths that will be added to PATH
+  # Type: list of paths
+  path_additions:
+    - /usr/local/bin
+    - ~/.local/bin
+
+  # Note to display to the user after step completes
+  # Type: string (optional)
+  note: "You may need to restart your shell for PATH changes to take effect."

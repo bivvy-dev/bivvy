@@ -1,0 +1,401 @@
+# ============================================================================
+# Bivvy Configuration Reference
+# ============================================================================
+#
+# This file documents every configurable field in .bivvy/config.yml.
+# Copy sections you need — most fields are optional with sensible defaults.
+#
+# File locations (merged in order, later overrides earlier):
+#   1. Remote base configs (from `extends:`)
+#   2. User global config (~/.bivvy/config.yml)
+#   3. Project config (.bivvy/config.yml)
+#   4. Local overrides (.bivvy/config.local.yml) — gitignored
+#
+# Variable interpolation: use ${VAR} syntax anywhere.
+#   Built-ins: ${project_name}, ${project_root}, ${bivvy_version}
+#   Environment: ${HOME}, ${RAILS_ENV}, etc.
+#   Prompts: ${prompt_key} from step prompts
+#   Escape: $${NOT_INTERPOLATED} outputs literal ${NOT_INTERPOLATED}
+#
+# ============================================================================
+
+
+# --------------------------------------------------------------------------
+# App Name
+# --------------------------------------------------------------------------
+# Display name for your project. Shown in TUI header and logs.
+# Type: string (optional)
+app_name: "MyApp"
+
+
+# --------------------------------------------------------------------------
+# Settings — global defaults for all workflows
+# --------------------------------------------------------------------------
+settings:
+
+  # Output verbosity: verbose | quiet | silent
+  # Override per-run with --verbose, --quiet, or --silent
+  # Default: verbose
+  default_output: verbose
+
+  # Write logs to a file
+  # Default: false
+  logging: false
+
+  # Log file path (relative to project root)
+  # Only used when logging: true
+  # Type: path (optional)
+  log_path: "logs/bivvy.log"
+
+  # Global environment variables — available to all steps
+  # Type: map of string → string
+  env:
+    RAILS_ENV: development
+    DEBUG: "true"
+
+  # Load environment variables from a file
+  # Type: path (optional)
+  env_file: .env
+
+  # Additional patterns to mask in output (added to built-in patterns)
+  # Built-in patterns: *_KEY, *_SECRET, *_TOKEN, *_PASSWORD, *_CREDENTIALS
+  # Type: list of strings
+  secret_env:
+    - CUSTOM_API_KEY
+    - MY_SECRET_HEADER
+
+  # Enable parallel step execution
+  # Default: false
+  parallel: false
+
+  # Maximum concurrent steps when parallel: true
+  # Default: 4
+  max_parallel: 4
+
+  # Number of execution history entries to retain
+  # Default: 50
+  history_retention: 50
+
+
+# --------------------------------------------------------------------------
+# Extends — inherit from remote base configs
+# --------------------------------------------------------------------------
+# Fetched and merged before local config. Useful for org-wide defaults.
+# Type: list (optional)
+extends:
+  - url: https://example.com/team-bivvy-config.yml
+
+
+# --------------------------------------------------------------------------
+# Template Sources — remote template registries
+# --------------------------------------------------------------------------
+# Additional template sources beyond the built-in registry.
+# Type: list (optional)
+template_sources:
+  - url: https://github.com/myorg/bivvy-templates
+    # Priority: lower number = higher priority
+    # Default: 100
+    priority: 50
+    # Network timeout in seconds
+    # Default: 30
+    timeout: 30
+    # Cache configuration
+    cache:
+      # Time-to-live: e.g., "7d", "24h", "1h"
+      ttl: "7d"
+      # Cache strategy: etag | git
+      # Default: etag
+      strategy: etag
+    # Authentication for private registries
+    auth:
+      # Auth type: bearer | header
+      type: bearer
+      # Environment variable containing the token
+      token_env: GITHUB_TOKEN
+      # Custom header name (only for type: header)
+      # header: X-Custom-Auth
+
+
+# --------------------------------------------------------------------------
+# Secrets — external secret providers
+# --------------------------------------------------------------------------
+# Fetch secrets from external sources (Vault, 1Password, etc.)
+# The command stdout becomes the secret value.
+# Type: map (optional)
+secrets:
+  database_url:
+    command: "vault read -field=url secret/myapp/database"
+  api_key:
+    command: "op read 'op://MyVault/API Key/credential'"
+
+
+# --------------------------------------------------------------------------
+# Steps — the building blocks
+# --------------------------------------------------------------------------
+# Each step is a named task. Steps can be defined inline or reference
+# a template from the registry.
+#
+# At minimum, a step needs either `command:` or `template:`.
+steps:
+
+  # === Inline step (all fields shown) ===
+  install_deps:
+    # Display title (shown in TUI and logs)
+    # Type: string (optional — defaults to step key)
+    title: "Install dependencies"
+
+    # Human-readable description
+    # Type: string (optional)
+    description: "Install Node.js dependencies from package.json"
+
+    # Shell command to execute
+    # Supports ${variable} interpolation
+    # Type: string (required unless using template)
+    command: "npm install"
+
+    # Steps that must complete before this one runs
+    # Type: list of step names
+    depends_on:
+      - check_node
+
+    # --- Completion Detection ---
+    # Check if step is already done (enables idempotent re-runs)
+    # Types: file_exists, command_succeeds, marker, all, any
+    completed_check:
+      type: file_exists
+      path: node_modules
+
+    # --- Execution Control ---
+    # Whether user can skip this step interactively
+    # Default: true
+    skippable: true
+
+    # Step must run — cannot be skipped
+    # Default: false
+    required: false
+
+    # Ask before re-running a step that's already complete
+    # Default: true
+    prompt_if_complete: true
+
+    # Continue the workflow even if this step fails
+    # Default: false
+    allow_failure: false
+
+    # Number of retry attempts on failure
+    # Default: 0
+    retry: 0
+
+    # --- Environment ---
+    # Step-specific environment variables (merged with global settings.env)
+    env:
+      NODE_ENV: development
+      CI: "true"
+
+    # Load env vars from a file for this step
+    # Type: path (optional)
+    env_file: .env.development
+
+    # Don't fail if env_file is missing
+    # Default: false
+    env_file_optional: false
+
+    # Required environment variables — step fails if any are missing
+    # Type: list of variable names
+    required_env:
+      - NODE_AUTH_TOKEN
+
+    # --- Change Detection ---
+    # Files to watch — step re-runs when these change
+    # Type: list of glob patterns
+    watches:
+      - package.json
+      - package-lock.json
+
+    # --- Interactive Prompts ---
+    # Collect user input before running the step
+    prompts:
+      - key: env_name
+        question: "Which environment?"
+        type: select      # select | multiselect | confirm | input
+        options:
+          - label: "Development"
+            value: development
+          - label: "Production"
+            value: production
+        default: development
+
+    # --- Output Control ---
+    # Override output settings for this step
+    output:
+      # Output mode: verbose | quiet | silent
+      default: verbose
+      # Enable logging for this step (overrides settings.logging)
+      logging: true
+
+    # --- Security ---
+    # Mark step as handling sensitive data
+    # Hides command in dry-run, suppresses output, skips history
+    # Default: false
+    sensitive: false
+
+    # Step requires sudo/elevated permissions
+    # Bivvy will warn and prompt before running
+    # Default: false
+    requires_sudo: false
+
+    # --- Hooks ---
+    # Commands to run before the step executes
+    before:
+      - "echo 'Starting install...'"
+
+    # Commands to run after the step succeeds
+    after:
+      - "echo 'Install complete!'"
+
+  # === Template-based step ===
+  ruby_deps:
+    # Reference a template from the registry
+    # Type: string (template name)
+    template: bundler
+
+    # Pass inputs to the template
+    # Available inputs depend on the template
+    inputs:
+      deployment: true
+      without: "test development"
+
+    # Override any template-provided field
+    command: "bundle install --jobs 4"
+
+
+# --------------------------------------------------------------------------
+# Completed Check Types — detailed examples
+# --------------------------------------------------------------------------
+# These go inside a step's `completed_check:` field.
+#
+# --- file_exists ---
+# completed_check:
+#   type: file_exists
+#   path: node_modules          # relative to project root
+#
+# --- command_succeeds ---
+# completed_check:
+#   type: command_succeeds
+#   command: "bundle check"     # exit 0 = complete
+#
+# --- marker ---
+# completed_check:
+#   type: marker                # uses bivvy's internal tracking
+#
+# --- all (every check must pass) ---
+# completed_check:
+#   type: all
+#   checks:
+#     - type: file_exists
+#       path: node_modules
+#     - type: command_succeeds
+#       command: "node --version"
+#
+# --- any (at least one check must pass) ---
+# completed_check:
+#   type: any
+#   checks:
+#     - type: file_exists
+#       path: .setup-complete
+#     - type: command_succeeds
+#       command: "psql -c 'SELECT 1'"
+
+
+# --------------------------------------------------------------------------
+# Workflows — orchestrate step execution
+# --------------------------------------------------------------------------
+# Named sequences of steps. `default` runs when you type `bivvy` with
+# no arguments. Run others with `bivvy run <workflow-name>`.
+workflows:
+
+  default:
+    # Human-readable description
+    # Type: string (optional)
+    description: "Full development setup"
+
+    # Ordered list of step names to execute
+    # Type: list of strings (required)
+    steps:
+      - install_deps
+      - ruby_deps
+
+    # Override step behavior within this workflow
+    # Type: map of step name → overrides
+    overrides:
+      install_deps:
+        # Skip interactive prompts, just run
+        # Default: false
+        skip_prompt: false
+        # Override the step's `required` flag
+        # Type: bool (optional — omit to use step default)
+        required: true
+        # Override the step's `prompt_if_complete` flag
+        # Type: bool (optional — omit to use step default)
+        prompt_if_complete: false
+
+    # Workflow-level settings
+    settings:
+      # Force non-interactive mode for this workflow
+      # Default: false
+      non_interactive: false
+
+    # Workflow-level environment variables (merged with settings.env)
+    env:
+      SETUP_MODE: full
+
+    # Workflow-level env file
+    # Type: path (optional)
+    env_file: .env.setup
+
+  ci:
+    description: "CI setup (no prompts)"
+    steps:
+      - install_deps
+      - ruby_deps
+    settings:
+      non_interactive: true
+
+
+# --------------------------------------------------------------------------
+# Prompt Types — detailed examples
+# --------------------------------------------------------------------------
+# These go inside a step's `prompts:` list.
+#
+# --- select (pick one) ---
+# - key: database
+#   question: "Which database?"
+#   type: select
+#   options:
+#     - label: PostgreSQL
+#       value: postgres
+#     - label: MySQL
+#       value: mysql
+#   default: postgres
+#
+# --- multiselect (pick many) ---
+# - key: features
+#   question: "Enable which features?"
+#   type: multiselect
+#   options:
+#     - label: Redis caching
+#       value: redis
+#     - label: Background jobs
+#       value: sidekiq
+#
+# --- confirm (yes/no) ---
+# - key: seed_data
+#   question: "Seed the database?"
+#   type: confirm
+#   default: true
+#
+# --- input (free text) ---
+# - key: app_port
+#   question: "Which port?"
+#   type: input
+#   default: "3000"
