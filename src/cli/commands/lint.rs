@@ -12,7 +12,7 @@ use crate::lint::{
     SarifFormatter, Severity, TemplateInputsRule, UndefinedTemplateRule,
 };
 use crate::registry::Registry;
-use crate::ui::UserInterface;
+use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -95,6 +95,11 @@ impl Command for LintCommand {
             }
             Err(e) => return Err(e),
         };
+
+        // Apply config default_output when no CLI flag was explicitly set
+        if ui.output_mode() == OutputMode::Normal {
+            ui.set_output_mode(config.settings.default_output.into());
+        }
 
         // Create rule registry with built-in rules
         let mut rule_registry = RuleRegistry::with_builtins();
@@ -238,6 +243,29 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
+    }
+
+    #[test]
+    fn lint_applies_config_default_output() {
+        let config = r#"
+app_name: test-app
+settings:
+  default_output: quiet
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = LintArgs::default();
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert_eq!(ui.output_mode(), crate::ui::OutputMode::Quiet);
     }
 
     #[test]

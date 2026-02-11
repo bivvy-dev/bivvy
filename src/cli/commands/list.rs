@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use crate::cli::args::ListArgs;
 use crate::config::load_merged_config;
 use crate::error::{BivvyError, Result};
-use crate::ui::UserInterface;
+use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -48,6 +48,11 @@ impl Command for ListCommand {
             }
             Err(e) => return Err(e),
         };
+
+        // Apply config default_output when no CLI flag was explicitly set
+        if ui.output_mode() == OutputMode::Normal {
+            ui.set_output_mode(config.settings.default_output.into());
+        }
 
         // Show steps
         if !self.args.workflows_only {
@@ -161,6 +166,29 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
+    }
+
+    #[test]
+    fn list_applies_config_default_output() {
+        let config = r#"
+app_name: Test
+settings:
+  default_output: quiet
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs::default();
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert_eq!(ui.output_mode(), crate::ui::OutputMode::Quiet);
     }
 
     #[test]

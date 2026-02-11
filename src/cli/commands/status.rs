@@ -9,7 +9,7 @@ use crate::cli::args::StatusArgs;
 use crate::config::load_merged_config;
 use crate::error::{BivvyError, Result};
 use crate::state::{ProjectId, StateStore, StepStatus};
-use crate::ui::UserInterface;
+use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 use super::display;
@@ -51,6 +51,11 @@ impl Command for StatusCommand {
             }
             Err(e) => return Err(e),
         };
+
+        // Apply config default_output when no CLI flag was explicitly set
+        if ui.output_mode() == OutputMode::Normal {
+            ui.set_output_mode(config.settings.default_output.into());
+        }
 
         // Get project identity
         let project_id = ProjectId::from_path(&self.project_root)?;
@@ -183,6 +188,29 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
+    }
+
+    #[test]
+    fn status_applies_config_default_output() {
+        let config = r#"
+app_name: Test
+settings:
+  default_output: quiet
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert_eq!(ui.output_mode(), crate::ui::OutputMode::Quiet);
     }
 
     #[test]
