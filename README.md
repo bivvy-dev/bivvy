@@ -1,7 +1,7 @@
 # Bivvy
 
 [![CI](https://github.com/bivvy-dev/bivvy/actions/workflows/test.yml/badge.svg)](https://github.com/bivvy-dev/bivvy/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/bivvy-dev/bivvy/branch/main/graph/badge.svg)](https://codecov.io/gh/bivvy-dev/bivvy)
+[![coverage](https://img.shields.io/endpoint?url=https://gist.githubusercontent.com/brennacodes/02a14079a59edfce0d250a030c8e0662/raw/bivvy-coverage.json)](https://github.com/bivvy-dev/bivvy/actions/workflows/test.yml)
 
 > Cross-language development environment setup automation, built in Rust.
 

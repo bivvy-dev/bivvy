@@ -93,12 +93,19 @@ jobs:
         uses: taiki-e/install-action@cargo-llvm-cov
 
       - name: Generate coverage and check threshold
-        run: cargo llvm-cov --all-features --lcov --output-path lcov.info --fail-under-lines 90
+        run: |
+          cargo llvm-cov --all-features --lcov --output-path lcov.info --fail-under-lines 90
+          echo "COVERAGE=$(cargo llvm-cov --all-features --json | jq '.data[0].totals.lines.percent' | xargs printf '%.0f')" >> "$GITHUB_ENV"
 
-      - name: Upload to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Update coverage badge
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+        uses: schneegans/dynamic-badges-action@v1.7.0
         with:
-          files: lcov.info
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          auth: ${{ secrets.GIST_TOKEN }}
+          gistID: ${{ vars.COVERAGE_GIST_ID }}
+          filename: bivvy-coverage.json
+          label: coverage
+          message: "${{ env.COVERAGE }}%"
+          valColorRange: ${{ env.COVERAGE }}
+          minColorRange: 50
+          maxColorRange: 100
