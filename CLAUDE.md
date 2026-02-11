@@ -323,8 +323,6 @@ Add BivvyError enum with thiserror
 Centralizes error handling with typed variants for
 config parsing, template resolution, and execution
 failures. Each variant includes context for debugging.
-
-Co-Authored-By: Claude <noreply@anthropic.com>
 ```
 
 ## What NOT to Do

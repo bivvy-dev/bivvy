@@ -159,8 +159,6 @@
           <line></line>
           <line>Longer explanation of why this change was made,</line>
           <line>what problem it solves, and any important context.</line>
-          <line></line>
-          <line>Co-Authored-By: Claude &lt;noreply@anthropic.com&gt;</line>
         </format>
         <types>feat, fix, docs, test, refactor, chore, ci</types>
       </instruction>

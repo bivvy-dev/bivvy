@@ -128,6 +128,7 @@ impl<'a> WorkflowRunner<'a> {
 
         let mut results = Vec::new();
         let mut all_success = true;
+        let mut failed_steps: HashSet<String> = HashSet::new();
 
         for (index, step_name) in steps_to_run.iter().enumerate() {
             let step =
@@ -136,6 +137,14 @@ impl<'a> WorkflowRunner<'a> {
                     .ok_or_else(|| BivvyError::ConfigValidationError {
                         message: format!("Step '{}' not found in resolved steps", step_name),
                     })?;
+
+            // Check if any dependency failed
+            if step.depends_on.iter().any(|dep| failed_steps.contains(dep)) {
+                on_progress(RunProgress::StepSkipped { name: step_name });
+                all_success = false;
+                failed_steps.insert(step_name.clone());
+                continue;
+            }
 
             on_progress(RunProgress::StepStarting {
                 name: step_name,
@@ -166,14 +175,13 @@ impl<'a> WorkflowRunner<'a> {
             });
 
             let status = result.status();
-            let should_stop = !result.success && !step.allow_failure;
 
             results.push(result);
 
             if status == StepStatus::Failed {
                 all_success = false;
-                if should_stop {
-                    break;
+                if !step.allow_failure {
+                    failed_steps.insert(step_name.clone());
                 }
             }
         }
@@ -233,6 +241,7 @@ impl<'a> WorkflowRunner<'a> {
 
         let mut results = Vec::new();
         let mut all_success = true;
+        let mut failed_steps: HashSet<String> = HashSet::new();
 
         for (index, step_name) in steps_to_run.iter().enumerate() {
             let step =
@@ -242,6 +251,15 @@ impl<'a> WorkflowRunner<'a> {
                         message: format!("Step '{}' not found in resolved steps", step_name),
                     })?;
 
+            // Check if any dependency failed
+            if step.depends_on.iter().any(|dep| failed_steps.contains(dep)) {
+                ui.show_progress(index + 1, total);
+                ui.warning(&format!("  {} blocked (dependency failed)", step_name));
+                all_success = false;
+                failed_steps.insert(step_name.clone());
+                continue;
+            }
+
             // Resolve effective prompt_if_complete (step-level, possibly overridden)
             let effective_prompt_if_complete = step_overrides
                 .get(step_name)
@@ -249,6 +267,7 @@ impl<'a> WorkflowRunner<'a> {
                 .unwrap_or(step.prompt_if_complete);
 
             let mut needs_force = options.force.contains(step_name);
+            let mut already_prompted = false;
 
             // Check if already complete (unless forced)
             if !needs_force && !options.dry_run {
@@ -281,6 +300,7 @@ impl<'a> WorkflowRunner<'a> {
                                 }
                                 // User wants to re-run, force past the check in execute_step
                                 needs_force = true;
+                                already_prompted = true;
                             } else {
                                 // Not skippable, inform and re-run
                                 ui.message(&format!(
@@ -297,6 +317,27 @@ impl<'a> WorkflowRunner<'a> {
                             continue;
                         }
                     }
+                }
+            }
+
+            // In interactive mode, prompt before running skippable steps
+            // (skip if already prompted by completed check)
+            if interactive && step.skippable && !already_prompted {
+                let prompt = Prompt {
+                    key: format!("run_{}", step_name),
+                    question: format!("Run '{}'?", step.title),
+                    prompt_type: PromptType::Confirm,
+                    default: Some("true".to_string()),
+                };
+                let answer = ui.prompt(&prompt)?;
+                if answer.as_bool() != Some(true) {
+                    ui.show_progress(index + 1, total);
+                    ui.warning(&format!("  {} skipped", step_name));
+                    results.push(StepResult::skipped(
+                        &step.name,
+                        crate::steps::CheckResult::complete("User declined"),
+                    ));
+                    continue;
                 }
             }
 
@@ -380,14 +421,13 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             let status = result.status();
-            let should_stop = !result.success && !step.allow_failure;
 
             results.push(result);
 
             if status == StepStatus::Failed {
                 all_success = false;
-                if should_stop {
-                    break;
+                if !step.allow_failure {
+                    failed_steps.insert(step_name.clone());
                 }
             }
         }
@@ -810,8 +850,8 @@ mod tests {
             .unwrap();
 
         assert!(result.success);
-        // No prompts should appear for a step without completed_check
-        assert!(ui.prompts_shown().is_empty());
+        // Interactive mode prompts "Run 'hello'?" (default yes)
+        assert!(ui.prompts_shown().contains(&"run_hello".to_string()));
     }
 
     #[test]
@@ -861,8 +901,9 @@ mod tests {
             .unwrap();
 
         assert!(result.success);
-        // No prompt — check didn't pass, so step runs normally
-        assert!(ui.prompts_shown().is_empty());
+        // Interactive mode prompts "Run 'install'?" (default yes), no completed check prompt
+        assert!(ui.prompts_shown().contains(&"run_install".to_string()));
+        assert!(!ui.prompts_shown().contains(&"rerun_install".to_string()));
         // Verify command actually ran
         assert!(
             marker.exists(),
@@ -1109,7 +1150,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
-        // User confirms
+        // User confirms both the run prompt (default yes) and sensitive prompt
         ui.set_prompt_response("sensitive_deploy", "true");
 
         let result = runner
@@ -1125,6 +1166,7 @@ mod tests {
             .unwrap();
 
         assert!(result.success);
+        assert!(ui.prompts_shown().contains(&"run_deploy".to_string()));
         assert!(ui.prompts_shown().contains(&"sensitive_deploy".to_string()));
         assert!(!result.steps[0].skipped);
     }
@@ -1321,7 +1363,7 @@ mod tests {
 
         // Should return Ok (not Err), but marked as failed
         assert!(!result.success);
-        // Only the failing step ran; after_fail was blocked by the break
+        // Only the failing step ran; after_fail was blocked by dependency failure
         assert_eq!(result.steps.len(), 1);
         assert_eq!(result.steps[0].name, "failing");
         assert!(!result.steps[0].success);
@@ -1637,5 +1679,384 @@ mod tests {
         assert!(step_c_result.success);
         assert!(marker_b.exists());
         assert!(marker_c.exists());
+    }
+
+    #[test]
+    fn independent_steps_continue_after_failure() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("independent.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, independent]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+        // independent has no depends_on, so it should still run
+        steps.insert(
+            "independent".to_string(),
+            make_step(
+                "independent",
+                &format!("touch {}", marker.display()),
+                vec![],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        assert!(!result.success);
+        // Both steps should appear in results
+        assert_eq!(result.steps.len(), 2);
+        assert!(!result.steps[0].success); // failing
+        assert!(result.steps[1].success); // independent ran
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn transitive_dependency_blocked() {
+        let temp = TempDir::new().unwrap();
+        let marker_b = temp.path().join("b.txt");
+        let marker_c = temp.path().join("c.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [a, b, c]
+        "#,
+        )
+        .unwrap();
+
+        // a fails → b blocked (depends on a) → c blocked (depends on b)
+        let mut steps = HashMap::new();
+        steps.insert("a".to_string(), make_step("a", "exit 1", vec![]));
+        steps.insert(
+            "b".to_string(),
+            make_step(
+                "b",
+                &format!("touch {}", marker_b.display()),
+                vec!["a".to_string()],
+            ),
+        );
+        steps.insert(
+            "c".to_string(),
+            make_step(
+                "c",
+                &format!("touch {}", marker_c.display()),
+                vec!["b".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let result = runner
+            .run(&options, &ctx, &HashMap::new(), temp.path())
+            .unwrap();
+
+        assert!(!result.success);
+        // Only a ran; b and c were blocked
+        assert_eq!(result.steps.len(), 1);
+        assert_eq!(result.steps[0].name, "a");
+        assert!(!marker_b.exists());
+        assert!(!marker_c.exists());
+    }
+
+    #[test]
+    fn run_with_ui_prompts_before_each_skippable_step() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [first, second]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "first".to_string(),
+            make_step("first", "echo first", vec![]),
+        );
+        steps.insert(
+            "second".to_string(),
+            make_step("second", "echo second", vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // Both default to "true", so both proceed
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.steps.len(), 2);
+        assert!(ui.prompts_shown().contains(&"run_first".to_string()));
+        assert!(ui.prompts_shown().contains(&"run_second".to_string()));
+    }
+
+    #[test]
+    fn run_with_ui_skip_declined_step() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("ran.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [optional]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "optional".to_string(),
+            make_step("optional", &format!("touch {}", marker.display()), vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("run_optional", "false");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.steps.len(), 1);
+        assert!(result.steps[0].skipped);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn run_with_ui_no_prompt_when_not_skippable() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [required]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("required", "echo required", vec![]);
+        step.skippable = false;
+
+        let mut steps = HashMap::new();
+        steps.insert("required".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No run prompt for non-skippable steps
+        assert!(!ui.prompts_shown().contains(&"run_required".to_string()));
+    }
+
+    #[test]
+    fn run_with_ui_no_prompt_when_non_interactive() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "hello".to_string(),
+            make_step("hello", "echo hello", vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        // Not interactive (default)
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(ui.prompts_shown().is_empty());
+    }
+
+    #[test]
+    fn run_with_ui_completed_prompt_replaces_run_prompt() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                "echo installed",
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User confirms re-run
+        ui.set_prompt_response("rerun_install", "true");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // Should see rerun prompt but NOT the general run prompt
+        assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
+        assert!(!ui.prompts_shown().contains(&"run_install".to_string()));
+        assert!(!result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_blocked_step_shows_warning() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, dependent]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+        steps.insert(
+            "dependent".to_string(),
+            make_step("dependent", "echo dep", vec!["failing".to_string()]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(!result.success);
+        // The dependent step should show a blocked warning
+        assert!(ui
+            .warnings()
+            .iter()
+            .any(|w| w.contains("blocked") && w.contains("dependent")));
     }
 }
