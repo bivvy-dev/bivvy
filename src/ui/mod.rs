@@ -66,6 +66,12 @@ pub trait UserInterface {
     /// Start a spinner for an operation.
     fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle>;
 
+    /// Start a spinner with leading indentation.
+    fn start_spinner_indented(&mut self, message: &str, indent: usize) -> Box<dyn SpinnerHandle> {
+        let _ = indent;
+        self.start_spinner(message)
+    }
+
     /// Show a header/banner.
     fn show_header(&mut self, title: &str);
 

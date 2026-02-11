@@ -35,6 +35,15 @@ pub enum RunProgress<'a> {
     StepSkipped { name: &'a str },
 }
 
+/// Capitalize the first letter of a string.
+fn capitalize_first(s: &str) -> String {
+    let mut chars = s.chars();
+    match chars.next() {
+        None => String::new(),
+        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+    }
+}
+
 /// Orchestrates the execution of a workflow.
 pub struct WorkflowRunner<'a> {
     config: &'a BivvyConfig,
@@ -230,11 +239,9 @@ impl<'a> WorkflowRunner<'a> {
             .cloned()
             .collect();
 
-        let total = steps_to_run.len();
-
-        // Report skipped steps
+        // Report skipped steps (from --skip flag)
         for skip_name in &skipped {
-            ui.warning(&format!("  {} skipped", skip_name));
+            ui.message(&format!("    ○ {} skipped", skip_name));
         }
 
         let interactive = ui.is_interactive() && !workflow_non_interactive;
@@ -242,6 +249,7 @@ impl<'a> WorkflowRunner<'a> {
         let mut results = Vec::new();
         let mut all_success = true;
         let mut failed_steps: HashSet<String> = HashSet::new();
+        let mut summary_entries: Vec<Vec<String>> = Vec::new();
 
         for (index, step_name) in steps_to_run.iter().enumerate() {
             let step =
@@ -251,12 +259,28 @@ impl<'a> WorkflowRunner<'a> {
                         message: format!("Step '{}' not found in resolved steps", step_name),
                     })?;
 
+            // Blank line between steps
+            if index > 0 {
+                ui.message("");
+            }
+
+            // Format step display: "name — title" or just "name" if same
+            let step_display = if *step_name == step.title {
+                step_name.to_string()
+            } else {
+                format!("{} — {}", step_name, step.title)
+            };
+
             // Check if any dependency failed
             if step.depends_on.iter().any(|dep| failed_steps.contains(dep)) {
-                ui.show_progress(index + 1, total);
-                ui.warning(&format!("  {} blocked (dependency failed)", step_name));
+                ui.message(&step_display);
+                ui.message("    ⚠ Blocked (dependency failed)");
                 all_success = false;
                 failed_steps.insert(step_name.clone());
+                summary_entries.push(vec![format!(
+                    "    ⚠ {} blocked",
+                    capitalize_first(step_name)
+                )]);
                 continue;
             }
 
@@ -268,6 +292,7 @@ impl<'a> WorkflowRunner<'a> {
 
             let mut needs_force = options.force.contains(step_name);
             let mut already_prompted = false;
+            let mut had_prompt = false;
 
             // Check if already complete (unless forced)
             if !needs_force && !options.dry_run {
@@ -276,44 +301,43 @@ impl<'a> WorkflowRunner<'a> {
                     if check_result.complete {
                         if interactive && effective_prompt_if_complete {
                             if step.skippable {
-                                // Ask if they want to re-run
+                                // Ask if they want to re-run (prompt IS the step header)
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
-                                    question: format!(
-                                        "'{}' is already complete. Re-run?",
-                                        step.title
-                                    ),
+                                    question: format!("Already complete. Re-run {}?", step_display),
                                     prompt_type: PromptType::Confirm,
                                     default: Some("false".to_string()),
                                 };
 
                                 let answer = ui.prompt(&prompt)?;
                                 if answer.as_bool() != Some(true) {
-                                    // User declined; skip
-                                    ui.show_progress(index + 1, total);
-                                    ui.warning(&format!(
-                                        "  {} skipped (already complete)",
-                                        step_name
-                                    ));
+                                    ui.message("    ○ Skipped (already complete)");
                                     results.push(StepResult::skipped(&step.name, check_result));
+                                    summary_entries.push(vec![format!(
+                                        "    ○ {} skipped (already complete)",
+                                        capitalize_first(step_name)
+                                    )]);
                                     continue;
                                 }
-                                // User wants to re-run, force past the check in execute_step
+                                // User wants to re-run
                                 needs_force = true;
                                 already_prompted = true;
+                                had_prompt = true;
                             } else {
                                 // Not skippable, inform and re-run
-                                ui.message(&format!(
-                                    "  '{}' is already complete, re-running (not skippable)",
-                                    step.title
-                                ));
+                                ui.message(&step_display);
+                                ui.message("    Re-running (not skippable)");
                                 needs_force = true;
                             }
                         } else {
                             // Not interactive or prompt_if_complete is false: silently skip
-                            ui.show_progress(index + 1, total);
-                            ui.warning(&format!("  {} skipped (already complete)", step_name));
+                            ui.message(&step_display);
+                            ui.message("    ○ Skipped (already complete)");
                             results.push(StepResult::skipped(&step.name, check_result));
+                            summary_entries.push(vec![format!(
+                                "    ○ {} skipped (already complete)",
+                                capitalize_first(step_name)
+                            )]);
                             continue;
                         }
                     }
@@ -325,27 +349,36 @@ impl<'a> WorkflowRunner<'a> {
             if interactive && step.skippable && !already_prompted {
                 let prompt = Prompt {
                     key: format!("run_{}", step_name),
-                    question: format!("Run '{}'?", step.title),
+                    question: format!("Run {}?", step_display),
                     prompt_type: PromptType::Confirm,
                     default: Some("true".to_string()),
                 };
                 let answer = ui.prompt(&prompt)?;
                 if answer.as_bool() != Some(true) {
-                    ui.show_progress(index + 1, total);
-                    ui.warning(&format!("  {} skipped", step_name));
+                    ui.message("    ○ Skipped");
                     results.push(StepResult::skipped(
                         &step.name,
                         crate::steps::CheckResult::complete("User declined"),
                     ));
+                    summary_entries.push(vec![format!(
+                        "    ○ {} skipped",
+                        capitalize_first(step_name)
+                    )]);
                     continue;
                 }
+                had_prompt = true;
+            }
+
+            // Show step name if no prompt was shown (non-interactive or non-skippable)
+            if !had_prompt && !already_prompted {
+                ui.message(&step_display);
             }
 
             // Sensitive confirmation
             if step.sensitive && interactive {
                 let prompt = Prompt {
                     key: format!("sensitive_{}", step_name),
-                    question: format!("'{}' handles sensitive data. Continue?", step.title),
+                    question: "Handles sensitive data. Continue?".to_string(),
                     prompt_type: PromptType::Confirm,
                     default: Some("true".to_string()),
                 };
@@ -353,15 +386,15 @@ impl<'a> WorkflowRunner<'a> {
                 let answer = ui.prompt(&prompt)?;
                 if answer.as_bool() != Some(true) {
                     if step.skippable {
-                        ui.show_progress(index + 1, total);
-                        ui.warning(&format!(
-                            "  {} skipped (declined sensitive step)",
-                            step_name
-                        ));
+                        ui.message("    ○ Skipped (declined sensitive step)");
                         results.push(StepResult::skipped(
                             &step.name,
                             crate::steps::CheckResult::complete("User declined sensitive step"),
                         ));
+                        summary_entries.push(vec![format!(
+                            "    ○ {} skipped (sensitive)",
+                            capitalize_first(step_name)
+                        )]);
                         continue;
                     } else {
                         return Err(BivvyError::StepExecutionError {
@@ -373,10 +406,16 @@ impl<'a> WorkflowRunner<'a> {
                         });
                     }
                 }
+                had_prompt = true;
             }
 
-            ui.show_progress(index + 1, total);
-            ui.message(&format!("  Running {}...", step_name));
+            // Blank line before spinner when a prompt was shown (visual spacing)
+            if had_prompt {
+                ui.message("");
+            }
+
+            // Execute with indented spinner
+            let mut spinner = ui.start_spinner_indented(&format!("Running {}...", step_name), 4);
 
             let exec_options = ExecutionOptions {
                 force: needs_force,
@@ -398,24 +437,36 @@ impl<'a> WorkflowRunner<'a> {
             let duration = format_duration(result.duration);
             match result.status() {
                 StepStatus::Completed => {
-                    ui.success(&format!("  {} ({})", step_name, duration));
+                    spinner.finish_success(&format!("{} ({})", step_name, duration));
                 }
                 StepStatus::Failed => {
-                    ui.error(&format!("  {} failed ({})", step_name, duration));
+                    spinner.finish_error(&format!("Failed ({})", duration));
+                    let mut entry = vec![format!(
+                        "    ✗ {} failed ({})",
+                        capitalize_first(step_name),
+                        duration
+                    )];
                     if let Some(ref err) = result.error {
-                        ui.error(&format!("    {}", err));
+                        ui.message(&format!("        {}", err));
+                        entry.push(format!("        {}", err));
                     }
                     if let Some(ref output) = result.output {
                         let trimmed = output.trim();
                         if !trimmed.is_empty() {
                             for line in trimmed.lines() {
-                                ui.message(&format!("    {}", line));
+                                ui.message(&format!("        {}", line));
+                                entry.push(format!("        {}", line));
                             }
                         }
                     }
+                    summary_entries.push(entry);
                 }
                 StepStatus::Skipped => {
-                    ui.warning(&format!("  {} skipped", step_name));
+                    spinner.finish_skipped("Skipped");
+                    summary_entries.push(vec![format!(
+                        "    ○ {} skipped",
+                        capitalize_first(step_name)
+                    )]);
                 }
                 _ => {}
             }
@@ -428,6 +479,19 @@ impl<'a> WorkflowRunner<'a> {
                 all_success = false;
                 if !step.allow_failure {
                     failed_steps.insert(step_name.clone());
+                }
+            }
+        }
+
+        // Print summary when there were non-success steps
+        if !summary_entries.is_empty() {
+            ui.message("");
+            for (i, entry) in summary_entries.iter().enumerate() {
+                if i > 0 {
+                    ui.message("");
+                }
+                for line in entry {
+                    ui.message(line);
                 }
             }
         }
@@ -1616,7 +1680,7 @@ mod tests {
 
         assert!(!result.success);
         // Error line should show the exit code
-        assert!(ui.has_error("Command failed with exit code"));
+        assert!(ui.has_message("Command failed with exit code"));
         // Captured stderr should be surfaced as messages
         assert!(ui.has_message("something went wrong"));
     }
@@ -2059,10 +2123,7 @@ mod tests {
             .unwrap();
 
         assert!(!result.success);
-        // The dependent step should show a blocked warning
-        assert!(ui
-            .warnings()
-            .iter()
-            .any(|w| w.contains("blocked") && w.contains("dependent")));
+        // The dependent step should show a blocked message
+        assert!(ui.has_message("Blocked (dependency failed)"));
     }
 }

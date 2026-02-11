@@ -97,7 +97,15 @@ impl UserInterface for NonInteractiveUI {
         if self.mode.shows_spinners() {
             println!("  {}", message);
         }
-        Box::new(NoopSpinner)
+        Box::new(NoopSpinner { indent: 0 })
+    }
+
+    fn start_spinner_indented(&mut self, message: &str, indent: usize) -> Box<dyn SpinnerHandle> {
+        if self.mode.shows_spinners() {
+            let prefix = " ".repeat(indent);
+            println!("{}{}", prefix, message);
+        }
+        Box::new(NoopSpinner { indent })
     }
 
     fn show_header(&mut self, title: &str) {
@@ -121,22 +129,27 @@ impl UserInterface for NonInteractiveUI {
     }
 }
 
-/// Spinner that does nothing.
-struct NoopSpinner;
+/// Spinner that does nothing (for non-interactive mode).
+struct NoopSpinner {
+    indent: usize,
+}
 
 impl SpinnerHandle for NoopSpinner {
     fn set_message(&mut self, _msg: &str) {}
 
     fn finish_success(&mut self, msg: &str) {
-        println!("✓ {}", msg);
+        let prefix = " ".repeat(self.indent);
+        println!("{}✓ {}", prefix, msg);
     }
 
     fn finish_error(&mut self, msg: &str) {
-        println!("✗ {}", msg);
+        let prefix = " ".repeat(self.indent);
+        println!("{}✗ {}", prefix, msg);
     }
 
     fn finish_skipped(&mut self, msg: &str) {
-        println!("○ {}", msg);
+        let prefix = " ".repeat(self.indent);
+        println!("{}○ {}", prefix, msg);
     }
 }
 
@@ -203,20 +216,20 @@ mod tests {
 
     #[test]
     fn noop_spinner_methods() {
-        let mut spinner = NoopSpinner;
+        let mut spinner = NoopSpinner { indent: 0 };
         spinner.set_message("test");
         spinner.finish_success("done");
     }
 
     #[test]
     fn noop_spinner_error() {
-        let mut spinner = NoopSpinner;
+        let mut spinner = NoopSpinner { indent: 0 };
         spinner.finish_error("failed");
     }
 
     #[test]
     fn noop_spinner_skipped() {
-        let mut spinner = NoopSpinner;
+        let mut spinner = NoopSpinner { indent: 0 };
         spinner.finish_skipped("skipped");
     }
 

@@ -8,28 +8,35 @@ use super::SpinnerHandle;
 /// A progress spinner for long-running operations.
 pub struct ProgressSpinner {
     bar: ProgressBar,
+    indent: usize,
 }
 
 impl ProgressSpinner {
     /// Create a new spinner with a message.
     pub fn new(message: &str) -> Self {
+        Self::with_indent(message, 0)
+    }
+
+    /// Create a new spinner with indentation.
+    pub fn with_indent(message: &str, indent: usize) -> Self {
         let bar = ProgressBar::new_spinner();
+        let prefix = " ".repeat(indent);
         bar.set_style(
             ProgressStyle::default_spinner()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
-                .template("{spinner:.cyan} {msg}")
+                .template(&format!("{}{{spinner:.cyan}} {{msg}}", prefix))
                 .unwrap(),
         );
         bar.set_message(message.to_string());
         bar.enable_steady_tick(Duration::from_millis(80));
 
-        Self { bar }
+        Self { bar, indent }
     }
 
     /// Create a spinner that doesn't show (for silent mode).
     pub fn hidden() -> Self {
         let bar = ProgressBar::hidden();
-        Self { bar }
+        Self { bar, indent: 0 }
     }
 }
 
@@ -39,21 +46,24 @@ impl SpinnerHandle for ProgressSpinner {
     }
 
     fn finish_success(&mut self, msg: &str) {
+        let prefix = " ".repeat(self.indent);
         self.bar
             .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-        self.bar.finish_with_message(format!("✓ {}", msg));
+        self.bar.finish_with_message(format!("{}✓ {}", prefix, msg));
     }
 
     fn finish_error(&mut self, msg: &str) {
+        let prefix = " ".repeat(self.indent);
         self.bar
             .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-        self.bar.finish_with_message(format!("✗ {}", msg));
+        self.bar.finish_with_message(format!("{}✗ {}", prefix, msg));
     }
 
     fn finish_skipped(&mut self, msg: &str) {
+        let prefix = " ".repeat(self.indent);
         self.bar
             .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-        self.bar.finish_with_message(format!("○ {}", msg));
+        self.bar.finish_with_message(format!("{}○ {}", prefix, msg));
     }
 }
 

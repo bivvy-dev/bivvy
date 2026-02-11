@@ -73,6 +73,14 @@ impl UserInterface for TerminalUI {
         }
     }
 
+    fn start_spinner_indented(&mut self, message: &str, indent: usize) -> Box<dyn SpinnerHandle> {
+        if self.mode.shows_spinners() {
+            Box::new(ProgressSpinner::with_indent(message, indent))
+        } else {
+            Box::new(ProgressSpinner::hidden())
+        }
+    }
+
     fn show_header(&mut self, title: &str) {
         if self.mode.shows_status() {
             writeln!(self.term, "\n{}\n", self.theme.format_header(title)).ok();
