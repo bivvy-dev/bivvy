@@ -115,6 +115,10 @@ impl UserInterface for NonInteractiveUI {
     fn is_interactive(&self) -> bool {
         false
     }
+
+    fn set_output_mode(&mut self, mode: OutputMode) {
+        self.mode = mode;
+    }
 }
 
 /// Spinner that does nothing.

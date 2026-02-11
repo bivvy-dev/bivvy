@@ -31,6 +31,16 @@ impl FromStr for OutputMode {
     }
 }
 
+impl From<crate::config::schema::OutputMode> for OutputMode {
+    fn from(config_mode: crate::config::schema::OutputMode) -> Self {
+        match config_mode {
+            crate::config::schema::OutputMode::Verbose => Self::Verbose,
+            crate::config::schema::OutputMode::Quiet => Self::Quiet,
+            crate::config::schema::OutputMode::Silent => Self::Silent,
+        }
+    }
+}
+
 impl OutputMode {
     /// Check if this mode shows command output.
     pub fn shows_command_output(&self) -> bool {
@@ -125,5 +135,26 @@ mod tests {
     fn output_new_and_mode() {
         let output = Output::new(OutputMode::Quiet);
         assert_eq!(output.mode(), OutputMode::Quiet);
+    }
+
+    #[test]
+    fn from_config_verbose() {
+        let config_mode = crate::config::schema::OutputMode::Verbose;
+        let ui_mode: OutputMode = config_mode.into();
+        assert_eq!(ui_mode, OutputMode::Verbose);
+    }
+
+    #[test]
+    fn from_config_quiet() {
+        let config_mode = crate::config::schema::OutputMode::Quiet;
+        let ui_mode: OutputMode = config_mode.into();
+        assert_eq!(ui_mode, OutputMode::Quiet);
+    }
+
+    #[test]
+    fn from_config_silent() {
+        let config_mode = crate::config::schema::OutputMode::Silent;
+        let ui_mode: OutputMode = config_mode.into();
+        assert_eq!(ui_mode, OutputMode::Silent);
     }
 }

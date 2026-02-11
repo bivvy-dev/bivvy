@@ -218,6 +218,10 @@ impl UserInterface for MockUI {
     fn is_interactive(&self) -> bool {
         self.interactive
     }
+
+    fn set_output_mode(&mut self, mode: OutputMode) {
+        self.mode = mode;
+    }
 }
 
 /// Mock spinner that captures finish messages.
@@ -524,5 +528,17 @@ mod tests {
 
         ui.set_interactive(true);
         assert!(ui.is_interactive());
+    }
+
+    #[test]
+    fn mock_ui_set_output_mode() {
+        let mut ui = MockUI::new();
+        assert_eq!(ui.output_mode(), OutputMode::Normal);
+
+        ui.set_output_mode(OutputMode::Quiet);
+        assert_eq!(ui.output_mode(), OutputMode::Quiet);
+
+        ui.set_output_mode(OutputMode::Silent);
+        assert_eq!(ui.output_mode(), OutputMode::Silent);
     }
 }

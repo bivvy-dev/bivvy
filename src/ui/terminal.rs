@@ -93,6 +93,10 @@ impl UserInterface for TerminalUI {
     fn is_interactive(&self) -> bool {
         self.term.is_term()
     }
+
+    fn set_output_mode(&mut self, mode: OutputMode) {
+        self.mode = mode;
+    }
 }
 
 /// Create the appropriate UI based on context.

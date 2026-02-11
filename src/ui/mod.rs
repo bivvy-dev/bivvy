@@ -74,6 +74,9 @@ pub trait UserInterface {
 
     /// Check if running in interactive mode.
     fn is_interactive(&self) -> bool;
+
+    /// Change the output mode at runtime.
+    fn set_output_mode(&mut self, mode: OutputMode);
 }
 
 /// Handle for controlling a spinner.
