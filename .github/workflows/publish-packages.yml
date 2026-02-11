@@ -41,6 +41,10 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.2'
+      - name: Set version from tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: echo "$TAG" > dist/gem/VERSION
       - run: |
           mkdir -p ~/.gem
           echo "---" > ~/.gem/credentials
@@ -63,6 +67,10 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Set version from tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: sed -i "s/^version = \".*\"/version = \"$TAG\"/" dist/pip/pyproject.toml
       - run: |
           pip install build twine
           cd dist/pip
