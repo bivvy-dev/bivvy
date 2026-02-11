@@ -36,3 +36,59 @@ jobs:
     secrets: inherit
     with:
       tag: ${{ github.ref_name || inputs.tag }}
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: create-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bivvy-*
+          path: artifacts
+
+      - name: Update formula SHA256 hashes
+        env:
+          TAG: ${{ github.ref_name || inputs.tag }}
+        run: |
+          FORMULA="dist/homebrew/bivvy.rb"
+          VERSION="${TAG#v}"
+
+          sed -i "s/version \".*\"/version \"${VERSION}\"/" "$FORMULA"
+
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            asset="bivvy-${platform}.tar.gz"
+
+            # Find the artifact (download-artifact nests in subdirectories)
+            file=$(find artifacts -name "$asset" -type f | head -1)
+            if [ -z "$file" ]; then
+              echo "ERROR: Could not find $asset in artifacts"
+              exit 1
+            fi
+
+            sha=$(sha256sum "$file" | cut -d ' ' -f 1)
+
+            # Find the URL line and update the sha256 on the next line
+            line_num=$(grep -n "bivvy-${platform}.tar.gz" "$FORMULA" | head -1 | cut -d: -f1)
+            if [ -n "$line_num" ]; then
+              sha_line=$((line_num + 1))
+              sed -i "${sha_line}s/sha256 \".*\"/sha256 \"${sha}\"/" "$FORMULA"
+            fi
+
+            echo "Updated $platform: $sha"
+          done
+
+      - name: Commit updated formula
+        env:
+          TAG: ${{ github.ref_name || inputs.tag }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add dist/homebrew/bivvy.rb
+          git commit -m "Update Homebrew formula for $TAG"
+          git push

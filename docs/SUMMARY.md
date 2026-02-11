@@ -45,6 +45,3 @@
 
 ## Reference
 - [Lint Rules](reference/lint-rules.md)
-
-## Development
-- [Releasing](development/releasing.md)
