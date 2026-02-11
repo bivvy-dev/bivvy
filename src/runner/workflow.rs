@@ -1721,8 +1721,14 @@ mod tests {
         assert!(!result.success);
         // Both steps should appear in results
         assert_eq!(result.steps.len(), 2);
-        assert!(!result.steps[0].success); // failing
-        assert!(result.steps[1].success); // independent ran
+        let failing = result.steps.iter().find(|s| s.name == "failing").unwrap();
+        let independent = result
+            .steps
+            .iter()
+            .find(|s| s.name == "independent")
+            .unwrap();
+        assert!(!failing.success);
+        assert!(independent.success);
         assert!(marker.exists());
     }
 
