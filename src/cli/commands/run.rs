@@ -9,10 +9,10 @@ use crate::cli::args::RunArgs;
 use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;
-use crate::runner::{RunOptions, RunProgress, SkipBehavior, WorkflowRunner};
+use crate::runner::{RunOptions, SkipBehavior, WorkflowRunner};
 use crate::state::{ProjectId, RunHistoryBuilder, StateStore};
-use crate::steps::{ResolvedStep, StepStatus};
-use crate::ui::{format_duration, UserInterface};
+use crate::steps::ResolvedStep;
+use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -96,12 +96,18 @@ impl Command for RunCommand {
             Err(e) => return Err(e),
         };
 
+        // Apply config default_output when no CLI flag was explicitly set.
+        // OutputMode::Normal means the user didn't pass --verbose or --quiet.
+        if ui.output_mode() == OutputMode::Normal {
+            ui.set_output_mode(config.settings.default_output.into());
+        }
+
         // Show header
         let app_name = config.app_name.as_deref().unwrap_or("project");
         ui.show_header(&format!("Setting up {}", app_name));
 
         // Show config path in verbose mode
-        if self.args.dry_run || ui.output_mode() == crate::ui::OutputMode::Verbose {
+        if self.args.dry_run || ui.output_mode() == OutputMode::Verbose {
             let paths = ConfigPaths::discover(&self.project_root);
             if let Some(project_path) = &paths.project {
                 ui.message(&format!("Config: {}", project_path.display()));
@@ -129,6 +135,20 @@ impl Command for RunCommand {
             return Ok(CommandResult::failure(1));
         }
 
+        // Extract workflow-level non_interactive setting
+        let workflow_non_interactive = config
+            .workflows
+            .get(workflow_name)
+            .and_then(|w| w.settings.as_ref())
+            .is_some_and(|s| s.non_interactive);
+
+        // Extract step overrides from workflow config
+        let step_overrides = config
+            .workflows
+            .get(workflow_name)
+            .map(|w| w.overrides.clone())
+            .unwrap_or_default();
+
         // Build run options
         let options = self.build_options();
 
@@ -142,36 +162,15 @@ impl Command for RunCommand {
         // Start history recording
         let mut history = RunHistoryBuilder::start(workflow_name);
 
-        // Run the workflow with per-step progress
-        let result = runner.run_with_progress(
+        // Run the workflow with UI-driven interactive prompts
+        let result = runner.run_with_ui(
             &options,
             &ctx,
             &global_env,
             &self.project_root,
-            |progress| match progress {
-                RunProgress::StepStarting { name, index, total } => {
-                    ui.show_progress(index + 1, total);
-                    ui.message(&format!("  Running {}...", name));
-                }
-                RunProgress::StepFinished { name, result } => {
-                    let duration = format_duration(result.duration);
-                    match result.status() {
-                        StepStatus::Completed => {
-                            ui.success(&format!("  {} ({})", name, duration));
-                        }
-                        StepStatus::Failed => {
-                            ui.error(&format!("  {} failed ({})", name, duration));
-                        }
-                        StepStatus::Skipped => {
-                            ui.warning(&format!("  {} skipped", name));
-                        }
-                        _ => {}
-                    }
-                }
-                RunProgress::StepSkipped { name } => {
-                    ui.warning(&format!("  {} skipped", name));
-                }
-            },
+            workflow_non_interactive,
+            &step_overrides,
+            ui,
         )?;
 
         // Record step results to history
@@ -594,6 +593,56 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
+    }
+
+    #[test]
+    fn execute_applies_config_default_output() {
+        let config = r#"
+app_name: Test
+settings:
+  default_output: quiet
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        // MockUI starts with Normal (no CLI override)
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // After execute, the output mode should have been changed to Quiet
+        assert_eq!(ui.output_mode(), crate::ui::OutputMode::Quiet);
+    }
+
+    #[test]
+    fn execute_cli_verbose_overrides_config_default() {
+        let config = r#"
+app_name: Test
+settings:
+  default_output: quiet
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        // MockUI starts with Verbose (simulating --verbose CLI flag)
+        let mut ui = MockUI::with_mode(crate::ui::OutputMode::Verbose);
+
+        cmd.execute(&mut ui).unwrap();
+
+        // CLI flag should win, mode stays Verbose
+        assert_eq!(ui.output_mode(), crate::ui::OutputMode::Verbose);
     }
 
     #[test]
