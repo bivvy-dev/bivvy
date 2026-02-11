@@ -5,9 +5,13 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::config::interpolation::InterpolationContext;
+use crate::config::schema::StepOverride;
 use crate::config::BivvyConfig;
 use crate::error::{BivvyError, Result};
-use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
+use crate::steps::{
+    execute_step, run_check, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
+};
+use crate::ui::{format_duration, Prompt, PromptType, UserInterface};
 
 use super::dependency::{DependencyGraph, SkipBehavior};
 
@@ -174,6 +178,204 @@ impl<'a> WorkflowRunner<'a> {
         })
     }
 
+    /// Run the specified workflow with direct UI interaction.
+    ///
+    /// Unlike `run_with_progress`, this method takes a `UserInterface` directly
+    /// and handles interactive prompts for completed steps and sensitive steps.
+    #[allow(clippy::too_many_arguments)]
+    pub fn run_with_ui(
+        &self,
+        options: &RunOptions,
+        context: &InterpolationContext,
+        global_env: &HashMap<String, String>,
+        project_root: &Path,
+        workflow_non_interactive: bool,
+        step_overrides: &HashMap<String, StepOverride>,
+        ui: &mut dyn UserInterface,
+    ) -> Result<WorkflowResult> {
+        let start = Instant::now();
+        let workflow_name = options.workflow.as_deref().unwrap_or("default");
+
+        // Build dependency graph
+        let graph = self.build_graph(workflow_name)?;
+
+        // Compute skips
+        let skipped = graph.compute_skips(&options.skip, options.skip_behavior);
+
+        // Get execution order
+        let order = graph.topological_order()?;
+
+        // Filter to only steps we'll run
+        let steps_to_run: Vec<_> = order
+            .iter()
+            .filter(|s| !skipped.contains(*s))
+            .filter(|s| options.only.is_empty() || options.only.contains(*s))
+            .cloned()
+            .collect();
+
+        let total = steps_to_run.len();
+
+        // Report skipped steps
+        for skip_name in &skipped {
+            ui.warning(&format!("  {} skipped", skip_name));
+        }
+
+        let interactive = ui.is_interactive() && !workflow_non_interactive;
+
+        let mut results = Vec::new();
+        let mut all_success = true;
+
+        for (index, step_name) in steps_to_run.iter().enumerate() {
+            let step =
+                self.steps
+                    .get(step_name)
+                    .ok_or_else(|| BivvyError::ConfigValidationError {
+                        message: format!("Step '{}' not found in resolved steps", step_name),
+                    })?;
+
+            // Resolve effective prompt_if_complete (step-level, possibly overridden)
+            let effective_prompt_if_complete = step_overrides
+                .get(step_name)
+                .and_then(|o| o.prompt_if_complete)
+                .unwrap_or(step.prompt_if_complete);
+
+            let forced = options.force.contains(step_name);
+
+            // Check if already complete (unless forced)
+            if !forced && !options.dry_run {
+                if let Some(ref check) = step.completed_check {
+                    let check_result = run_check(check, project_root);
+                    if check_result.complete {
+                        if interactive && effective_prompt_if_complete {
+                            if step.skippable {
+                                // Ask if they want to re-run
+                                let prompt = Prompt {
+                                    key: format!("rerun_{}", step_name),
+                                    question: format!(
+                                        "'{}' is already complete. Re-run?",
+                                        step.title
+                                    ),
+                                    prompt_type: PromptType::Confirm,
+                                    default: Some("false".to_string()),
+                                };
+
+                                let answer = ui.prompt(&prompt)?;
+                                if answer.as_bool() != Some(true) {
+                                    // User declined; skip
+                                    ui.show_progress(index + 1, total);
+                                    ui.warning(&format!(
+                                        "  {} skipped (already complete)",
+                                        step_name
+                                    ));
+                                    results.push(StepResult::skipped(&step.name, check_result));
+                                    continue;
+                                }
+                                // User wants to re-run, fall through to execute with force
+                            } else {
+                                // Not skippable, inform and re-run
+                                ui.message(&format!(
+                                    "  '{}' is already complete, re-running (not skippable)",
+                                    step.title
+                                ));
+                                // Fall through to execute with force
+                            }
+                        } else {
+                            // Not interactive or prompt_if_complete is false: silently skip
+                            ui.show_progress(index + 1, total);
+                            ui.warning(&format!("  {} skipped (already complete)", step_name));
+                            results.push(StepResult::skipped(&step.name, check_result));
+                            continue;
+                        }
+                    }
+                }
+            }
+
+            // Sensitive confirmation
+            if step.sensitive && interactive {
+                let prompt = Prompt {
+                    key: format!("sensitive_{}", step_name),
+                    question: format!("'{}' handles sensitive data. Continue?", step.title),
+                    prompt_type: PromptType::Confirm,
+                    default: Some("true".to_string()),
+                };
+
+                let answer = ui.prompt(&prompt)?;
+                if answer.as_bool() != Some(true) {
+                    if step.skippable {
+                        ui.show_progress(index + 1, total);
+                        ui.warning(&format!(
+                            "  {} skipped (declined sensitive step)",
+                            step_name
+                        ));
+                        results.push(StepResult::skipped(
+                            &step.name,
+                            crate::steps::CheckResult::complete("User declined sensitive step"),
+                        ));
+                        continue;
+                    } else {
+                        return Err(BivvyError::StepExecutionError {
+                            step: step_name.clone(),
+                            message: format!(
+                                "Step '{}' is sensitive and not skippable, but user declined",
+                                step.title
+                            ),
+                        });
+                    }
+                }
+            }
+
+            ui.show_progress(index + 1, total);
+            ui.message(&format!("  Running {}...", step_name));
+
+            let exec_options = ExecutionOptions {
+                force: forced
+                    || (step.completed_check.is_some()
+                        && interactive
+                        && effective_prompt_if_complete),
+                dry_run: options.dry_run,
+                capture_output: true,
+                ..Default::default()
+            };
+
+            let result =
+                execute_step(step, project_root, context, global_env, &exec_options, None)?;
+
+            let duration = format_duration(result.duration);
+            match result.status() {
+                StepStatus::Completed => {
+                    ui.success(&format!("  {} ({})", step_name, duration));
+                }
+                StepStatus::Failed => {
+                    ui.error(&format!("  {} failed ({})", step_name, duration));
+                }
+                StepStatus::Skipped => {
+                    ui.warning(&format!("  {} skipped", step_name));
+                }
+                _ => {}
+            }
+
+            let status = result.status();
+            let should_stop = !result.success && !step.allow_failure;
+
+            results.push(result);
+
+            if status == StepStatus::Failed {
+                all_success = false;
+                if should_stop {
+                    break;
+                }
+            }
+        }
+
+        Ok(WorkflowResult {
+            workflow: workflow_name.to_string(),
+            steps: results,
+            skipped: skipped.into_iter().collect(),
+            duration: start.elapsed(),
+            success: all_success,
+        })
+    }
+
     /// Build the dependency graph for the given workflow.
     pub fn build_graph(&self, workflow: &str) -> Result<DependencyGraph> {
         let workflow_config = self.config.workflows.get(workflow).ok_or_else(|| {
@@ -205,6 +407,8 @@ impl<'a> WorkflowRunner<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::schema::StepOverride;
+    use crate::ui::MockUI;
     use std::fs;
     use tempfile::TempDir;
 
@@ -465,5 +669,444 @@ mod tests {
 
         let result = runner.build_graph("default");
         assert!(result.is_err());
+    }
+
+    fn make_step_with_check(
+        name: &str,
+        command: &str,
+        check: Option<crate::config::CompletedCheck>,
+    ) -> ResolvedStep {
+        ResolvedStep {
+            name: name.to_string(),
+            title: name.to_string(),
+            description: None,
+            command: command.to_string(),
+            depends_on: vec![],
+            completed_check: check,
+            skippable: true,
+            required: false,
+            prompt_if_complete: true,
+            allow_failure: false,
+            retry: 0,
+            env: HashMap::new(),
+            watches: vec![],
+            before: vec![],
+            after: vec![],
+            sensitive: false,
+            requires_sudo: false,
+        }
+    }
+
+    #[test]
+    fn run_with_ui_prompts_when_complete_and_interactive() {
+        let temp = TempDir::new().unwrap();
+        // Create the file so the check passes
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                "echo installed",
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User declines re-run
+        ui.set_prompt_response("rerun_install", "false");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // Should have prompted
+        assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
+        // Step should be skipped since user declined
+        assert_eq!(result.steps.len(), 1);
+        assert!(result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_reruns_when_user_confirms() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                "echo reinstalled",
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User confirms re-run
+        ui.set_prompt_response("rerun_install", "true");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
+        // Step should have run (not skipped)
+        assert_eq!(result.steps.len(), 1);
+        assert!(!result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_silent_skip_when_not_interactive() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                "echo installed",
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        // Not interactive — should silently skip
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No prompts should have been shown
+        assert!(ui.prompts_shown().is_empty());
+        // Step should be skipped
+        assert_eq!(result.steps.len(), 1);
+        assert!(result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_silent_skip_when_prompt_if_complete_false() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step_with_check(
+            "install",
+            "echo installed",
+            Some(crate::config::CompletedCheck::FileExists {
+                path: "marker.txt".to_string(),
+            }),
+        );
+        step.prompt_if_complete = false;
+
+        let mut steps = HashMap::new();
+        steps.insert("install".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // Should NOT have prompted even though interactive
+        assert!(ui.prompts_shown().is_empty());
+        assert!(result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_sensitive_step_prompts() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [deploy]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("deploy", "echo deployed", vec![]);
+        step.sensitive = true;
+
+        let mut steps = HashMap::new();
+        steps.insert("deploy".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User confirms
+        ui.set_prompt_response("sensitive_deploy", "true");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(ui.prompts_shown().contains(&"sensitive_deploy".to_string()));
+        assert!(!result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_sensitive_not_skippable_declined_errors() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [deploy]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("deploy", "echo deployed", vec![]);
+        step.sensitive = true;
+        step.skippable = false;
+
+        let mut steps = HashMap::new();
+        steps.insert("deploy".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User declines
+        ui.set_prompt_response("sensitive_deploy", "false");
+
+        let result = runner.run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            &mut ui,
+        );
+
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn run_with_ui_workflow_non_interactive_suppresses_prompts() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                "echo installed",
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        // Even though UI is interactive, workflow_non_interactive should suppress prompts
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                true, // workflow_non_interactive
+                &HashMap::new(),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(ui.prompts_shown().is_empty());
+        assert!(result.steps[0].skipped);
+    }
+
+    #[test]
+    fn run_with_ui_step_override_disables_prompt_if_complete() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "install".to_string(),
+            make_step_with_check(
+                "install",
+                "echo installed",
+                Some(crate::config::CompletedCheck::FileExists {
+                    path: "marker.txt".to_string(),
+                }),
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        // Override prompt_if_complete to false for this step
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "install".to_string(),
+            StepOverride {
+                prompt_if_complete: Some(false),
+                ..Default::default()
+            },
+        );
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &overrides,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // Should NOT have prompted because override disables it
+        assert!(ui.prompts_shown().is_empty());
+        assert!(result.steps[0].skipped);
     }
 }
