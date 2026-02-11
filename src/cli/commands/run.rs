@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::cli::args::RunArgs;
 use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
 use crate::error::{BivvyError, Result};
+use crate::registry::Registry;
 use crate::runner::{RunOptions, RunProgress, SkipBehavior, WorkflowRunner};
 use crate::state::{ProjectId, RunHistoryBuilder, StateStore};
 use crate::steps::{ResolvedStep, StepStatus};
@@ -59,15 +60,27 @@ impl RunCommand {
     }
 
     /// Resolve steps from configuration.
-    fn resolve_steps(&self, config: &crate::config::BivvyConfig) -> HashMap<String, ResolvedStep> {
-        config
-            .steps
-            .iter()
-            .map(|(name, step_config)| {
-                let resolved = ResolvedStep::from_config(name, step_config);
-                (name.clone(), resolved)
-            })
-            .collect()
+    ///
+    /// Steps with a `template` field are resolved through the Registry,
+    /// which merges template defaults with config overrides. Steps without
+    /// a template are treated as inline definitions.
+    fn resolve_steps(
+        &self,
+        config: &crate::config::BivvyConfig,
+    ) -> Result<HashMap<String, ResolvedStep>> {
+        let registry = Registry::new(Some(&self.project_root))?;
+
+        let mut steps = HashMap::new();
+        for (name, step_config) in &config.steps {
+            let resolved = if let Some(template_name) = &step_config.template {
+                let (template, _source) = registry.resolve(template_name)?;
+                ResolvedStep::from_template(name, template, step_config, &step_config.inputs)
+            } else {
+                ResolvedStep::from_config(name, step_config)
+            };
+            steps.insert(name.clone(), resolved);
+        }
+        Ok(steps)
     }
 }
 
@@ -107,7 +120,7 @@ impl Command for RunCommand {
         let mut state = StateStore::load(&project_id)?;
 
         // Resolve steps
-        let steps = self.resolve_steps(&config);
+        let steps = self.resolve_steps(&config)?;
 
         // Check if workflow exists
         let workflow_name = &self.args.workflow;
@@ -478,6 +491,109 @@ workflows:
             .messages()
             .iter()
             .any(|m| m.contains("Config:") && m.contains("config.yml")));
+    }
+
+    #[test]
+    fn resolve_steps_uses_template_for_brew() {
+        let config_yaml = r#"
+app_name: test
+steps:
+  brew:
+    template: brew
+workflows:
+  default:
+    steps: [brew]
+"#;
+        let temp = setup_project(config_yaml);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let config = load_merged_config(temp.path()).unwrap();
+        let steps = cmd.resolve_steps(&config).unwrap();
+
+        let brew_step = steps.get("brew").unwrap();
+        assert!(
+            !brew_step.command.is_empty(),
+            "template step should have a command from the brew template"
+        );
+        assert!(
+            brew_step.command.contains("brew"),
+            "brew template command should mention brew, got: {}",
+            brew_step.command
+        );
+    }
+
+    #[test]
+    fn resolve_steps_errors_on_unknown_template() {
+        let config_yaml = r#"
+app_name: test
+steps:
+  bad:
+    template: nonexistent_template_xyz
+workflows:
+  default:
+    steps: [bad]
+"#;
+        let temp = setup_project(config_yaml);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let config = load_merged_config(temp.path()).unwrap();
+        let result = cmd.resolve_steps(&config);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, BivvyError::UnknownTemplate { .. }),
+            "expected UnknownTemplate, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn resolve_steps_inline_step_still_works() {
+        let config_yaml = r#"
+app_name: test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config_yaml);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let config = load_merged_config(temp.path()).unwrap();
+        let steps = cmd.resolve_steps(&config).unwrap();
+
+        let hello_step = steps.get("hello").unwrap();
+        assert_eq!(hello_step.command, "echo hello");
+    }
+
+    #[test]
+    fn execute_dry_run_with_template_shows_real_command() {
+        let config_yaml = r#"
+app_name: test
+steps:
+  brew:
+    template: brew
+workflows:
+  default:
+    steps: [brew]
+"#;
+        let temp = setup_project(config_yaml);
+        let args = RunArgs {
+            dry_run: true,
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
     }
 
     #[test]

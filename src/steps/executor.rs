@@ -241,6 +241,14 @@ pub fn execute_step(
     // Resolve command with interpolation
     let command = resolve_string(&step.command, context)?;
 
+    // Guard against empty commands
+    if command.trim().is_empty() {
+        return Err(BivvyError::StepExecutionError {
+            step: step.name.clone(),
+            message: "step has no command to execute (command is empty)".to_string(),
+        });
+    }
+
     // Execute before hooks
     for hook in &step.before {
         let hook_cmd = resolve_string(hook, context)?;
@@ -556,6 +564,34 @@ mod tests {
 
         let content = fs::read_to_string(&output_file).unwrap();
         assert!(content.contains("hook_value"));
+    }
+
+    #[test]
+    fn execute_step_rejects_empty_command() {
+        let temp = TempDir::new().unwrap();
+        let step = make_step("");
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions::default();
+
+        let result = execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("empty"), "error was: {}", err);
+    }
+
+    #[test]
+    fn execute_step_rejects_whitespace_only_command() {
+        let temp = TempDir::new().unwrap();
+        let step = make_step("   ");
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions::default();
+
+        let result = execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("empty"), "error was: {}", err);
     }
 
     #[test]
