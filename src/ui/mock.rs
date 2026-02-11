@@ -173,10 +173,15 @@ impl UserInterface for MockUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
         self.prompts_shown.push(prompt.key.clone());
 
+        let is_confirm = matches!(prompt.prompt_type, PromptType::Confirm);
         let is_multiselect = matches!(prompt.prompt_type, PromptType::MultiSelect { .. });
 
         // Return pre-configured response if available
         if let Some(response) = self.prompt_responses.get(&prompt.key) {
+            if is_confirm {
+                let val = matches!(response.as_str(), "true" | "yes" | "y" | "1");
+                return Ok(PromptResult::Bool(val));
+            }
             if is_multiselect {
                 let values: Vec<String> =
                     response.split(',').map(|s| s.trim().to_string()).collect();
@@ -187,6 +192,10 @@ impl UserInterface for MockUI {
 
         // Fall back to default if available
         if let Some(default) = &prompt.default {
+            if is_confirm {
+                let val = matches!(default.as_str(), "true" | "yes" | "y" | "1");
+                return Ok(PromptResult::Bool(val));
+            }
             if is_multiselect {
                 let values: Vec<String> =
                     default.split(',').map(|s| s.trim().to_string()).collect();
@@ -195,7 +204,10 @@ impl UserInterface for MockUI {
             return Ok(PromptResult::String(default.clone()));
         }
 
-        // Return empty for last resort (for testing)
+        // Return type-appropriate empty for last resort (for testing)
+        if is_confirm {
+            return Ok(PromptResult::Bool(false));
+        }
         if is_multiselect {
             return Ok(PromptResult::Strings(Vec::new()));
         }
@@ -528,6 +540,68 @@ mod tests {
 
         ui.set_interactive(true);
         assert!(ui.is_interactive());
+    }
+
+    #[test]
+    fn mock_ui_confirm_returns_bool_from_response() {
+        let mut ui = MockUI::new();
+        ui.set_prompt_response("confirm_key", "true");
+
+        let prompt = Prompt {
+            key: "confirm_key".to_string(),
+            question: "Continue?".to_string(),
+            prompt_type: PromptType::Confirm,
+            default: None,
+        };
+
+        let result = ui.prompt(&prompt).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn mock_ui_confirm_returns_false_for_no() {
+        let mut ui = MockUI::new();
+        ui.set_prompt_response("confirm_key", "false");
+
+        let prompt = Prompt {
+            key: "confirm_key".to_string(),
+            question: "Continue?".to_string(),
+            prompt_type: PromptType::Confirm,
+            default: None,
+        };
+
+        let result = ui.prompt(&prompt).unwrap();
+        assert_eq!(result.as_bool(), Some(false));
+    }
+
+    #[test]
+    fn mock_ui_confirm_uses_default() {
+        let mut ui = MockUI::new();
+
+        let prompt = Prompt {
+            key: "confirm_key".to_string(),
+            question: "Continue?".to_string(),
+            prompt_type: PromptType::Confirm,
+            default: Some("yes".to_string()),
+        };
+
+        let result = ui.prompt(&prompt).unwrap();
+        assert_eq!(result.as_bool(), Some(true));
+    }
+
+    #[test]
+    fn mock_ui_confirm_without_response_or_default_returns_false() {
+        let mut ui = MockUI::new();
+
+        let prompt = Prompt {
+            key: "confirm_key".to_string(),
+            question: "Continue?".to_string(),
+            prompt_type: PromptType::Confirm,
+            default: None,
+        };
+
+        let result = ui.prompt(&prompt).unwrap();
+        assert_eq!(result.as_bool(), Some(false));
     }
 
     #[test]
