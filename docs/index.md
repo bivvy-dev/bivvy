@@ -208,7 +208,7 @@ That's bivvy.
 Install (pick one):
 
 ```bash
-curl -fsSL https://bivvy.dev/install.sh | sh
+curl -fsSL https://bivvy.dev/install | sh
 ```
 
 ```bash
@@ -217,10 +217,6 @@ brew install https://raw.githubusercontent.com/bivvy-dev/bivvy/main/dist/homebre
 
 ```bash
 cargo install bivvy
-```
-
-```bash
-npm install -g bivvy
 ```
 
 ```bash

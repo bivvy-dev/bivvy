@@ -3,7 +3,7 @@
 class Bivvy < Formula
   desc "Cross-language development environment setup automation"
   homepage "https://bivvy.dev"
-  version "1.0.0"
+  version "1.2.0"
   license "FSL-1.1-Apache-2.0"
 
   on_macos do

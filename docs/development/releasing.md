@@ -32,7 +32,6 @@ git push && git push --tags
 4. GitHub Actions will automatically:
    - Build binaries for all platforms
    - Create GitHub release with binaries
-   - Publish to npm
    - Publish to PyPI
 
 5. After release, update Homebrew SHA256 hashes:
@@ -51,5 +50,4 @@ git push && git push --tags
 ## Secrets Required
 
 Set these in GitHub repository settings:
-- `NPM_TOKEN` - npm access token
 - `PYPI_TOKEN` - PyPI API token

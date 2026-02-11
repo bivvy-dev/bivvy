@@ -7,7 +7,7 @@ import tarfile
 import urllib.request
 from pathlib import Path
 
-__version__ = "1.0.1"
+__version__ = "1.2.0"
 
 BINARY_DIR = Path(__file__).parent / "bin"
 BINARY_NAME = "bivvy.exe" if sys.platform == "win32" else "bivvy"

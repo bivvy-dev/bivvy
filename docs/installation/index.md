@@ -11,7 +11,7 @@ native binary -- choose whichever fits your workflow.
 ## Quick Install (Recommended)
 
 ```bash
-curl -fsSL https://bivvy.dev/install.sh | sh
+curl -fsSL https://bivvy.dev/install | sh
 ```
 
 See [curl install docs](./curl.md) for options and troubleshooting.
@@ -22,7 +22,6 @@ See [curl install docs](./curl.md) for options and troubleshooting.
 |--------|---------|-------|
 | [Homebrew](./homebrew.md) | `brew install https://raw.githubusercontent.com/bivvy-dev/bivvy/main/dist/homebrew/bivvy.rb` | macOS/Linux |
 | [Cargo](./cargo.md) | `cargo install bivvy` | Requires Rust 1.93+ |
-| [npm](./npm.md) | `npm install -g bivvy` | Node.js 14+ |
 | [gem](./gem.md) | `gem install bivvy` | Ruby 2.7+ |
 | [pip](./pip.md) | `pip install bivvy` | Python 3.8+ |
 

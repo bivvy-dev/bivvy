@@ -29,7 +29,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Install method detection
 - Version checking and auto-update
 - Session tracking and feedback command
-- Distribution packages (curl, npm, gem, pip, Homebrew)
+- Distribution packages (curl, gem, pip, Homebrew)
 - Shell completions (bash, zsh, fish, PowerShell)
 
 [Unreleased]: https://github.com/bivvy-dev/bivvy/compare/v1.0.0...HEAD

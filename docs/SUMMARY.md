@@ -6,7 +6,6 @@
   - [curl](installation/curl.md)
   - [Homebrew](installation/homebrew.md)
   - [Cargo](installation/cargo.md)
-  - [npm](installation/npm.md)
   - [gem](installation/gem.md)
   - [pip](installation/pip.md)
 

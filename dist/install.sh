@@ -1,6 +1,6 @@
 #!/bin/sh
 # Bivvy installer script
-# Usage: curl -fsSL https://bivvy.dev/install.sh | sh
+# Usage: curl -fsSL https://bivvy.dev/install | sh
 
 set -e
 
@@ -101,10 +101,7 @@ check_path() {
 }
 
 verify() {
-    if command -v bivvy >/dev/null 2>&1; then
-        info "Installation successful!"
-        bivvy --version
-    elif [ -x "$BIVVY_INSTALL_DIR/bivvy" ]; then
+    if [ -x "$BIVVY_INSTALL_DIR/bivvy" ]; then
         info "Installation successful!"
         "$BIVVY_INSTALL_DIR/bivvy" --version
     else
@@ -123,7 +120,7 @@ main() {
     verify
 
     echo ""
-    info "Run 'bivvy --help' to get started"
+    info "Run 'bivvy --help' to get started (use -V for version)"
 }
 
 main

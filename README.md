@@ -12,7 +12,7 @@ Bivvy replaces ad-hoc `bin/setup` scripts with declarative YAML configuration, s
 Quick install (macOS/Linux):
 
 ```bash
-curl -fsSL https://bivvy.dev/install.sh | sh
+curl -fsSL https://bivvy.dev/install | sh
 ```
 
 Homebrew:
@@ -25,12 +25,6 @@ Cargo:
 
 ```bash
 cargo install bivvy
-```
-
-npm:
-
-```bash
-npm install -g bivvy
 ```
 
 gem:

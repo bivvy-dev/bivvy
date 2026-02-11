@@ -16,14 +16,6 @@ echo "Updating versions to $VERSION"
 sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" Cargo.toml
 echo "Updated Cargo.toml"
 
-# npm package
-if [ -f dist/npm/package.json ]; then
-    cd dist/npm
-    npm version "$VERSION" --no-git-tag-version --allow-same-version 2>/dev/null
-    cd ../..
-    echo "Updated dist/npm/package.json"
-fi
-
 # Python package
 if [ -f dist/pip/bivvy/__init__.py ]; then
     sed -i '' "s/__version__ = \".*\"/__version__ = \"$VERSION\"/" dist/pip/bivvy/__init__.py
