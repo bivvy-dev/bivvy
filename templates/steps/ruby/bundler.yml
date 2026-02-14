@@ -18,6 +18,16 @@ step:
     - Gemfile
     - Gemfile.lock
 
+# If your project has BUNDLE_CLEAN: "true" in .bundle/config and you
+# use a version manager (mise, asdf, rbenv), set BUNDLE_PATH to avoid
+# "Cleaning all the gems on your system is dangerous!" errors:
+#
+#   steps:
+#     bundler:
+#       template: bundler
+#       env:
+#         BUNDLE_PATH: vendor/bundle
+
 environment_impact:
   path_additions:
     - "./vendor/bundle/bin"

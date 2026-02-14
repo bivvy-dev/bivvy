@@ -279,11 +279,17 @@ fn detect_shell() -> String {
 }
 
 /// Get the flag to pass commands to the shell.
+///
+/// Uses `-lic` (interactive login shell) on Unix so that the user's
+/// full shell environment is available. Tools like mise, asdf, nvm,
+/// and rbenv are typically activated in `.zshrc`/`.bashrc` (interactive)
+/// or `.zprofile`/`.bash_profile` (login). Without `-lic`, these tools
+/// aren't in PATH and step commands fail with "command not found".
 fn shell_flag(_shell: &str) -> &'static str {
     if cfg!(target_os = "windows") {
         "/C"
     } else {
-        "-c"
+        "-lic"
     }
 }
 

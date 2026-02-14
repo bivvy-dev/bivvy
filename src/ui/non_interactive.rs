@@ -4,6 +4,7 @@ use std::collections::HashMap;
 
 use crate::error::{BivvyError, Result};
 
+use super::theme::BivvyTheme;
 use super::{OutputMode, Prompt, PromptResult, PromptType, SpinnerHandle, UserInterface};
 
 /// UI implementation for non-interactive mode.
@@ -139,17 +140,20 @@ impl SpinnerHandle for NoopSpinner {
 
     fn finish_success(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
-        println!("{}✓ {}", prefix, msg);
+        let theme = BivvyTheme::new();
+        println!("{}{}", prefix, theme.format_success(msg));
     }
 
     fn finish_error(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
-        println!("{}✗ {}", prefix, msg);
+        let theme = BivvyTheme::new();
+        println!("{}{}", prefix, theme.format_error(msg));
     }
 
     fn finish_skipped(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
-        println!("{}○ {}", prefix, msg);
+        let theme = BivvyTheme::new();
+        println!("{}{}", prefix, theme.format_skipped(msg));
     }
 }
 

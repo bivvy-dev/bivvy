@@ -73,6 +73,11 @@ impl BivvyTheme {
         format!("{} {}", self.error.apply_to("✗"), msg)
     }
 
+    /// Format a skipped message.
+    pub fn format_skipped(&self, msg: &str) -> String {
+        format!("{} {}", self.dim.apply_to("○"), msg)
+    }
+
     /// Format a step title.
     pub fn format_step(&self, name: &str, description: &str) -> String {
         format!(
@@ -129,6 +134,14 @@ mod tests {
         let msg = theme.format_error("Failed");
         assert!(msg.contains("✗"));
         assert!(msg.contains("Failed"));
+    }
+
+    #[test]
+    fn theme_formats_skipped() {
+        let theme = BivvyTheme::plain();
+        let msg = theme.format_skipped("Skipped");
+        assert!(msg.contains("○"));
+        assert!(msg.contains("Skipped"));
     }
 
     #[test]

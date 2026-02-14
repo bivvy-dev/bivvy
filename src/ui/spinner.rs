@@ -3,6 +3,7 @@
 use indicatif::{ProgressBar, ProgressStyle};
 use std::time::Duration;
 
+use super::theme::BivvyTheme;
 use super::SpinnerHandle;
 
 /// A progress spinner for long-running operations.
@@ -47,23 +48,29 @@ impl SpinnerHandle for ProgressSpinner {
 
     fn finish_success(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
+        let theme = BivvyTheme::new();
         self.bar
             .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-        self.bar.finish_with_message(format!("{}✓ {}", prefix, msg));
+        self.bar
+            .finish_with_message(format!("{}{}", prefix, theme.format_success(msg)));
     }
 
     fn finish_error(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
+        let theme = BivvyTheme::new();
         self.bar
             .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-        self.bar.finish_with_message(format!("{}✗ {}", prefix, msg));
+        self.bar
+            .finish_with_message(format!("{}{}", prefix, theme.format_error(msg)));
     }
 
     fn finish_skipped(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
+        let theme = BivvyTheme::new();
         self.bar
             .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
-        self.bar.finish_with_message(format!("{}○ {}", prefix, msg));
+        self.bar
+            .finish_with_message(format!("{}{}", prefix, theme.format_skipped(msg)));
     }
 }
 
