@@ -7,11 +7,11 @@ use std::time::Duration;
 
 use crate::cli::args::LastArgs;
 use crate::error::Result;
-use crate::state::{ProjectId, RunStatus, StateStore};
-use crate::ui::{format_duration, format_relative_time, UserInterface};
+use crate::state::{ProjectId, RunStatus, StateStore, StepStatus};
+use crate::ui::theme::BivvyTheme;
+use crate::ui::{format_duration, format_relative_time, StatusKind, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
-use super::display;
 
 /// The last command implementation.
 pub struct LastCommand {
@@ -52,53 +52,98 @@ impl Command for LastCommand {
             }
         };
 
-        ui.show_header("Last Run");
+        let theme = BivvyTheme::new();
 
+        // Header
         ui.message(&format!(
-            "Date: {} ({})",
-            last_run.timestamp.format("%Y-%m-%d %H:%M:%S"),
-            format_relative_time(last_run.timestamp)
-        ));
-        ui.message(&format!("Workflow: {}", last_run.workflow));
-        ui.message(&format!(
-            "Duration: {}",
-            format_duration(Duration::from_millis(last_run.duration_ms))
+            "\n  {} {}\n",
+            theme.header.apply_to("⛺"),
+            theme.highlight.apply_to("Last Run"),
         ));
 
-        match last_run.status {
-            RunStatus::Success => ui.success("Status: Success"),
-            RunStatus::Failed => ui.error("Status: Failed"),
-            RunStatus::Interrupted => ui.warning("Status: Interrupted"),
+        // Key-value metadata
+        ui.message(&format!(
+            "  {}  {}",
+            theme.key.apply_to("Workflow:"),
+            last_run.workflow,
+        ));
+
+        ui.message(&format!(
+            "  {}      {} {}",
+            theme.key.apply_to("When:"),
+            format_relative_time(last_run.timestamp),
+            theme.dim.apply_to(format!(
+                "({})",
+                last_run.timestamp.format("%Y-%m-%d %H:%M:%S")
+            )),
+        ));
+
+        ui.message(&format!(
+            "  {}  {}",
+            theme.key.apply_to("Duration:"),
+            theme
+                .duration
+                .apply_to(format_duration(Duration::from_millis(last_run.duration_ms))),
+        ));
+
+        let status_kind = StatusKind::from(last_run.status);
+        let status_label = match last_run.status {
+            RunStatus::Success => "Success",
+            RunStatus::Failed => "Failed",
+            RunStatus::Interrupted => "Interrupted",
         };
+        ui.message(&format!(
+            "  {}    {} {}",
+            theme.key.apply_to("Status:"),
+            status_kind.styled(&theme),
+            status_label,
+        ));
 
-        if !last_run.steps_run.is_empty() {
+        // Steps section
+        if !last_run.steps_run.is_empty() || !last_run.steps_skipped.is_empty() {
             ui.message("");
-            ui.message("Steps executed:");
-            let mut seen_statuses = std::collections::HashSet::new();
+            ui.message(&format!("  {}", theme.key.apply_to("Steps:")));
+
             for step_name in &last_run.steps_run {
                 let status = state
                     .get_step(step_name)
-                    .map(|s| &s.status)
-                    .copied()
-                    .unwrap_or(crate::state::StepStatus::NeverRun);
-                seen_statuses.insert(display::status_key(&status));
-                display::show_step_status(ui, step_name, &status);
+                    .map(|s| s.status)
+                    .unwrap_or(StepStatus::NeverRun);
+                let kind = StatusKind::from(status);
+
+                let duration_info = state
+                    .get_step(step_name)
+                    .and_then(|s| s.duration_ms)
+                    .map(|ms| {
+                        theme
+                            .duration
+                            .apply_to(format_duration(Duration::from_millis(ms)))
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+
+                ui.message(&format!(
+                    "    {} {:<20} {}",
+                    kind.styled(&theme),
+                    step_name,
+                    duration_info,
+                ));
             }
 
-            if let Some(legend) = display::format_legend(&seen_statuses) {
-                ui.message("");
-                ui.message(&legend);
+            for step_name in &last_run.steps_skipped {
+                ui.message(&format!(
+                    "    {} {:<20} {}",
+                    StatusKind::Skipped.styled(&theme),
+                    step_name,
+                    theme.dim.apply_to("skipped"),
+                ));
             }
         }
 
-        if !last_run.steps_skipped.is_empty() {
-            ui.message("");
-            ui.message(&format!("Skipped: {}", last_run.steps_skipped.join(", ")));
-        }
-
+        // Error detail
         if let Some(ref error) = last_run.error {
             ui.message("");
-            ui.error(&format!("Error: {}", error));
+            ui.error(&format!("  Error: {}", error));
         }
 
         Ok(CommandResult::success())
@@ -144,12 +189,60 @@ mod tests {
     }
 
     #[test]
-    fn last_shows_legend_for_steps() {
+    fn last_shows_header() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
         let mut state = StateStore::load(&project_id).unwrap();
 
-        // Record a run with a step
+        let mut history = RunHistoryBuilder::start("default");
+        history.step_run("setup");
+        let record = history.finish_success();
+        state.record_run(record);
+        state.save(&project_id).unwrap();
+
+        let args = LastArgs::default();
+        let cmd = LastCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("⛺")));
+        assert!(ui.messages().iter().any(|m| m.contains("Last Run")));
+    }
+
+    #[test]
+    fn last_shows_workflow_and_status() {
+        let temp = TempDir::new().unwrap();
+        let project_id = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::load(&project_id).unwrap();
+
+        let mut history = RunHistoryBuilder::start("default");
+        history.step_run("setup");
+        let record = history.finish_success();
+        state.record_run(record);
+        state.save(&project_id).unwrap();
+
+        let args = LastArgs::default();
+        let cmd = LastCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("Workflow:")));
+        assert!(ui.messages().iter().any(|m| m.contains("default")));
+        assert!(ui.messages().iter().any(|m| m.contains("Status:")));
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("✓") && m.contains("Success")));
+    }
+
+    #[test]
+    fn last_shows_steps_for_recorded_run() {
+        let temp = TempDir::new().unwrap();
+        let project_id = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::load(&project_id).unwrap();
+
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
         let record = history.finish_success();
@@ -163,11 +256,59 @@ mod tests {
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
-        assert!(ui.has_message("Legend:"));
+        assert!(ui.has_message("Steps:"));
+        assert!(ui.messages().iter().any(|m| m.contains("setup")));
     }
 
     #[test]
-    fn last_untracked_step_shows_dash_status() {
+    fn last_shows_skipped_steps() {
+        let temp = TempDir::new().unwrap();
+        let project_id = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::load(&project_id).unwrap();
+
+        let mut history = RunHistoryBuilder::start("default");
+        history.step_run("build");
+        history.step_skipped("deploy");
+        let record = history.finish_success();
+        state.record_run(record);
+        state.save(&project_id).unwrap();
+
+        let args = LastArgs::default();
+        let cmd = LastCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("○") && m.contains("deploy") && m.contains("skipped")));
+    }
+
+    #[test]
+    fn last_shows_when_and_duration() {
+        let temp = TempDir::new().unwrap();
+        let project_id = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::load(&project_id).unwrap();
+
+        let mut history = RunHistoryBuilder::start("default");
+        history.step_run("setup");
+        let record = history.finish_success();
+        state.record_run(record);
+        state.save(&project_id).unwrap();
+
+        let args = LastArgs::default();
+        let cmd = LastCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("When:")));
+        assert!(ui.messages().iter().any(|m| m.contains("Duration:")));
+    }
+
+    #[test]
+    fn last_untracked_step_shows_pending_icon() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
         let mut state = StateStore::load(&project_id).unwrap();
@@ -185,11 +326,11 @@ mod tests {
 
         cmd.execute(&mut ui).unwrap();
 
-        // Should show [pending] for steps with no recorded status
+        // Should show ◌ icon (pending) for steps with no recorded status
         assert!(ui
             .messages()
             .iter()
-            .any(|m| m.contains("[pending] unknown_step")));
+            .any(|m| m.contains("◌") && m.contains("unknown_step")));
         // Should not use old [?] indicator anywhere
         let all_output: Vec<&String> = ui
             .messages()
@@ -199,5 +340,33 @@ mod tests {
             .chain(ui.successes().iter())
             .collect();
         assert!(!all_output.iter().any(|m| m.contains("[?]")));
+    }
+
+    #[test]
+    fn last_shows_error_for_failed_run() {
+        let temp = TempDir::new().unwrap();
+        let project_id = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::load(&project_id).unwrap();
+
+        let mut history = RunHistoryBuilder::start("default");
+        history.step_run("build");
+        let record = history.finish_failed("Build failed: missing dependency");
+        state.record_run(record);
+        state.save(&project_id).unwrap();
+
+        let args = LastArgs::default();
+        let cmd = LastCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("✗") && m.contains("Failed")));
+        assert!(ui
+            .errors()
+            .iter()
+            .any(|m| m.contains("Build failed: missing dependency")));
     }
 }

@@ -7,8 +7,9 @@ use std::time::Duration;
 
 use crate::cli::args::HistoryArgs;
 use crate::error::Result;
-use crate::state::{ProjectId, RunRecord, RunStatus, StateStore};
-use crate::ui::{format_duration, format_relative_time, UserInterface};
+use crate::state::{ProjectId, RunRecord, StateStore};
+use crate::ui::theme::BivvyTheme;
+use crate::ui::{format_duration, format_relative_time, StatusKind, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -58,39 +59,43 @@ impl HistoryCommand {
         }
     }
 
-    /// Format a single run entry line.
-    fn format_run_line(run: &RunRecord) -> String {
-        let status = match run.status {
-            RunStatus::Success => "[ok]",
-            RunStatus::Failed => "[FAIL]",
-            RunStatus::Interrupted => "[int]",
-        };
-
+    /// Format a single run entry line with theme styling.
+    fn format_run_line(run: &RunRecord, theme: &BivvyTheme) -> String {
+        let kind = StatusKind::from(run.status);
         let step_count = run.steps_run.len();
         let step_label = if step_count == 1 { "step" } else { "steps" };
-        let relative = format_relative_time(run.timestamp);
+
         format!(
-            "{} {} ({}) - {} ({} {}, {})",
-            status,
-            relative,
-            run.timestamp.format("%Y-%m-%d %H:%M"),
+            "    {}  {:<18} {:<12} {} {}  {}",
+            kind.styled(theme),
+            theme.dim.apply_to(format_relative_time(run.timestamp)),
             run.workflow,
             step_count,
-            step_label,
-            format_duration(Duration::from_millis(run.duration_ms))
+            theme.dim.apply_to(step_label),
+            theme
+                .duration
+                .apply_to(format_duration(Duration::from_millis(run.duration_ms))),
         )
     }
 
     /// Show detailed info for a run.
-    fn show_run_detail(ui: &mut dyn UserInterface, run: &RunRecord) {
+    fn show_run_detail(ui: &mut dyn UserInterface, run: &RunRecord, theme: &BivvyTheme) {
         if !run.steps_run.is_empty() {
-            ui.message(&format!("    Steps: {}", run.steps_run.join(", ")));
+            ui.message(&format!(
+                "        {} {}",
+                theme.dim.apply_to("Steps:"),
+                theme.dim.apply_to(run.steps_run.join(", "))
+            ));
         }
         if !run.steps_skipped.is_empty() {
-            ui.message(&format!("    Skipped: {}", run.steps_skipped.join(", ")));
+            ui.message(&format!(
+                "        {} {}",
+                theme.dim.apply_to("Skipped:"),
+                theme.dim.apply_to(run.steps_skipped.join(", "))
+            ));
         }
         if let Some(ref error) = run.error {
-            ui.error(&format!("    Error: {}", error));
+            ui.error(&format!("        Error: {}", error));
         }
     }
 }
@@ -117,18 +122,20 @@ impl Command for HistoryCommand {
             return Ok(CommandResult::success());
         }
 
-        ui.show_header("Run History");
+        let theme = BivvyTheme::new();
+
+        ui.message(&format!(
+            "\n  {} {}\n",
+            theme.header.apply_to("⛺"),
+            theme.highlight.apply_to("Run History"),
+        ));
 
         for run in &filtered_runs {
-            let line = Self::format_run_line(run);
-            match run.status {
-                RunStatus::Success => ui.success(&line),
-                RunStatus::Failed => ui.error(&line),
-                RunStatus::Interrupted => ui.warning(&line),
-            }
+            let line = Self::format_run_line(run, &theme);
+            ui.message(&line);
 
             if self.args.detail {
-                Self::show_run_detail(ui, run);
+                Self::show_run_detail(ui, run, &theme);
             }
         }
 

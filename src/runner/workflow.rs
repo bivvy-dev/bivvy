@@ -13,8 +13,11 @@ use crate::error::{BivvyError, Result};
 use crate::steps::{
     execute_step, run_check, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
 };
+use crate::ui::spinner::live_output_callback;
 use crate::ui::theme::BivvyTheme;
-use crate::ui::{format_duration, Prompt, PromptType, UserInterface};
+use crate::ui::{
+    format_duration, OutputMode, Prompt, PromptOption, PromptType, StatusKind, UserInterface,
+};
 
 use super::dependency::{DependencyGraph, SkipBehavior};
 
@@ -231,6 +234,7 @@ impl<'a> WorkflowRunner<'a> {
             .cloned()
             .collect();
 
+        let total = steps_to_run.len();
         let theme = BivvyTheme::new();
 
         // Report skipped steps (from --skip flag)
@@ -260,11 +264,22 @@ impl<'a> WorkflowRunner<'a> {
                 ui.message("");
             }
 
-            // Format step display: "name — title" or just "name" if same
+            // Format step display with numbering: "[1/7] name — title" or "[1/7] name"
+            let step_number = format!("[{}/{}]", index + 1, total);
             let step_display = if *step_name == step.title {
-                step_name.to_string()
+                format!(
+                    "{} {}",
+                    theme.step_number.apply_to(&step_number),
+                    theme.step_title.apply_to(step_name)
+                )
             } else {
-                format!("{} — {}", step_name, step.title)
+                format!(
+                    "{} {} {} {}",
+                    theme.step_number.apply_to(&step_number),
+                    theme.step_title.apply_to(step_name),
+                    theme.dim.apply_to("—"),
+                    theme.dim.apply_to(&step.title)
+                )
             };
 
             // Check if any dependency failed
@@ -272,8 +287,9 @@ impl<'a> WorkflowRunner<'a> {
                 ui.message(&step_display);
                 ui.message(&format!(
                     "    {}",
-                    theme.format_warning("Blocked (dependency failed)")
+                    StatusKind::Blocked.format(&theme, "Blocked (dependency failed)")
                 ));
+                ui.show_workflow_progress(index + 1, total, start.elapsed());
                 all_success = false;
                 failed_steps.insert(step_name.clone());
                 continue;
@@ -300,12 +316,23 @@ impl<'a> WorkflowRunner<'a> {
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
                                     question: format!("Already complete. Re-run {}?", step_display),
-                                    prompt_type: PromptType::Confirm,
-                                    default: Some("false".to_string()),
+                                    prompt_type: PromptType::Select {
+                                        options: vec![
+                                            PromptOption {
+                                                label: "No (n)".to_string(),
+                                                value: "no".to_string(),
+                                            },
+                                            PromptOption {
+                                                label: "Yes (y)".to_string(),
+                                                value: "yes".to_string(),
+                                            },
+                                        ],
+                                    },
+                                    default: Some("no".to_string()),
                                 };
 
                                 let answer = ui.prompt(&prompt)?;
-                                if answer.as_bool() != Some(true) {
+                                if answer.as_string() != "yes" {
                                     ui.message(&format!(
                                         "    {}",
                                         theme.format_skipped("Skipped (already complete)")
@@ -343,11 +370,22 @@ impl<'a> WorkflowRunner<'a> {
                 let prompt = Prompt {
                     key: format!("run_{}", step_name),
                     question: format!("Run {}?", step_display),
-                    prompt_type: PromptType::Confirm,
-                    default: Some("true".to_string()),
+                    prompt_type: PromptType::Select {
+                        options: vec![
+                            PromptOption {
+                                label: "Yes (y)".to_string(),
+                                value: "yes".to_string(),
+                            },
+                            PromptOption {
+                                label: "No (n)".to_string(),
+                                value: "no".to_string(),
+                            },
+                        ],
+                    },
+                    default: Some("yes".to_string()),
                 };
                 let answer = ui.prompt(&prompt)?;
-                if answer.as_bool() != Some(true) {
+                if answer.as_string() != "yes" {
                     ui.message(&format!("    {}", theme.format_skipped("Skipped")));
                     results.push(StepResult::skipped(
                         &step.name,
@@ -368,12 +406,23 @@ impl<'a> WorkflowRunner<'a> {
                 let prompt = Prompt {
                     key: format!("sensitive_{}", step_name),
                     question: "Handles sensitive data. Continue?".to_string(),
-                    prompt_type: PromptType::Confirm,
-                    default: Some("true".to_string()),
+                    prompt_type: PromptType::Select {
+                        options: vec![
+                            PromptOption {
+                                label: "Yes (y)".to_string(),
+                                value: "yes".to_string(),
+                            },
+                            PromptOption {
+                                label: "No (n)".to_string(),
+                                value: "no".to_string(),
+                            },
+                        ],
+                    },
+                    default: Some("yes".to_string()),
                 };
 
                 let answer = ui.prompt(&prompt)?;
-                if answer.as_bool() != Some(true) {
+                if answer.as_string() != "yes" {
                     if step.skippable {
                         ui.message(&format!(
                             "    {}",
@@ -403,49 +452,73 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             // Execute with indented spinner
-            let mut spinner = ui.start_spinner_indented(&format!("Running {}...", step_name), 4);
+            let spinner_msg = format!("Running `{}`...", step.command);
+            let mut spinner = ui.start_spinner_indented(&spinner_msg, 4);
+
+            // Create live output callback if the spinner has a progress bar
+            let output_mode = ui.output_mode();
+            let output_callback = spinner.progress_bar().and_then(|bar| {
+                let max_lines = match output_mode {
+                    OutputMode::Verbose => 3,
+                    OutputMode::Normal => 2,
+                    _ => return None,
+                };
+                Some(live_output_callback(bar, spinner_msg.clone(), 6, max_lines))
+            });
 
             let exec_options = ExecutionOptions {
                 force: needs_force,
                 dry_run: options.dry_run,
-                capture_output: true,
+                capture_output: output_callback.is_none(),
                 ..Default::default()
             };
 
             let step_start = Instant::now();
-            let result =
-                match execute_step(step, project_root, context, global_env, &exec_options, None) {
-                    Ok(result) => result,
-                    Err(e) => {
-                        warn!("Step '{}' errored: {}", step_name, e);
-                        StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
-                    }
-                };
+            let result = match execute_step(
+                step,
+                project_root,
+                context,
+                global_env,
+                &exec_options,
+                output_callback,
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!("Step '{}' errored: {}", step_name, e);
+                    StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
+                }
+            };
 
-            let duration = format_duration(result.duration);
+            let duration_str = format_duration(result.duration);
             match result.status() {
                 StepStatus::Completed => {
-                    spinner.finish_success(&format!("{} ({})", step_name, duration));
+                    spinner.finish_success(&format!("{} ({})", step_name, duration_str));
                 }
                 StepStatus::Failed => {
-                    spinner.finish_error(&format!("Failed ({})", duration));
+                    spinner.finish_error(&format!("Failed ({})", duration_str));
+
+                    // Show error block with command, combined output, and hint
+                    let mut output_parts = Vec::new();
                     if let Some(ref err) = result.error {
-                        ui.message(&format!("        {}", err));
+                        output_parts.push(err.as_str());
                     }
                     if let Some(ref output) = result.output {
                         let trimmed = output.trim();
                         if !trimmed.is_empty() {
-                            for line in trimmed.lines() {
-                                ui.message(&format!("        {}", line));
-                            }
+                            output_parts.push(trimmed);
                         }
                     }
+                    let combined_output = output_parts.join("\n");
+                    ui.show_error_block(&step.command, &combined_output, None);
                 }
                 StepStatus::Skipped => {
                     spinner.finish_skipped("Skipped");
                 }
                 _ => {}
             }
+
+            // Update progress bar
+            ui.show_workflow_progress(index + 1, total, start.elapsed());
 
             let status = result.status();
 
@@ -458,6 +531,9 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
         }
+
+        // Finish progress bar
+        ui.finish_workflow_progress();
 
         Ok(WorkflowResult {
             workflow: workflow_name.to_string(),
@@ -972,7 +1048,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // User declines re-run
-        ui.set_prompt_response("rerun_install", "false");
+        ui.set_prompt_response("rerun_install", "no");
 
         let result = runner
             .run_with_ui(
@@ -1027,7 +1103,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // User confirms re-run
-        ui.set_prompt_response("rerun_install", "true");
+        ui.set_prompt_response("rerun_install", "yes");
 
         let result = runner
             .run_with_ui(
@@ -1178,7 +1254,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // User confirms both the run prompt (default yes) and sensitive prompt
-        ui.set_prompt_response("sensitive_deploy", "true");
+        ui.set_prompt_response("sensitive_deploy", "yes");
 
         let result = runner
             .run_with_ui(
@@ -1225,7 +1301,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // User declines
-        ui.set_prompt_response("sensitive_deploy", "false");
+        ui.set_prompt_response("sensitive_deploy", "no");
 
         let result = runner.run_with_ui(
             &options,
@@ -1885,7 +1961,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
-        ui.set_prompt_response("run_optional", "false");
+        ui.set_prompt_response("run_optional", "no");
 
         let result = runner
             .run_with_ui(
@@ -2023,7 +2099,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // User confirms re-run
-        ui.set_prompt_response("rerun_install", "true");
+        ui.set_prompt_response("rerun_install", "yes");
 
         let result = runner
             .run_with_ui(

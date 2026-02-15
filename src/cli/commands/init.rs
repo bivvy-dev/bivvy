@@ -5,15 +5,16 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::cli::args::InitArgs;
+use crate::cli::args::{InitArgs, RunArgs};
 use crate::config::CompletedCheck;
 use crate::detection::DetectionRunner;
 use crate::error::Result;
 use crate::registry::builtin::BuiltinLoader;
 use crate::registry::template::Template;
-use crate::ui::{Prompt, PromptOption, PromptResult, PromptType, UserInterface};
+use crate::ui::{hints, Prompt, PromptOption, PromptResult, PromptType, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
+use super::run::RunCommand;
 
 /// The init command implementation.
 pub struct InitCommand {
@@ -260,9 +261,37 @@ impl Command for InitCommand {
         self.update_gitignore(ui)?;
 
         ui.success("Created .bivvy/config.yml");
-        ui.message("\nNext steps:");
-        ui.message("  1. Review .bivvy/config.yml and adjust as needed");
-        ui.message("  2. Run `bivvy` to set up your environment");
+
+        // Offer to run setup immediately (interactive only)
+        if ui.is_interactive() {
+            let prompt = Prompt {
+                key: "run_after_init".to_string(),
+                question: "Run setup now?".to_string(),
+                prompt_type: PromptType::Select {
+                    options: vec![
+                        PromptOption {
+                            label: "Yes".to_string(),
+                            value: "yes".to_string(),
+                        },
+                        PromptOption {
+                            label: "No".to_string(),
+                            value: "no".to_string(),
+                        },
+                    ],
+                },
+                default: Some("yes".to_string()),
+            };
+
+            if let Ok(PromptResult::String(answer)) = ui.prompt(&prompt) {
+                if answer == "yes" {
+                    ui.message("");
+                    let run_cmd = RunCommand::new(&self.project_root, RunArgs::default());
+                    return run_cmd.execute(ui);
+                }
+            }
+        }
+
+        ui.show_hint(hints::after_init());
 
         Ok(CommandResult::success())
     }
@@ -514,6 +543,7 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_prompt_response("run_after_init", "no");
 
         let result = cmd.execute(&mut ui).unwrap();
 
@@ -533,7 +563,7 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
         let mut ui = MockUI::new();
         ui.set_interactive(true);
-        // Don't set a response — MockUI falls back to default, which has all values
+        ui.set_prompt_response("run_after_init", "no");
 
         let result = cmd.execute(&mut ui).unwrap();
 
@@ -552,6 +582,7 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_prompt_response("run_after_init", "no");
 
         cmd.execute(&mut ui).unwrap();
 
@@ -570,6 +601,7 @@ mod tests {
         ui.set_interactive(true);
         // Only select cargo, not bundler
         ui.set_prompt_response("init_steps", "cargo");
+        ui.set_prompt_response("run_after_init", "no");
 
         let result = cmd.execute(&mut ui).unwrap();
 
@@ -581,5 +613,66 @@ mod tests {
         assert!(!config.contains("  bundler:\n    template: bundler\n"));
         // Workflow should only list cargo
         assert!(config.contains("steps: [cargo]"));
+    }
+
+    #[test]
+    fn init_interactive_prompts_run_after_init() {
+        let temp = TempDir::new().unwrap();
+
+        let args = InitArgs {
+            minimal: true,
+            ..Default::default()
+        };
+        let cmd = InitCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("run_after_init", "no");
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        assert!(ui.prompts_shown().contains(&"run_after_init".to_string()));
+        // Should show hint when user declines
+        assert!(ui.has_hint("bivvy run"));
+    }
+
+    #[test]
+    fn init_non_interactive_skips_run_prompt() {
+        let temp = TempDir::new().unwrap();
+
+        let args = InitArgs {
+            minimal: true,
+            ..Default::default()
+        };
+        let cmd = InitCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        // Non-interactive (default for MockUI)
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        // Should NOT prompt for run_after_init
+        assert!(!ui.prompts_shown().contains(&"run_after_init".to_string()));
+        // Should show hint instead
+        assert!(ui.has_hint("bivvy run"));
+    }
+
+    #[test]
+    fn init_interactive_yes_runs_workflow() {
+        let temp = TempDir::new().unwrap();
+
+        let args = InitArgs {
+            minimal: true,
+            ..Default::default()
+        };
+        let cmd = InitCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("run_after_init", "yes");
+
+        // The run may succeed or fail depending on template availability,
+        // but the prompt should have been shown and the run attempted.
+        let _result = cmd.execute(&mut ui);
+        assert!(ui.prompts_shown().contains(&"run_after_init".to_string()));
     }
 }

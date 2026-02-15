@@ -3,24 +3,42 @@
 use console::Style;
 
 /// Bivvy's visual theme.
+///
+/// See `src/ui/README.md` for color and typography norms.
 #[derive(Debug, Clone)]
 pub struct BivvyTheme {
-    /// Style for success messages.
+    /// Style for success messages (green).
     pub success: Style,
-    /// Style for warning messages.
+    /// Style for warning messages (orange).
     pub warning: Style,
-    /// Style for error messages.
+    /// Style for error messages (red bold).
     pub error: Style,
-    /// Style for informational messages.
+    /// Style for informational/running elements (fuchsia/magenta).
     pub info: Style,
     /// Style for dim/secondary text.
     pub dim: Style,
-    /// Style for highlighted/important text.
+    /// Style for highlighted/important text (bold).
     pub highlight: Style,
-    /// Style for step titles.
+    /// Style for step titles (bold).
     pub step_title: Style,
-    /// Style for headers.
+    /// Style for headers (fuchsia bold).
     pub header: Style,
+    /// Style for step numbers and counters (dim).
+    pub step_number: Style,
+    /// Style for durations and timestamps (dim).
+    pub duration: Style,
+    /// Style for commands shown in output (dim italic).
+    pub command: Style,
+    /// Style for box-drawing borders (dim).
+    pub border: Style,
+    /// Style for contextual hints (fuchsia dim).
+    pub hint: Style,
+    /// Style for key labels in key-value displays (bold).
+    pub key: Style,
+    /// Style for values in key-value displays (normal).
+    pub value: Style,
+    /// Style for blocked status (orange).
+    pub blocked: Style,
 }
 
 impl Default for BivvyTheme {
@@ -34,13 +52,21 @@ impl BivvyTheme {
     pub fn new() -> Self {
         Self {
             success: Style::new().green(),
-            warning: Style::new().yellow(),
+            warning: Style::new().color256(208),
             error: Style::new().red().bold(),
-            info: Style::new().cyan(),
+            info: Style::new().magenta(),
             dim: Style::new().dim(),
             highlight: Style::new().bold(),
             step_title: Style::new().bold(),
             header: Style::new().bold().magenta(),
+            step_number: Style::new().dim(),
+            duration: Style::new().dim(),
+            command: Style::new().dim().italic(),
+            border: Style::new().dim(),
+            hint: Style::new().magenta().dim(),
+            key: Style::new().bold(),
+            value: Style::new(),
+            blocked: Style::new().color256(208),
         }
     }
 
@@ -55,6 +81,14 @@ impl BivvyTheme {
             highlight: Style::new(),
             step_title: Style::new(),
             header: Style::new(),
+            step_number: Style::new(),
+            duration: Style::new(),
+            command: Style::new(),
+            border: Style::new(),
+            hint: Style::new(),
+            key: Style::new(),
+            value: Style::new(),
+            blocked: Style::new(),
         }
     }
 
@@ -178,5 +212,32 @@ mod tests {
         let new = BivvyTheme::new();
         // Both should produce the same formatted output
         assert_eq!(default.format_success("test"), new.format_success("test"));
+    }
+
+    #[test]
+    fn new_theme_slots_exist() {
+        let theme = BivvyTheme::new();
+        // Verify the new style slots can be used without panic
+        let _ = theme.step_number.apply_to("[2/7]");
+        let _ = theme.duration.apply_to("1.2s");
+        let _ = theme.command.apply_to("npm install");
+        let _ = theme.border.apply_to("│");
+        let _ = theme.hint.apply_to("Run bivvy status");
+        let _ = theme.key.apply_to("Workflow:");
+        let _ = theme.value.apply_to("default");
+        let _ = theme.blocked.apply_to("⊘");
+    }
+
+    #[test]
+    fn plain_theme_new_slots_exist() {
+        let theme = BivvyTheme::plain();
+        let _ = theme.step_number.apply_to("[2/7]");
+        let _ = theme.duration.apply_to("1.2s");
+        let _ = theme.command.apply_to("npm install");
+        let _ = theme.border.apply_to("│");
+        let _ = theme.hint.apply_to("Run bivvy status");
+        let _ = theme.key.apply_to("Workflow:");
+        let _ = theme.value.apply_to("default");
+        let _ = theme.blocked.apply_to("⊘");
     }
 }

@@ -2,12 +2,14 @@
 
 use console::Term;
 use std::io::Write;
+use std::time::Duration;
 
 use crate::error::Result;
 
+use super::progress::format_duration;
 use super::{
     prompt_user, should_use_colors, BivvyTheme, NonInteractiveUI, OutputMode, ProgressSpinner,
-    Prompt, PromptResult, SpinnerHandle, UserInterface,
+    Prompt, PromptResult, RunSummary, SpinnerHandle, UserInterface,
 };
 
 /// Interactive terminal UI implementation.
@@ -104,6 +106,166 @@ impl UserInterface for TerminalUI {
 
     fn set_output_mode(&mut self, mode: OutputMode) {
         self.mode = mode;
+    }
+
+    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
+        if self.mode.shows_status() {
+            let step_label = if step_count == 1 { "step" } else { "steps" };
+            writeln!(
+                self.term,
+                "\n{} {} {} {} {}\n",
+                self.theme.header.apply_to("⛺"),
+                self.theme.highlight.apply_to(app_name),
+                self.theme.dim.apply_to("·"),
+                self.theme.dim.apply_to(format!("{} workflow", workflow)),
+                self.theme
+                    .dim
+                    .apply_to(format!("· {} {}", step_count, step_label)),
+            )
+            .ok();
+        }
+    }
+
+    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
+        if self.mode.shows_status() {
+            let filled = if total > 0 { (current * 16) / total } else { 0 };
+            let empty = 16 - filled;
+            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty),);
+            writeln!(
+                self.term,
+                "  {} {}/{} steps {} {}",
+                self.theme.info.apply_to(format!("[{}]", bar)),
+                current,
+                total,
+                self.theme.dim.apply_to("·"),
+                self.theme
+                    .duration
+                    .apply_to(format!("{} elapsed", format_duration(elapsed))),
+            )
+            .ok();
+        }
+    }
+
+    fn show_hint(&mut self, hint: &str) {
+        if self.mode.shows_status() {
+            writeln!(self.term, "  {}", self.theme.hint.apply_to(hint)).ok();
+            writeln!(self.term).ok();
+        }
+    }
+
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        let b = &self.theme.border;
+        let top = format!(
+            "    {} {}",
+            b.apply_to("┌─"),
+            b.apply_to("Command ──────────────────────────")
+        );
+        let cmd_line = format!(
+            "    {} {}",
+            b.apply_to("│"),
+            self.theme.command.apply_to(command)
+        );
+        writeln!(self.term, "{}", top).ok();
+        writeln!(self.term, "{}", cmd_line).ok();
+
+        if !output.is_empty() {
+            writeln!(
+                self.term,
+                "    {} {}",
+                b.apply_to("├─"),
+                b.apply_to("Output ───────────────────────────")
+            )
+            .ok();
+            for line in output.lines() {
+                writeln!(self.term, "    {} {}", b.apply_to("│"), line).ok();
+            }
+        }
+
+        writeln!(
+            self.term,
+            "    {}",
+            b.apply_to("└────────────────────────────────────")
+        )
+        .ok();
+
+        if let Some(h) = hint {
+            writeln!(self.term).ok();
+            writeln!(
+                self.term,
+                "    {} {}",
+                self.theme.hint.apply_to("Hint:"),
+                self.theme.hint.apply_to(h)
+            )
+            .ok();
+        }
+    }
+
+    fn show_run_summary(&mut self, summary: &RunSummary) {
+        if !self.mode.shows_status() {
+            return;
+        }
+
+        let b = &self.theme.border;
+
+        writeln!(self.term).ok();
+        writeln!(
+            self.term,
+            "  {} {}",
+            b.apply_to("┌─"),
+            b.apply_to("Summary ──────────────────────────")
+        )
+        .ok();
+
+        for step in &summary.step_results {
+            let icon = step.status.styled(&self.theme);
+            let duration_str = step.duration.map(format_duration).unwrap_or_default();
+            let detail_str = step.detail.as_deref().unwrap_or("");
+
+            let right_side = if !duration_str.is_empty() {
+                self.theme.duration.apply_to(duration_str).to_string()
+            } else if !detail_str.is_empty() {
+                self.theme.dim.apply_to(detail_str).to_string()
+            } else {
+                String::new()
+            };
+
+            writeln!(
+                self.term,
+                "  {} {} {:<20} {}",
+                b.apply_to("│"),
+                icon,
+                step.name,
+                right_side,
+            )
+            .ok();
+        }
+
+        // Footer
+        writeln!(
+            self.term,
+            "  {}",
+            b.apply_to("├────────────────────────────────────")
+        )
+        .ok();
+        writeln!(
+            self.term,
+            "  {} Total: {} {} {} run {} {} skipped",
+            b.apply_to("│"),
+            self.theme
+                .duration
+                .apply_to(format_duration(summary.total_duration)),
+            self.theme.dim.apply_to("·"),
+            summary.steps_run,
+            self.theme.dim.apply_to("·"),
+            summary.steps_skipped,
+        )
+        .ok();
+        writeln!(
+            self.term,
+            "  {}",
+            b.apply_to("└────────────────────────────────────")
+        )
+        .ok();
     }
 }
 

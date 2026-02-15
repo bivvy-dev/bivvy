@@ -17,6 +17,8 @@
 //! ui.success("Setup complete!");
 //! ```
 
+pub mod hints;
+pub mod icons;
 pub mod mock;
 pub mod non_interactive;
 pub mod output;
@@ -28,6 +30,7 @@ pub mod table;
 pub mod terminal;
 pub mod theme;
 
+pub use icons::StatusKind;
 pub use mock::{MockSpinner, MockUI};
 pub use non_interactive::NonInteractiveUI;
 pub use output::{Output, OutputMode};
@@ -39,7 +42,10 @@ pub use table::Table;
 pub use terminal::{create_ui, TerminalUI};
 pub use theme::{should_use_colors, BivvyTheme};
 
+use std::time::Duration;
+
 use crate::error::Result;
+use indicatif::ProgressBar;
 
 /// Trait for user interface interactions.
 ///
@@ -83,6 +89,82 @@ pub trait UserInterface {
 
     /// Change the output mode at runtime.
     fn set_output_mode(&mut self, mode: OutputMode);
+
+    /// Show a rich run header with app name, workflow, and step count.
+    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
+        let _ = (workflow, step_count);
+        self.show_header(app_name);
+    }
+
+    /// Show/update workflow progress bar.
+    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
+        let _ = elapsed;
+        self.show_progress(current, total);
+    }
+
+    /// Finish and remove the workflow progress bar.
+    fn finish_workflow_progress(&mut self) {}
+
+    /// Show a contextual hint to the user.
+    fn show_hint(&mut self, hint: &str) {
+        self.message(hint);
+    }
+
+    /// Show a bordered error block with command, output, and optional hint.
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        self.error(command);
+        if !output.is_empty() {
+            self.message(output);
+        }
+        if let Some(h) = hint {
+            self.show_hint(h);
+        }
+    }
+
+    /// Show a run summary with step results.
+    fn show_run_summary(&mut self, summary: &RunSummary) {
+        if summary.success {
+            self.success(&format!(
+                "Setup complete! ({} run, {} skipped)",
+                summary.steps_run, summary.steps_skipped
+            ));
+        } else {
+            self.error(&format!(
+                "Setup failed at: {}",
+                summary.failed_steps.join(", ")
+            ));
+        }
+    }
+}
+
+/// Summary of a workflow run, used by `show_run_summary`.
+#[derive(Debug, Clone)]
+pub struct RunSummary {
+    /// Per-step results in execution order.
+    pub step_results: Vec<StepSummary>,
+    /// Total run duration.
+    pub total_duration: Duration,
+    /// Number of steps that ran.
+    pub steps_run: usize,
+    /// Number of steps skipped.
+    pub steps_skipped: usize,
+    /// Whether all steps succeeded.
+    pub success: bool,
+    /// Names of failed steps.
+    pub failed_steps: Vec<String>,
+}
+
+/// Summary of a single step's result.
+#[derive(Debug, Clone)]
+pub struct StepSummary {
+    /// Step name.
+    pub name: String,
+    /// Step status.
+    pub status: StatusKind,
+    /// How long the step took.
+    pub duration: Option<Duration>,
+    /// Additional context (e.g., "already complete").
+    pub detail: Option<String>,
 }
 
 /// Handle for controlling a spinner.
@@ -98,6 +180,15 @@ pub trait SpinnerHandle {
 
     /// Mark as skipped.
     fn finish_skipped(&mut self, msg: &str);
+
+    /// Get a clone of the underlying progress bar, if available.
+    ///
+    /// This is used for live output streaming: the cloned bar can be shared
+    /// with an `OutputCallback` to update the spinner message in real-time.
+    /// Returns `None` for mock/hidden spinners.
+    fn progress_bar(&self) -> Option<ProgressBar> {
+        None
+    }
 }
 
 /// A prompt to show to the user.

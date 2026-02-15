@@ -12,7 +12,7 @@ use crate::registry::Registry;
 use crate::runner::{RunOptions, SkipBehavior, WorkflowRunner};
 use crate::state::{ProjectId, RunHistoryBuilder, StateStore};
 use crate::steps::ResolvedStep;
-use crate::ui::{OutputMode, UserInterface};
+use crate::ui::{hints, OutputMode, RunSummary, StatusKind, StepSummary, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -104,7 +104,15 @@ impl Command for RunCommand {
 
         // Show header
         let app_name = config.app_name.as_deref().unwrap_or("project");
-        ui.show_header(&format!("Setting up {}", app_name));
+        let workflow_name = &self.args.workflow;
+
+        // Count steps in workflow for header
+        let step_count = config
+            .workflows
+            .get(workflow_name.as_str())
+            .map(|w| w.steps.len())
+            .unwrap_or(0);
+        ui.show_run_header(app_name, workflow_name, step_count);
 
         // Show config path in verbose mode
         if self.args.dry_run || ui.output_mode() == OutputMode::Verbose {
@@ -129,7 +137,6 @@ impl Command for RunCommand {
         let steps = self.resolve_steps(&config)?;
 
         // Check if workflow exists
-        let workflow_name = &self.args.workflow;
         if !config.workflows.contains_key(workflow_name) {
             ui.error(&format!("Unknown workflow: {}", workflow_name));
             return Ok(CommandResult::failure(1));
@@ -192,27 +199,52 @@ impl Command for RunCommand {
             state.save(&project_id)?;
         }
 
-        // Report result
+        // Build and show run summary
         let steps_run = result.steps.len();
         let steps_skipped = result.skipped.len();
+        let failed_steps: Vec<String> = result
+            .steps
+            .iter()
+            .filter(|s| !s.success && !s.skipped)
+            .map(|s| s.name.clone())
+            .collect();
 
+        let step_results: Vec<StepSummary> = result
+            .steps
+            .iter()
+            .map(|s| StepSummary {
+                name: s.name.clone(),
+                status: StatusKind::from(s.status()),
+                duration: if s.duration.as_millis() > 0 {
+                    Some(s.duration)
+                } else {
+                    None
+                },
+                detail: if s.skipped {
+                    Some("already complete".to_string())
+                } else {
+                    None
+                },
+            })
+            .collect();
+
+        let summary = RunSummary {
+            step_results,
+            total_duration: result.duration,
+            steps_run,
+            steps_skipped,
+            success: result.success,
+            failed_steps: failed_steps.clone(),
+        };
+
+        ui.show_run_summary(&summary);
+
+        // Show contextual hint
         if result.success {
-            let run_label = if steps_run == 1 { "step" } else { "steps" };
-            let msg = format!(
-                "Setup complete! ({} {} run, {} skipped)",
-                steps_run, run_label, steps_skipped
-            );
-            ui.success(&msg);
+            ui.show_hint(hints::after_successful_run());
             Ok(CommandResult::success())
         } else {
-            let failed_steps: Vec<_> = result
-                .steps
-                .iter()
-                .filter(|s| !s.success)
-                .map(|s| s.name.as_str())
-                .collect();
-            let msg = format!("Setup failed at: {}", failed_steps.join(", "));
-            ui.error(&msg);
+            ui.show_hint(&hints::after_failed_run(&failed_steps));
             Ok(CommandResult::failure(1))
         }
     }
@@ -415,7 +447,7 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        // Command outputs via ui.success() directly
+        // show_run_summary default impl calls ui.success()
         assert!(ui.has_success("Setup complete!"));
     }
 
@@ -437,8 +469,8 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        // With 1 step, should say "step" not "steps"
-        assert!(ui.has_success("1 step run"));
+        // With 1 step, summary shows "1 run"
+        assert!(ui.has_success("1 run"));
     }
 
     #[test]
@@ -461,8 +493,8 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        // With 2 steps, should say "steps"
-        assert!(ui.has_success("2 steps run"));
+        // With 2 steps, summary shows "2 run"
+        assert!(ui.has_success("2 run"));
     }
 
     #[test]

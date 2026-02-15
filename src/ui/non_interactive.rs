@@ -1,11 +1,16 @@
 //! Non-interactive UI for CI/headless environments.
 
 use std::collections::HashMap;
+use std::time::Duration;
 
 use crate::error::{BivvyError, Result};
 
+use super::progress::format_duration;
 use super::theme::BivvyTheme;
-use super::{OutputMode, Prompt, PromptResult, PromptType, SpinnerHandle, UserInterface};
+use super::{
+    OutputMode, Prompt, PromptResult, PromptType, RunSummary, SpinnerHandle, StatusKind,
+    UserInterface,
+};
 
 /// UI implementation for non-interactive mode.
 pub struct NonInteractiveUI {
@@ -118,6 +123,99 @@ impl UserInterface for NonInteractiveUI {
     fn show_progress(&mut self, current: usize, total: usize) {
         if self.mode.shows_status() {
             println!("[{}/{}]", current, total);
+        }
+    }
+
+    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
+        if self.mode.shows_status() {
+            let step_label = if step_count == 1 { "step" } else { "steps" };
+            println!(
+                "\n⛺ {} · {} workflow · {} {}\n",
+                app_name, workflow, step_count, step_label
+            );
+        }
+    }
+
+    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
+        if self.mode.shows_status() {
+            let filled = if total > 0 { (current * 16) / total } else { 0 };
+            let empty = 16 - filled;
+            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
+            println!(
+                "  [{}] {}/{} steps · {} elapsed",
+                bar,
+                current,
+                total,
+                format_duration(elapsed),
+            );
+        }
+    }
+
+    fn show_hint(&mut self, hint: &str) {
+        if self.mode.shows_status() {
+            println!("  💡 {}", hint);
+        }
+    }
+
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        eprintln!();
+        eprintln!("    ┌─ Command ──────────────────────────");
+        eprintln!("    │ {}", command);
+        if !output.is_empty() {
+            eprintln!("    ├─ Output ───────────────────────────");
+            for line in output.lines() {
+                eprintln!("    │ {}", line);
+            }
+        }
+        eprintln!("    └────────────────────────────────────");
+        if let Some(h) = hint {
+            eprintln!();
+            eprintln!("    Hint: {}", h);
+        }
+    }
+
+    fn show_run_summary(&mut self, summary: &RunSummary) {
+        if !self.mode.shows_status() {
+            return;
+        }
+
+        println!();
+        println!("  ┌─ Summary ──────────────────────────");
+
+        for step in &summary.step_results {
+            let icon = step.status.icon();
+            let duration_str = step.duration.map(format_duration).unwrap_or_default();
+            let detail_str = step.detail.as_deref().unwrap_or("");
+
+            let right_side = if !duration_str.is_empty() {
+                duration_str
+            } else if !detail_str.is_empty() {
+                detail_str.to_string()
+            } else {
+                String::new()
+            };
+
+            println!("  │ {} {:<20} {}", icon, step.name, right_side);
+        }
+
+        println!("  ├────────────────────────────────────");
+        println!(
+            "  │ Total: {} · {} run · {} skipped",
+            format_duration(summary.total_duration),
+            summary.steps_run,
+            summary.steps_skipped,
+        );
+        println!("  └────────────────────────────────────");
+
+        if summary.success {
+            println!("  ✓ Setup complete!");
+        } else {
+            let status = StatusKind::Failed;
+            eprintln!(
+                "  {} Setup failed: {}",
+                status.icon(),
+                summary.failed_steps.join(", ")
+            );
         }
     }
 

@@ -2,17 +2,17 @@
 //!
 //! The `bivvy status` command shows current setup status.
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use crate::cli::args::StatusArgs;
 use crate::config::load_merged_config;
 use crate::error::{BivvyError, Result};
 use crate::state::{ProjectId, StateStore, StepStatus};
-use crate::ui::{OutputMode, UserInterface};
+use crate::ui::theme::BivvyTheme;
+use crate::ui::{format_relative_time, hints, OutputMode, StatusKind, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
-use super::display;
 
 /// The status command implementation.
 pub struct StatusCommand {
@@ -63,48 +63,79 @@ impl Command for StatusCommand {
         // Load state
         let state = StateStore::load(&project_id)?;
 
-        // Show header
-        let app_name = config.app_name.as_deref().unwrap_or("Bivvy Setup");
-        ui.show_header(&format!("{} - Status", app_name));
+        let theme = BivvyTheme::new();
 
-        // Show last run info
+        // Show header: ⛺ AppName — Status
+        let app_name = config.app_name.as_deref().unwrap_or("Bivvy Setup");
+        ui.message(&format!(
+            "\n  {} {} {} {}\n",
+            theme.header.apply_to("⛺"),
+            theme.highlight.apply_to(app_name),
+            theme.dim.apply_to("—"),
+            theme.dim.apply_to("Status"),
+        ));
+
+        // Show last run info with relative time
         if let Some(last_run) = state.last_run_record() {
             ui.message(&format!(
-                "Last run: {} ({})",
-                last_run.timestamp.format("%Y-%m-%d %H:%M"),
-                last_run.workflow
+                "  {} {} {} {}",
+                theme.key.apply_to("Last run:"),
+                theme.dim.apply_to(format_relative_time(last_run.timestamp)),
+                theme.dim.apply_to("·"),
+                theme
+                    .dim
+                    .apply_to(format!("{} workflow", last_run.workflow)),
             ));
             ui.message("");
         }
 
         // Show step status
-        ui.message("Steps:");
-        let mut seen_statuses = HashSet::new();
+        ui.message(&format!("  {}", theme.key.apply_to("Steps:")));
 
-        if let Some(step_name) = &self.args.step {
-            // Show single step
-            let status = state
-                .get_step(step_name)
-                .map(|s| &s.status)
-                .unwrap_or(&StepStatus::NeverRun);
-            seen_statuses.insert(display::status_key(status));
-            display::show_step_status(ui, step_name, status);
-        } else {
-            // Show all steps
-            for step_name in config.steps.keys() {
-                let status = state
-                    .get_step(step_name)
-                    .map(|s| &s.status)
-                    .unwrap_or(&StepStatus::NeverRun);
-                seen_statuses.insert(display::status_key(status));
-                display::show_step_status(ui, step_name, status);
+        let step_names: Vec<&String> = if let Some(ref step_name) = self.args.step {
+            if config.steps.contains_key(step_name) {
+                vec![step_name]
+            } else {
+                ui.error(&format!("Unknown step: {}", step_name));
+                return Ok(CommandResult::failure(1));
             }
-        }
+        } else {
+            config.steps.keys().collect()
+        };
 
-        // Show legend for status indicators
-        if let Some(legend) = display::format_legend(&seen_statuses) {
-            ui.message("");
-            ui.message(&legend);
+        for step_name in &step_names {
+            let step_state = state.get_step(step_name);
+            let status = step_state.map(|s| s.status).unwrap_or(StepStatus::NeverRun);
+            let kind = StatusKind::from(status);
+
+            // Build the right-side info (duration or relative time)
+            let right_side = step_state
+                .and_then(|s| {
+                    if status == StepStatus::NeverRun {
+                        return None;
+                    }
+                    // Show duration if available, otherwise relative timestamp
+                    if let Some(ms) = s.duration_ms {
+                        let d = Duration::from_millis(ms);
+                        Some(
+                            theme
+                                .duration
+                                .apply_to(crate::ui::format_duration(d))
+                                .to_string(),
+                        )
+                    } else {
+                        s.last_run
+                            .map(|ts| theme.dim.apply_to(format_relative_time(ts)).to_string())
+                    }
+                })
+                .unwrap_or_default();
+
+            ui.message(&format!(
+                "    {} {:<20} {}",
+                kind.styled(&theme),
+                step_name,
+                right_side,
+            ));
         }
 
         // Show recommendations
@@ -120,12 +151,28 @@ impl Command for StatusCommand {
             .cloned()
             .collect();
 
-        if !never_run.is_empty() && never_run.len() < config.steps.len() {
+        let failed: Vec<_> = config
+            .steps
+            .keys()
+            .filter(|s| {
+                state
+                    .get_step(s)
+                    .map(|st| st.status == StepStatus::Failed)
+                    .unwrap_or(false)
+            })
+            .cloned()
+            .collect();
+
+        if !failed.is_empty() {
             ui.message("");
-            ui.message(&format!(
-                "Run `bivvy run --only={}` to run remaining steps",
-                never_run.join(",")
-            ));
+            ui.show_hint(&hints::after_failed_run(&failed));
+        } else if !never_run.is_empty() {
+            ui.message("");
+            if never_run.len() == config.steps.len() {
+                ui.show_hint(hints::all_steps_pending());
+            } else {
+                ui.show_hint(&hints::some_steps_pending(&never_run));
+            }
         }
 
         Ok(CommandResult::success())
@@ -231,14 +278,67 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        // Never-run steps should show [pending], not [--]
-        assert!(ui.messages().iter().any(|m| m.contains("[pending] hello")));
+        // Never-run steps should show ◌ icon (pending)
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("◌") && m.contains("hello")));
         // Should NOT use warning for pending steps
         assert!(!ui.warnings().iter().any(|m| m.contains("hello")));
     }
 
     #[test]
-    fn status_shows_legend() {
+    fn status_shows_header_with_app_name() {
+        let config = r#"
+app_name: MyApp
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // Should show app name in header
+        assert!(ui.messages().iter().any(|m| m.contains("MyApp")));
+        // Should show ⛺ tent icon
+        assert!(ui.messages().iter().any(|m| m.contains("⛺")));
+        // Should show "Status" label
+        assert!(ui.messages().iter().any(|m| m.contains("Status")));
+    }
+
+    #[test]
+    fn status_shows_hint_for_all_pending() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+  world:
+    command: echo world
+workflows:
+  default:
+    steps: [hello, world]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // All steps pending → hint to run setup
+        assert!(ui.hints().iter().any(|m| m.contains("bivvy run")));
+    }
+
+    #[test]
+    fn status_shows_steps_label() {
         let config = r#"
 app_name: Test
 steps:
@@ -255,10 +355,6 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        assert!(ui.messages().iter().any(|m| m.contains("Legend:")));
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("[pending] not yet run")));
+        assert!(ui.messages().iter().any(|m| m.contains("Steps:")));
     }
 }

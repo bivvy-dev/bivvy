@@ -25,7 +25,9 @@ use std::collections::HashMap;
 
 use crate::error::Result;
 
-use super::{OutputMode, Prompt, PromptResult, PromptType, SpinnerHandle, UserInterface};
+use super::{
+    OutputMode, Prompt, PromptResult, PromptType, RunSummary, SpinnerHandle, UserInterface,
+};
 
 /// Mock UI implementation for testing.
 ///
@@ -39,8 +41,12 @@ pub struct MockUI {
     warnings: Vec<String>,
     errors: Vec<String>,
     headers: Vec<String>,
+    hints: Vec<String>,
     progress: Vec<(usize, usize)>,
     spinners: Vec<String>,
+    run_headers: Vec<(String, String, usize)>,
+    error_blocks: Vec<(String, String, Option<String>)>,
+    summaries: Vec<RunSummary>,
     prompt_responses: HashMap<String, String>,
     prompts_shown: Vec<String>,
 }
@@ -106,6 +112,11 @@ impl MockUI {
         &self.headers
     }
 
+    /// Get all captured hints.
+    pub fn hints(&self) -> &[String] {
+        &self.hints
+    }
+
     /// Get all captured progress updates.
     pub fn progress(&self) -> &[(usize, usize)] {
         &self.progress
@@ -136,6 +147,36 @@ impl MockUI {
         self.errors.iter().any(|m| m.contains(msg))
     }
 
+    /// Check if a specific hint was shown.
+    pub fn has_hint(&self, msg: &str) -> bool {
+        self.hints.iter().any(|m| m.contains(msg))
+    }
+
+    /// Check if a specific warning was shown.
+    pub fn has_warning(&self, msg: &str) -> bool {
+        self.warnings.iter().any(|m| m.contains(msg))
+    }
+
+    /// Get all captured run headers as (app_name, workflow, step_count).
+    pub fn run_headers(&self) -> &[(String, String, usize)] {
+        &self.run_headers
+    }
+
+    /// Get all captured error blocks as (command, output, hint).
+    pub fn error_blocks(&self) -> &[(String, String, Option<String>)] {
+        &self.error_blocks
+    }
+
+    /// Get all captured run summaries.
+    pub fn summaries(&self) -> &[RunSummary] {
+        &self.summaries
+    }
+
+    /// Check if any summary was a success.
+    pub fn has_successful_summary(&self) -> bool {
+        self.summaries.iter().any(|s| s.success)
+    }
+
     /// Clear all captured interactions.
     pub fn clear(&mut self) {
         self.messages.clear();
@@ -143,8 +184,12 @@ impl MockUI {
         self.warnings.clear();
         self.errors.clear();
         self.headers.clear();
+        self.hints.clear();
         self.progress.clear();
         self.spinners.clear();
+        self.run_headers.clear();
+        self.error_blocks.clear();
+        self.summaries.clear();
         self.prompts_shown.clear();
     }
 }
@@ -223,8 +268,50 @@ impl UserInterface for MockUI {
         self.headers.push(title.to_string());
     }
 
+    fn show_hint(&mut self, hint: &str) {
+        self.hints.push(hint.to_string());
+    }
+
     fn show_progress(&mut self, current: usize, total: usize) {
         self.progress.push((current, total));
+    }
+
+    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
+        self.run_headers
+            .push((app_name.to_string(), workflow.to_string(), step_count));
+        self.headers.push(app_name.to_string());
+    }
+
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        self.error_blocks.push((
+            command.to_string(),
+            output.to_string(),
+            hint.map(|h| h.to_string()),
+        ));
+        self.errors.push(command.to_string());
+        if !output.is_empty() {
+            self.messages.push(output.to_string());
+        }
+        if let Some(h) = hint {
+            self.hints.push(h.to_string());
+        }
+    }
+
+    fn show_run_summary(&mut self, summary: &RunSummary) {
+        self.summaries.push(summary.clone());
+        // Also delegate to the default behavior for backward compatibility
+        if summary.success {
+            self.successes.push(format!(
+                "Setup complete! ({} run, {} skipped)",
+                summary.steps_run, summary.steps_skipped
+            ));
+        } else {
+            self.errors.push(format!(
+                "Setup failed ({} run, {} failed)",
+                summary.steps_run,
+                summary.failed_steps.len()
+            ));
+        }
     }
 
     fn is_interactive(&self) -> bool {
@@ -614,5 +701,151 @@ mod tests {
 
         ui.set_output_mode(OutputMode::Silent);
         assert_eq!(ui.output_mode(), OutputMode::Silent);
+    }
+
+    #[test]
+    fn mock_ui_captures_run_headers() {
+        let mut ui = MockUI::new();
+
+        ui.show_run_header("MyApp", "default", 7);
+
+        assert_eq!(ui.run_headers().len(), 1);
+        assert_eq!(
+            ui.run_headers()[0],
+            ("MyApp".to_string(), "default".to_string(), 7)
+        );
+        // Also delegates to headers for backward compat
+        assert!(ui.headers().contains(&"MyApp".to_string()));
+    }
+
+    #[test]
+    fn mock_ui_captures_error_blocks() {
+        let mut ui = MockUI::new();
+
+        ui.show_error_block(
+            "npm run build",
+            "Cannot find module 'webpack'",
+            Some("Run `npm install` first"),
+        );
+
+        assert_eq!(ui.error_blocks().len(), 1);
+        let (cmd, output, hint) = &ui.error_blocks()[0];
+        assert_eq!(cmd, "npm run build");
+        assert_eq!(output, "Cannot find module 'webpack'");
+        assert_eq!(hint.as_deref(), Some("Run `npm install` first"));
+        // Delegates to errors, messages, hints
+        assert!(ui.has_error("npm run build"));
+        assert!(ui.has_message("Cannot find module"));
+        assert!(ui.has_hint("npm install"));
+    }
+
+    #[test]
+    fn mock_ui_error_block_without_hint() {
+        let mut ui = MockUI::new();
+
+        ui.show_error_block("cargo build", "compilation error", None);
+
+        assert_eq!(ui.error_blocks().len(), 1);
+        assert!(ui.error_blocks()[0].2.is_none());
+        assert!(ui.hints().is_empty());
+    }
+
+    #[test]
+    fn mock_ui_error_block_empty_output_not_captured_as_message() {
+        let mut ui = MockUI::new();
+
+        ui.show_error_block("failing_cmd", "", None);
+
+        assert!(ui.messages().is_empty());
+        assert!(ui.has_error("failing_cmd"));
+    }
+
+    #[test]
+    fn mock_ui_captures_run_summaries() {
+        use crate::ui::{StatusKind, StepSummary};
+        use std::time::Duration;
+
+        let mut ui = MockUI::new();
+
+        let summary = RunSummary {
+            step_results: vec![StepSummary {
+                name: "install".to_string(),
+                status: StatusKind::Success,
+                duration: Some(Duration::from_secs(1)),
+                detail: None,
+            }],
+            total_duration: Duration::from_secs(1),
+            steps_run: 1,
+            steps_skipped: 0,
+            success: true,
+            failed_steps: vec![],
+        };
+
+        ui.show_run_summary(&summary);
+
+        assert_eq!(ui.summaries().len(), 1);
+        assert!(ui.has_successful_summary());
+        // Delegates to successes for backward compat
+        assert!(ui.has_success("Setup complete!"));
+    }
+
+    #[test]
+    fn mock_ui_failed_summary() {
+        use std::time::Duration;
+
+        let mut ui = MockUI::new();
+
+        let summary = RunSummary {
+            step_results: vec![],
+            total_duration: Duration::from_secs(5),
+            steps_run: 2,
+            steps_skipped: 0,
+            success: false,
+            failed_steps: vec!["build".to_string()],
+        };
+
+        ui.show_run_summary(&summary);
+
+        assert!(!ui.has_successful_summary());
+        assert!(ui.has_error("Setup failed"));
+    }
+
+    #[test]
+    fn mock_ui_has_warning_helper() {
+        let mut ui = MockUI::new();
+
+        ui.warning("Step may be outdated");
+
+        assert!(ui.has_warning("outdated"));
+        assert!(!ui.has_warning("missing"));
+    }
+
+    #[test]
+    fn mock_ui_clear_resets_new_fields() {
+        use std::time::Duration;
+
+        let mut ui = MockUI::new();
+
+        ui.show_run_header("App", "default", 3);
+        ui.show_error_block("cmd", "err", Some("hint"));
+        let summary = RunSummary {
+            step_results: vec![],
+            total_duration: Duration::from_secs(1),
+            steps_run: 1,
+            steps_skipped: 0,
+            success: true,
+            failed_steps: vec![],
+        };
+        ui.show_run_summary(&summary);
+
+        assert!(!ui.run_headers().is_empty());
+        assert!(!ui.error_blocks().is_empty());
+        assert!(!ui.summaries().is_empty());
+
+        ui.clear();
+
+        assert!(ui.run_headers().is_empty());
+        assert!(ui.error_blocks().is_empty());
+        assert!(ui.summaries().is_empty());
     }
 }
