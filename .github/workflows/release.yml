@@ -27,7 +27,7 @@ jobs:
     permissions:
       contents: write
     with:
-      tag: ${{ github.ref_name || inputs.tag }}
+      tag: ${{ inputs.tag || github.ref_name }}
 
   publish-packages:
     name: Publish Packages
@@ -35,7 +35,7 @@ jobs:
     uses: ./.github/workflows/publish-packages.yml
     secrets: inherit
     with:
-      tag: ${{ github.ref_name || inputs.tag }}
+      tag: ${{ inputs.tag || github.ref_name }}
 
   update-homebrew:
     name: Update Homebrew Formula
@@ -54,7 +54,7 @@ jobs:
 
       - name: Update formula SHA256 hashes
         env:
-          TAG: ${{ github.ref_name || inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           FORMULA="dist/homebrew/bivvy.rb"
           VERSION="${TAG#v}"
@@ -85,7 +85,7 @@ jobs:
 
       - name: Commit updated formula
         env:
-          TAG: ${{ github.ref_name || inputs.tag }}
+          TAG: ${{ inputs.tag || github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
