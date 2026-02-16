@@ -1,0 +1,20 @@
+name: brew-install
+description: "Install Homebrew package manager"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Homebrew"
+  description: "Install the Homebrew package manager"
+  command: '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"'
+  completed_check:
+    type: command_succeeds
+    command: "brew --version"
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zprofile
+    - ~/.bash_profile
+  note: "Homebrew is installed to /opt/homebrew (Apple Silicon) or /usr/local (Intel)"

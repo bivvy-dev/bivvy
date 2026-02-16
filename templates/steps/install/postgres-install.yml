@@ -1,0 +1,25 @@
+name: postgres-install
+description: "Install PostgreSQL"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install PostgreSQL"
+  description: "Install PostgreSQL database server and client tools"
+  command: |
+    if command -v brew > /dev/null 2>&1; then
+      brew install postgresql@16
+      brew services start postgresql@16
+    elif command -v apt-get > /dev/null 2>&1; then
+      sudo apt-get update && sudo apt-get install -y postgresql postgresql-client
+      sudo systemctl start postgresql
+    else
+      echo "Unsupported package manager. Install PostgreSQL manually." && exit 1
+    fi
+  completed_check:
+    type: command_succeeds
+    command: "pg_isready -q"
+
+environment_impact:
+  note: "PostgreSQL is installed as a system service"

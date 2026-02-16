@@ -246,6 +246,16 @@ mod tests {
             "cargo",
             "go",
             "swift",
+            // Install templates
+            "mise-install",
+            "mise-ruby",
+            "mise-node",
+            "mise-python",
+            "brew-install",
+            "rust-install",
+            "postgres-install",
+            "redis-install",
+            "docker-install",
         ];
         for name in &expected {
             assert!(

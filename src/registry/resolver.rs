@@ -298,6 +298,39 @@ step:
     }
 
     #[test]
+    fn install_templates_are_resolvable() {
+        let registry = Registry::new(None).unwrap();
+
+        let install_templates = [
+            "mise-install",
+            "mise-ruby",
+            "mise-node",
+            "mise-python",
+            "brew-install",
+            "rust-install",
+            "postgres-install",
+            "redis-install",
+            "docker-install",
+        ];
+
+        for name in install_templates {
+            let template = registry.get(name).unwrap_or_else(|| {
+                panic!("Install template '{}' not found in registry", name);
+            });
+            assert!(
+                template.step.command.is_some(),
+                "Install template '{}' has no command",
+                name
+            );
+            assert!(
+                template.step.completed_check.is_some(),
+                "Install template '{}' has no completed_check",
+                name
+            );
+        }
+    }
+
+    #[test]
     fn registry_detection_order() {
         let registry = Registry::new(None).unwrap();
         let order = registry.detection_order();

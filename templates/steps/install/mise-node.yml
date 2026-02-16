@@ -1,0 +1,19 @@
+name: mise-node
+description: "Install Node.js using mise"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Node.js"
+  description: "Install the project's Node.js version using mise"
+  command: "mise install node"
+  requires:
+    - mise
+  completed_check:
+    type: command_succeeds
+    command: "mise where node"
+
+environment_impact:
+  modifies_path: true
+  note: "Node.js is installed to mise's data directory and activated via shims"

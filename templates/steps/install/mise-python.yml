@@ -1,0 +1,19 @@
+name: mise-python
+description: "Install Python using mise"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Python"
+  description: "Install the project's Python version using mise"
+  command: "mise install python"
+  requires:
+    - mise
+  completed_check:
+    type: command_succeeds
+    command: "mise where python"
+
+environment_impact:
+  modifies_path: true
+  note: "Python is installed to mise's data directory and activated via shims"

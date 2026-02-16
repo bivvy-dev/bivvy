@@ -37,6 +37,10 @@ categories:
     description: "Swift ecosystem tools"
     templates: [swift]
 
+  - name: install
+    description: "Prerequisite installation templates"
+    templates: [mise-install, mise-ruby, mise-node, mise-python, brew-install, rust-install, postgres-install, redis-install, docker-install]
+
 detection_order:
   - brew
   - chocolatey

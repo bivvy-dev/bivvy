@@ -1,0 +1,20 @@
+name: mise-install
+description: "Install mise version manager"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install mise"
+  description: "Install the mise version manager for managing language runtimes"
+  command: "curl https://mise.run | sh"
+  completed_check:
+    type: command_succeeds
+    command: "mise --version"
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zshrc
+    - ~/.bashrc
+  note: "mise is installed to ~/.local/bin and may modify shell config"

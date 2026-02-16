@@ -1,0 +1,19 @@
+name: rust-install
+description: "Install Rust toolchain via rustup"
+category: install
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+step:
+  title: "Install Rust"
+  description: "Install the Rust toolchain using rustup"
+  command: "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y"
+  completed_check:
+    type: command_succeeds
+    command: "rustc --version"
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.cargo/env
+  note: "Rust is installed to ~/.cargo and adds ~/.cargo/bin to PATH"

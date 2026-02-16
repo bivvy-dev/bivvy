@@ -1,0 +1,26 @@
+name: docker-install
+description: "Install Docker"
+category: install
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+step:
+  title: "Install Docker"
+  description: "Install Docker Desktop or Docker Engine"
+  command: |
+    if [ "$(uname)" = "Darwin" ]; then
+      echo "Download Docker Desktop from https://www.docker.com/products/docker-desktop/"
+      echo "Docker Desktop must be installed manually on macOS."
+      exit 1
+    elif command -v apt-get > /dev/null 2>&1; then
+      curl -fsSL https://get.docker.com | sh
+    else
+      echo "Visit https://docs.docker.com/engine/install/ for installation instructions."
+      exit 1
+    fi
+  completed_check:
+    type: command_succeeds
+    command: "docker info"
+
+environment_impact:
+  note: "Docker runs as a system service"

@@ -1,0 +1,19 @@
+name: mise-ruby
+description: "Install Ruby using mise"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Ruby"
+  description: "Install the project's Ruby version using mise"
+  command: "mise install ruby"
+  requires:
+    - mise
+  completed_check:
+    type: command_succeeds
+    command: "mise where ruby"
+
+environment_impact:
+  modifies_path: true
+  note: "Ruby is installed to mise's data directory and activated via shims"
