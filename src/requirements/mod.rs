@@ -12,6 +12,7 @@
 //! - [`status`] - Requirement status types for gap detection results
 
 pub mod checker;
+pub mod installer;
 pub mod probe;
 pub mod registry;
 pub mod status;

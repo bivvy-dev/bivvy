@@ -11,7 +11,7 @@ use crate::config::schema::StepOverride;
 use crate::config::BivvyConfig;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
-use crate::requirements::status::RequirementStatus;
+use crate::requirements::installer;
 use crate::steps::{
     execute_step, run_check, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
 };
@@ -324,6 +324,7 @@ impl<'a> WorkflowRunner<'a> {
         }
 
         let interactive = ui.is_interactive() && !workflow_non_interactive;
+        let installer_ctx = installer::default_context();
 
         let mut results = Vec::new();
         let mut all_success = true;
@@ -382,61 +383,16 @@ impl<'a> WorkflowRunner<'a> {
                 };
                 let gaps = checker.check_step(step, provided);
                 if !gaps.is_empty() {
-                    let mut blocking_gaps = Vec::new();
-                    for gap in &gaps {
-                        match &gap.status {
-                            RequirementStatus::SystemOnly { warning, .. } => {
-                                ui.warning(warning);
-                            }
-                            RequirementStatus::Inactive {
-                                manager,
-                                activation_hint,
-                                ..
-                            } => {
-                                ui.warning(&format!(
-                                    "'{}' found via {} but not activated. {}",
-                                    gap.requirement, manager, activation_hint
-                                ));
-                            }
-                            RequirementStatus::ServiceDown { start_hint, .. } => {
-                                if interactive {
-                                    ui.warning(&format!(
-                                        "Service '{}' is not running. {}",
-                                        gap.requirement, start_hint
-                                    ));
-                                } else {
-                                    blocking_gaps.push(&gap.requirement);
-                                }
-                            }
-                            RequirementStatus::Missing { install_hint, .. } => {
-                                if interactive {
-                                    let hint =
-                                        install_hint.as_deref().unwrap_or("Install manually");
-                                    ui.warning(&format!(
-                                        "Missing requirement '{}'. {}",
-                                        gap.requirement, hint
-                                    ));
-                                } else {
-                                    blocking_gaps.push(&gap.requirement);
-                                }
-                            }
-                            RequirementStatus::Unknown => {
-                                blocking_gaps.push(&gap.requirement);
-                            }
-                            RequirementStatus::Satisfied => {}
-                        }
-                    }
-
-                    if !blocking_gaps.is_empty() {
-                        let names: Vec<_> = blocking_gaps.iter().map(|s| s.as_str()).collect();
-                        return Err(BivvyError::RequirementMissing {
-                            requirement: names.join(", "),
-                            message: format!(
-                                "Step '{}' requires: {}. Run 'bivvy lint' for details.",
-                                step_name,
-                                names.join(", ")
-                            ),
-                        });
+                    let can_proceed =
+                        installer::handle_gaps(&gaps, checker, ui, interactive, &installer_ctx)?;
+                    if !can_proceed {
+                        ui.message(&step_display);
+                        ui.message(&format!(
+                            "    {}",
+                            StatusKind::Skipped.format(&theme, "Skipped (requirement not met)")
+                        ));
+                        ui.show_workflow_progress(index + 1, total, start.elapsed());
+                        continue;
                     }
                 }
             }
