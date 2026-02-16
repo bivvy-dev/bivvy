@@ -20,7 +20,8 @@ pub use template_inputs::TemplateInputsRule;
 pub use undefined_dependency::UndefinedDependencyRule;
 pub use undefined_template::UndefinedTemplateRule;
 pub use valid_environments::{
-    CustomEnvironmentShadowsBuiltinRule, EnvironmentDefaultWorkflowMissingRule,
+    CustomEnvironmentShadowsBuiltinRule, EnvironmentCircularDependencyRule,
+    EnvironmentDefaultWorkflowMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
     UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule, UnreachableEnvironmentOverrideRule,
 };
 pub use valid_requires::{

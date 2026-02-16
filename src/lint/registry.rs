@@ -8,7 +8,8 @@ use std::collections::HashMap;
 use super::rule::{LintRule, RuleId};
 use super::rules::{
     AppNameRule, CircularDependencyRule, CustomEnvironmentShadowsBuiltinRule,
-    EnvironmentDefaultWorkflowMissingRule, RequiredFieldsRule, SelfDependencyRule,
+    EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule, RedundantEnvNullRule,
+    RedundantEnvironmentOverrideRule, RequiredFieldsRule, SelfDependencyRule,
     UndefinedDependencyRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
     UnreachableEnvironmentOverrideRule,
 };
@@ -43,6 +44,9 @@ impl RuleRegistry {
         registry.register(Box::new(EnvironmentDefaultWorkflowMissingRule));
         registry.register(Box::new(UnreachableEnvironmentOverrideRule));
         registry.register(Box::new(CustomEnvironmentShadowsBuiltinRule));
+        registry.register(Box::new(RedundantEnvironmentOverrideRule));
+        registry.register(Box::new(RedundantEnvNullRule));
+        registry.register(Box::new(EnvironmentCircularDependencyRule));
         registry
     }
 
@@ -151,8 +155,8 @@ mod tests {
     fn registry_with_builtins_has_rules() {
         let registry = RuleRegistry::with_builtins();
         assert!(!registry.is_empty());
-        // Should have at least 10 built-in rules
-        assert!(registry.len() >= 10);
+        // Should have at least 13 built-in rules
+        assert!(registry.len() >= 13);
         // Verify some specific rules are registered
         assert!(registry.get(&RuleId::new("app-name-format")).is_some());
         assert!(registry.get(&RuleId::new("required-fields")).is_some());
