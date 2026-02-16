@@ -39,6 +39,7 @@ pub mod error;
 pub mod feedback;
 pub mod lint;
 pub mod registry;
+pub mod requirements;
 pub mod runner;
 pub mod secrets;
 pub mod session;
