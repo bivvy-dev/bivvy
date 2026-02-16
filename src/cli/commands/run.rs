@@ -2,11 +2,13 @@
 //!
 //! The `bivvy run` command executes setup workflows.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::RunArgs;
 use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
+use crate::environment::detection::{BuiltinDetector, DetectRule};
+use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;
 use crate::requirements::checker::GapChecker;
@@ -59,7 +61,35 @@ impl RunCommand {
             skip_behavior,
             force: self.args.force.iter().cloned().collect(),
             dry_run: self.args.dry_run,
+            provided_requirements: HashSet::new(),
         }
+    }
+
+    /// Resolve the target environment using the priority chain.
+    fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
+        // Build custom detection rules from config environments
+        let mut custom_rules = std::collections::BTreeMap::new();
+        for (env_name, env_config) in &config.settings.environments {
+            if !env_config.detect.is_empty() {
+                let rules: Vec<DetectRule> = env_config
+                    .detect
+                    .iter()
+                    .map(|r| DetectRule {
+                        env: r.env.clone(),
+                        value: r.value.clone(),
+                    })
+                    .collect();
+                custom_rules.insert(env_name.clone(), rules);
+            }
+        }
+
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+
+        ResolvedEnvironment::resolve(
+            self.args.env.as_deref(),
+            config.settings.default_environment.as_deref(),
+            &detector,
+        )
     }
 
     /// Resolve steps from configuration.
@@ -116,19 +146,45 @@ impl Command for RunCommand {
             ui.set_output_mode(config.settings.default_output.into());
         }
 
+        // Resolve environment (before header so we can use resolved workflow)
+        let resolved_env = self.resolve_environment(&config);
+        let env_name = resolved_env.name.clone();
+
+        // Get provided_requirements from environment config
+        let provided_requirements: HashSet<String> = config
+            .settings
+            .environments
+            .get(&env_name)
+            .map(|env_config| env_config.provided_requirements.iter().cloned().collect())
+            .unwrap_or_default();
+
+        // Use environment's default_workflow if no explicit --workflow and config has one
+        let workflow_name = if self.args.workflow == "default" {
+            config
+                .settings
+                .environments
+                .get(&env_name)
+                .and_then(|env_config| env_config.default_workflow.clone())
+                .unwrap_or_else(|| self.args.workflow.clone())
+        } else {
+            self.args.workflow.clone()
+        };
+
         // Show header
         let app_name = config.app_name.as_deref().unwrap_or("project");
-        let workflow_name = &self.args.workflow;
-
-        // Count steps in workflow for header
         let step_count = config
             .workflows
             .get(workflow_name.as_str())
             .map(|w| w.steps.len())
             .unwrap_or(0);
-        ui.show_run_header(app_name, workflow_name, step_count);
+        ui.show_run_header(app_name, &workflow_name, step_count);
 
-        // Show config path in verbose mode
+        // Show environment and config info
+        ui.message(&format!(
+            "  Environment: {} ({})",
+            env_name, resolved_env.source
+        ));
+
         if self.args.dry_run || ui.output_mode() == OutputMode::Verbose {
             let paths = ConfigPaths::discover(&self.project_root);
             if let Some(project_path) = &paths.project {
@@ -147,11 +203,11 @@ impl Command for RunCommand {
         // Load state
         let mut state = StateStore::load(&project_id)?;
 
-        // Resolve steps
-        let steps = self.resolve_steps(&config, None)?;
+        // Resolve steps with environment
+        let steps = self.resolve_steps(&config, Some(&env_name))?;
 
         // Check if workflow exists
-        if !config.workflows.contains_key(workflow_name) {
+        if !config.workflows.contains_key(&workflow_name) {
             ui.error(&format!("Unknown workflow: {}", workflow_name));
             return Ok(CommandResult::failure(1));
         }
@@ -159,19 +215,21 @@ impl Command for RunCommand {
         // Extract workflow-level non_interactive setting
         let workflow_non_interactive = config
             .workflows
-            .get(workflow_name)
+            .get(&workflow_name)
             .and_then(|w| w.settings.as_ref())
             .is_some_and(|s| s.non_interactive);
 
         // Extract step overrides from workflow config
         let step_overrides = config
             .workflows
-            .get(workflow_name)
+            .get(&workflow_name)
             .map(|w| w.overrides.clone())
             .unwrap_or_default();
 
-        // Build run options
-        let options = self.build_options();
+        // Build run options with resolved workflow and provided requirements
+        let mut options = self.build_options();
+        options.workflow = Some(workflow_name.clone());
+        options.provided_requirements = provided_requirements;
 
         // Create runner
         let runner = WorkflowRunner::new(&config, steps);
@@ -186,7 +244,7 @@ impl Command for RunCommand {
         let global_env: HashMap<String, String> = std::env::vars().collect();
 
         // Start history recording
-        let mut history = RunHistoryBuilder::start(workflow_name);
+        let mut history = RunHistoryBuilder::start(&workflow_name);
 
         // Run the workflow with UI-driven interactive prompts
         let result = runner.run_with_ui(
@@ -695,6 +753,214 @@ workflows:
 
         // CLI flag should win, mode stays Verbose
         assert_eq!(ui.output_mode(), crate::ui::OutputMode::Verbose);
+    }
+
+    #[test]
+    fn build_options_has_empty_provided_requirements() {
+        let temp = TempDir::new().unwrap();
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let options = cmd.build_options();
+
+        assert!(options.provided_requirements.is_empty());
+    }
+
+    #[test]
+    fn resolve_environment_fallback_when_no_config() {
+        let temp = TempDir::new().unwrap();
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let config = crate::config::BivvyConfig::default();
+        let resolved = cmd.resolve_environment(&config);
+
+        assert_eq!(resolved.name, "development");
+        assert_eq!(
+            resolved.source,
+            crate::environment::resolver::EnvironmentSource::Fallback
+        );
+    }
+
+    #[test]
+    fn resolve_environment_uses_env_flag() {
+        let temp = TempDir::new().unwrap();
+        let args = RunArgs {
+            env: Some("staging".to_string()),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let config = crate::config::BivvyConfig::default();
+        let resolved = cmd.resolve_environment(&config);
+
+        assert_eq!(resolved.name, "staging");
+        assert_eq!(
+            resolved.source,
+            crate::environment::resolver::EnvironmentSource::Flag
+        );
+    }
+
+    #[test]
+    fn resolve_environment_uses_config_default() {
+        let temp = TempDir::new().unwrap();
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let mut config = crate::config::BivvyConfig::default();
+        config.settings.default_environment = Some("production".to_string());
+        let resolved = cmd.resolve_environment(&config);
+
+        assert_eq!(resolved.name, "production");
+        assert_eq!(
+            resolved.source,
+            crate::environment::resolver::EnvironmentSource::ConfigDefault
+        );
+    }
+
+    #[test]
+    fn resolve_environment_flag_overrides_config_default() {
+        let temp = TempDir::new().unwrap();
+        let args = RunArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let mut config = crate::config::BivvyConfig::default();
+        config.settings.default_environment = Some("production".to_string());
+        let resolved = cmd.resolve_environment(&config);
+
+        assert_eq!(resolved.name, "ci");
+        assert_eq!(
+            resolved.source,
+            crate::environment::resolver::EnvironmentSource::Flag
+        );
+    }
+
+    #[test]
+    fn execute_shows_environment_info() {
+        let config = r#"
+app_name: Test Project
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs {
+            env: Some("staging".to_string()),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("Environment:") && m.contains("staging")));
+    }
+
+    #[test]
+    fn execute_with_environment_default_workflow() {
+        let config = r#"
+app_name: Test Project
+settings:
+  environments:
+    ci:
+      default_workflow: quick
+steps:
+  hello:
+    command: echo hello
+  fast:
+    command: echo fast
+workflows:
+  default:
+    steps: [hello]
+  quick:
+    steps: [fast]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        // Should succeed using the "quick" workflow instead of "default"
+        assert!(result.success);
+    }
+
+    #[test]
+    fn execute_explicit_workflow_overrides_env_default() {
+        let config = r#"
+app_name: Test Project
+settings:
+  environments:
+    ci:
+      default_workflow: quick
+steps:
+  hello:
+    command: echo hello
+  fast:
+    command: echo fast
+workflows:
+  default:
+    steps: [hello]
+  quick:
+    steps: [fast]
+  custom:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs {
+            env: Some("ci".to_string()),
+            workflow: "custom".to_string(),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        // Should succeed using "custom" workflow, not "quick"
+        assert!(result.success);
+    }
+
+    #[test]
+    fn resolve_steps_with_environment_applies_overrides() {
+        let config_yaml = r#"
+app_name: test
+steps:
+  hello:
+    command: echo hello
+    environments:
+      ci:
+        command: echo ci-hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config_yaml);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        let config = load_merged_config(temp.path()).unwrap();
+
+        // Without environment
+        let steps = cmd.resolve_steps(&config, None).unwrap();
+        assert_eq!(steps.get("hello").unwrap().command, "echo hello");
+
+        // With ci environment
+        let steps = cmd.resolve_steps(&config, Some("ci")).unwrap();
+        assert_eq!(steps.get("hello").unwrap().command, "echo ci-hello");
     }
 
     #[test]

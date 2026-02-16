@@ -123,6 +123,10 @@ pub struct RunArgs {
     /// Alias for --non-interactive
     #[arg(long)]
     pub ci: bool,
+
+    /// Target environment (e.g., development, ci, staging)
+    #[arg(long, value_name = "ENV")]
+    pub env: Option<String>,
 }
 
 impl Default for RunArgs {
@@ -138,6 +142,7 @@ impl Default for RunArgs {
             dry_run: false,
             non_interactive: false,
             ci: false,
+            env: None,
         }
     }
 }
@@ -172,6 +177,10 @@ pub struct StatusArgs {
     /// Show status for specific step
     #[arg(long)]
     pub step: Option<String>,
+
+    /// Target environment (e.g., development, ci, staging)
+    #[arg(long, value_name = "ENV")]
+    pub env: Option<String>,
 }
 
 /// Arguments for the `list` command.
@@ -188,6 +197,10 @@ pub struct ListArgs {
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
+
+    /// Target environment (e.g., development, ci, staging)
+    #[arg(long, value_name = "ENV")]
+    pub env: Option<String>,
 }
 
 /// Arguments for the `last` command.

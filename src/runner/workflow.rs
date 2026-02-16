@@ -77,6 +77,8 @@ pub struct RunOptions {
     pub force: HashSet<String>,
     /// Dry run mode.
     pub dry_run: bool,
+    /// Requirements that are provided by the environment and should skip gap checks.
+    pub provided_requirements: HashSet<String>,
 }
 
 impl<'a> WorkflowRunner<'a> {
@@ -155,7 +157,12 @@ impl<'a> WorkflowRunner<'a> {
 
             // Check requirement gaps (non-UI: any blocking gap is an error)
             if let Some(ref mut checker) = gap_checker {
-                let gaps = checker.check_step(step, None);
+                let provided = if options.provided_requirements.is_empty() {
+                    None
+                } else {
+                    Some(&options.provided_requirements)
+                };
+                let gaps = checker.check_step(step, provided);
                 let blocking: Vec<_> = gaps
                     .iter()
                     .filter(|g| !g.status.is_satisfied() && !g.status.can_proceed())
@@ -322,7 +329,12 @@ impl<'a> WorkflowRunner<'a> {
 
             // Check requirement gaps before proceeding
             if let Some(ref mut checker) = gap_checker {
-                let gaps = checker.check_step(step, None);
+                let provided = if options.provided_requirements.is_empty() {
+                    None
+                } else {
+                    Some(&options.provided_requirements)
+                };
+                let gaps = checker.check_step(step, provided);
                 if !gaps.is_empty() {
                     let mut blocking_gaps = Vec::new();
                     for gap in &gaps {
