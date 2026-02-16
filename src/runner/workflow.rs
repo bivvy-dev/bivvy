@@ -79,6 +79,8 @@ pub struct RunOptions {
     pub dry_run: bool,
     /// Requirements that are provided by the environment and should skip gap checks.
     pub provided_requirements: HashSet<String>,
+    /// Active environment name for only_environments filtering.
+    pub active_environment: Option<String>,
 }
 
 impl<'a> WorkflowRunner<'a> {
@@ -120,11 +122,25 @@ impl<'a> WorkflowRunner<'a> {
         // Get execution order
         let order = graph.topological_order()?;
 
-        // Filter to only steps we'll run
+        // Filter by only_environments and --only/--skip
+        let mut env_skipped: Vec<String> = Vec::new();
         let steps_to_run: Vec<_> = order
             .iter()
             .filter(|s| !skipped.contains(*s))
             .filter(|s| options.only.is_empty() || options.only.contains(*s))
+            .filter(|s| {
+                if let Some(step) = self.steps.get(*s) {
+                    if !step.only_environments.is_empty() {
+                        if let Some(ref active_env) = options.active_environment {
+                            if !step.only_environments.iter().any(|e| e == active_env) {
+                                env_skipped.push(s.to_string());
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            })
             .cloned()
             .collect();
 
@@ -132,6 +148,9 @@ impl<'a> WorkflowRunner<'a> {
 
         // Report skipped steps
         for skip_name in &skipped {
+            on_progress(RunProgress::StepSkipped { name: skip_name });
+        }
+        for skip_name in &env_skipped {
             on_progress(RunProgress::StepSkipped { name: skip_name });
         }
 
@@ -220,10 +239,13 @@ impl<'a> WorkflowRunner<'a> {
             }
         }
 
+        let mut all_skipped: Vec<String> = skipped.into_iter().collect();
+        all_skipped.extend(env_skipped);
+
         Ok(WorkflowResult {
             workflow: workflow_name.to_string(),
             steps: results,
-            skipped: skipped.into_iter().collect(),
+            skipped: all_skipped,
             duration: start.elapsed(),
             success: all_success,
         })
@@ -258,11 +280,25 @@ impl<'a> WorkflowRunner<'a> {
         // Get execution order
         let order = graph.topological_order()?;
 
-        // Filter to only steps we'll run
+        // Filter by only_environments
+        let mut env_skipped: Vec<String> = Vec::new();
         let steps_to_run: Vec<_> = order
             .iter()
             .filter(|s| !skipped.contains(*s))
             .filter(|s| options.only.is_empty() || options.only.contains(*s))
+            .filter(|s| {
+                if let Some(step) = self.steps.get(*s) {
+                    if !step.only_environments.is_empty() {
+                        if let Some(ref active_env) = options.active_environment {
+                            if !step.only_environments.iter().any(|e| e == active_env) {
+                                env_skipped.push(s.to_string());
+                                return false;
+                            }
+                        }
+                    }
+                }
+                true
+            })
             .cloned()
             .collect();
 
@@ -274,6 +310,16 @@ impl<'a> WorkflowRunner<'a> {
             ui.message(&format!(
                 "    {}",
                 theme.format_skipped(&format!("{} skipped", skip_name))
+            ));
+        }
+        for skip_name in &env_skipped {
+            ui.message(&format!(
+                "    {}",
+                theme.format_skipped(&format!(
+                    "{} skipped (not in {} environment)",
+                    skip_name,
+                    options.active_environment.as_deref().unwrap_or("unknown")
+                ))
             ));
         }
 
@@ -635,10 +681,13 @@ impl<'a> WorkflowRunner<'a> {
         // Finish progress bar
         ui.finish_workflow_progress();
 
+        let mut all_skipped: Vec<String> = skipped.into_iter().collect();
+        all_skipped.extend(env_skipped);
+
         Ok(WorkflowResult {
             workflow: workflow_name.to_string(),
             steps: results,
-            skipped: skipped.into_iter().collect(),
+            skipped: all_skipped,
             duration: start.elapsed(),
             success: all_success,
         })
@@ -700,6 +749,7 @@ mod tests {
             sensitive: false,
             requires_sudo: false,
             requires: vec![],
+            only_environments: vec![],
         }
     }
 
@@ -976,6 +1026,7 @@ mod tests {
             sensitive: false,
             requires_sudo: false,
             requires: vec![],
+            only_environments: vec![],
         }
     }
 
@@ -2623,5 +2674,198 @@ mod tests {
         assert!(result.success);
         // No warnings should appear
         assert!(ui.warnings().is_empty());
+    }
+
+    #[test]
+    fn run_filters_only_environments() {
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [always, ci_only]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "always".to_string(),
+            make_step("always", "echo always", vec![]),
+        );
+        let mut ci_step = make_step("ci_only", "echo ci", vec![]);
+        ci_step.only_environments = vec!["ci".to_string()];
+        steps.insert("ci_only".to_string(), ci_step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions {
+            active_environment: Some("development".to_string()),
+            ..Default::default()
+        };
+        let ctx = crate::config::InterpolationContext::new();
+        let global_env = HashMap::new();
+        let temp = TempDir::new().unwrap();
+
+        let result = runner
+            .run(&options, &ctx, &global_env, temp.path())
+            .unwrap();
+
+        // ci_only should be skipped in development
+        assert_eq!(result.steps.len(), 1);
+        assert!(result.skipped.contains(&"ci_only".to_string()));
+    }
+
+    #[test]
+    fn run_includes_matching_only_environments() {
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [always, ci_only]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "always".to_string(),
+            make_step("always", "echo always", vec![]),
+        );
+        let mut ci_step = make_step("ci_only", "echo ci", vec![]);
+        ci_step.only_environments = vec!["ci".to_string()];
+        steps.insert("ci_only".to_string(), ci_step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions {
+            active_environment: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let ctx = crate::config::InterpolationContext::new();
+        let global_env = HashMap::new();
+        let temp = TempDir::new().unwrap();
+
+        let result = runner
+            .run(&options, &ctx, &global_env, temp.path())
+            .unwrap();
+
+        // ci_only should run in ci environment
+        assert_eq!(result.steps.len(), 2);
+        assert!(result.skipped.is_empty());
+    }
+
+    #[test]
+    fn run_empty_only_environments_runs_always() {
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [always]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        // Empty only_environments = run in all environments
+        let step = make_step("always", "echo always", vec![]);
+        assert!(step.only_environments.is_empty());
+        steps.insert("always".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions {
+            active_environment: Some("any_env".to_string()),
+            ..Default::default()
+        };
+        let ctx = crate::config::InterpolationContext::new();
+        let global_env = HashMap::new();
+        let temp = TempDir::new().unwrap();
+
+        let result = runner
+            .run(&options, &ctx, &global_env, temp.path())
+            .unwrap();
+
+        assert_eq!(result.steps.len(), 1);
+        assert!(result.skipped.is_empty());
+    }
+
+    #[test]
+    fn run_only_environments_skipped_steps_in_result() {
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [a, b, c]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert("a".to_string(), make_step("a", "echo a", vec![]));
+
+        let mut b = make_step("b", "echo b", vec![]);
+        b.only_environments = vec!["ci".to_string()];
+        steps.insert("b".to_string(), b);
+
+        let mut c = make_step("c", "echo c", vec![]);
+        c.only_environments = vec!["staging".to_string()];
+        steps.insert("c".to_string(), c);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions {
+            active_environment: Some("development".to_string()),
+            ..Default::default()
+        };
+        let ctx = crate::config::InterpolationContext::new();
+        let global_env = HashMap::new();
+        let temp = TempDir::new().unwrap();
+
+        let result = runner
+            .run(&options, &ctx, &global_env, temp.path())
+            .unwrap();
+
+        assert_eq!(result.steps.len(), 1);
+        assert_eq!(result.skipped.len(), 2);
+        assert!(result.skipped.contains(&"b".to_string()));
+        assert!(result.skipped.contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn run_with_progress_respects_only_environments() {
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [always, ci_only]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "always".to_string(),
+            make_step("always", "echo always", vec![]),
+        );
+        let mut ci_step = make_step("ci_only", "echo ci", vec![]);
+        ci_step.only_environments = vec!["ci".to_string()];
+        steps.insert("ci_only".to_string(), ci_step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions {
+            active_environment: Some("development".to_string()),
+            ..Default::default()
+        };
+        let ctx = crate::config::InterpolationContext::new();
+        let global_env = HashMap::new();
+        let temp = TempDir::new().unwrap();
+
+        let mut skipped_names = Vec::new();
+        let result = runner
+            .run_with_progress(&options, &ctx, &global_env, temp.path(), None, |progress| {
+                if let RunProgress::StepSkipped { name } = progress {
+                    skipped_names.push(name.to_string());
+                }
+            })
+            .unwrap();
+
+        assert_eq!(result.steps.len(), 1);
+        assert!(skipped_names.contains(&"ci_only".to_string()));
     }
 }

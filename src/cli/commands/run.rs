@@ -62,6 +62,7 @@ impl RunCommand {
             force: self.args.force.iter().cloned().collect(),
             dry_run: self.args.dry_run,
             provided_requirements: HashSet::new(),
+            active_environment: None,
         }
     }
 
@@ -238,6 +239,7 @@ impl Command for RunCommand {
         let mut options = self.build_options();
         options.workflow = Some(workflow_name.clone());
         options.provided_requirements = provided_requirements;
+        options.active_environment = Some(env_name.clone());
 
         // Create runner
         let runner = WorkflowRunner::new(&config, steps);

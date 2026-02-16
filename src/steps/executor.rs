@@ -345,6 +345,7 @@ mod tests {
             sensitive: false,
             requires_sudo: false,
             requires: vec![],
+            only_environments: vec![],
         }
     }
 

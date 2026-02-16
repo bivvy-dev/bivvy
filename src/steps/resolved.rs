@@ -64,6 +64,10 @@ pub struct ResolvedStep {
 
     /// System-level prerequisites this step requires.
     pub requires: Vec<String>,
+
+    /// Restrict this step to specific environments.
+    /// Empty means "run in all environments".
+    pub only_environments: Vec<String>,
 }
 
 impl ResolvedStep {
@@ -117,6 +121,7 @@ impl ResolvedStep {
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
             requires: merge_requires(&step.requires, &config.requires),
+            only_environments: config.only_environments.clone(),
         };
 
         if let Some(env_name) = environment {
@@ -152,6 +157,7 @@ impl ResolvedStep {
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
             requires: config.requires.clone(),
+            only_environments: config.only_environments.clone(),
         };
 
         if let Some(env_name) = environment {
@@ -668,5 +674,37 @@ mod tests {
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
         assert_eq!(resolved.command, "template command");
+    }
+
+    #[test]
+    fn from_config_propagates_only_environments() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            only_environments: vec!["ci".to_string(), "staging".to_string()],
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert_eq!(resolved.only_environments, vec!["ci", "staging"]);
+    }
+
+    #[test]
+    fn from_config_empty_only_environments() {
+        let config = StepConfig::default();
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.only_environments.is_empty());
+    }
+
+    #[test]
+    fn from_template_propagates_only_environments() {
+        let template = make_template();
+        let config = StepConfig {
+            only_environments: vec!["ci".to_string()],
+            ..Default::default()
+        };
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+        assert_eq!(resolved.only_environments, vec!["ci"]);
     }
 }
