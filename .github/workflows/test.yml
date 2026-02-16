@@ -8,13 +8,11 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  # Treat all warnings as errors in CI
   RUSTFLAGS: "-D warnings"
 
 jobs:
-  # Fast lint checks - only needs to run once on Linux
-  lint:
-    name: Lint
+  ci:
+    name: CI
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -31,70 +29,22 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             target
-          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+          key: ${{ runner.os }}-cargo-ci-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
-            ${{ runner.os }}-cargo-lint-
-
-      - name: Check formatting
-        run: cargo fmt -- --check
-
-      - name: Run clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
-
-      - name: Check for build warnings
-        run: cargo build --all-targets --all-features
-
-  # Tests run on Linux only — macOS/Windows are validated by release builds
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-test-
-
-      - name: Run tests
-        run: cargo test --all-features
-
-  # Coverage only runs on Linux
-  coverage:
-    name: Coverage
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache cargo
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            target
-          key: ${{ runner.os }}-cargo-cov-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-cov-
+            ${{ runner.os }}-cargo-ci-
 
       - name: Install cargo-llvm-cov
         uses: taiki-e/install-action@cargo-llvm-cov
 
-      - name: Generate coverage and check threshold
+      - name: Build bivvy
+        run: cargo build
+
+      - name: Run CI workflow
+        run: target/debug/bivvy run --workflow ci --non-interactive --verbose
+
+      - name: Generate coverage report
+        if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          cargo llvm-cov --all-features --lcov --output-path lcov.info --fail-under-lines 90
           echo "COVERAGE=$(cargo llvm-cov --all-features --json | jq '.data[0].totals.lines.percent' | xargs printf '%.0f')" >> "$GITHUB_ENV"
 
       - name: Update coverage badge

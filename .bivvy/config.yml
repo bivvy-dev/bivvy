@@ -59,6 +59,11 @@ steps:
     command: "cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings"
     depends_on: [clippy, rustfmt, build]
 
+  coverage:
+    title: "Coverage"
+    command: "cargo llvm-cov --all-features --fail-under-lines 90"
+    depends_on: [llvm-cov, build]
+
 workflows:
   default:
     steps: [rust, clippy, rustfmt, deps, build, test, lint]
@@ -70,3 +75,9 @@ workflows:
   check:
     description: "Pre-commit verification"
     steps: [lint, test, build]
+
+  ci:
+    description: "CI pipeline"
+    steps: [rust, clippy, rustfmt, llvm-cov, deps, build, lint, test, coverage]
+    settings:
+      non_interactive: true
