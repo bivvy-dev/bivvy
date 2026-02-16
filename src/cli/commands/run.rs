@@ -293,7 +293,9 @@ impl Command for RunCommand {
                 } else {
                     None
                 },
-                detail: if s.skipped {
+                detail: if let Some(ref rd) = s.recovery_detail {
+                    Some(rd.clone())
+                } else if s.skipped {
                     Some("already complete".to_string())
                 } else {
                     None
@@ -316,6 +318,9 @@ impl Command for RunCommand {
         if result.success {
             ui.show_hint(hints::after_successful_run());
             Ok(CommandResult::success())
+        } else if result.aborted {
+            ui.show_hint("Workflow aborted by user. Re-run to resume.");
+            Ok(CommandResult::failure(1))
         } else {
             ui.show_hint(&hints::after_failed_run(&failed_steps));
             Ok(CommandResult::failure(1))
@@ -1003,6 +1008,64 @@ workflows:
         cmd.execute(&mut ui).unwrap();
 
         assert!(!ui.has_warning("--ci is deprecated"));
+    }
+
+    #[test]
+    fn summary_shows_recovery_detail() {
+        let config = r#"
+app_name: Test
+steps:
+  flaky:
+    command: "if [ -f /tmp/bivvy_test_flaky ]; then exit 0; else touch /tmp/bivvy_test_flaky && exit 1; fi"
+workflows:
+  default:
+    steps: [flaky]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_flaky", "retry");
+
+        // Clean up marker from any previous test run
+        let _ = std::fs::remove_file("/tmp/bivvy_test_flaky");
+
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+
+        // Check that the summary includes recovery detail
+        let summaries = ui.summaries();
+        assert!(!summaries.is_empty());
+
+        // Clean up
+        let _ = std::fs::remove_file("/tmp/bivvy_test_flaky");
+    }
+
+    #[test]
+    fn summary_shows_aborted_hint() {
+        let config = r#"
+app_name: Test
+steps:
+  broken:
+    command: "exit 1"
+workflows:
+  default:
+    steps: [broken]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_broken", "abort");
+
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(!result.success);
+        assert_eq!(result.exit_code, 1);
+
+        // Should show the aborted hint
+        assert!(ui.has_hint("Workflow aborted by user"));
     }
 
     #[test]
