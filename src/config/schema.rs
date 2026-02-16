@@ -88,6 +88,14 @@ pub struct Settings {
         skip_serializing_if = "is_default_history_retention"
     )]
     pub history_retention: usize,
+
+    /// Default environment name (used when no --env flag and no auto-detection)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_environment: Option<String>,
+
+    /// Named environment configurations
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub environments: HashMap<String, EnvironmentConfig>,
 }
 
 impl Default for Settings {
@@ -102,6 +110,8 @@ impl Default for Settings {
             parallel: false,
             max_parallel: default_max_parallel(),
             history_retention: default_history_retention(),
+            default_environment: None,
+            environments: HashMap::new(),
         }
     }
 }
@@ -247,6 +257,15 @@ pub struct StepConfig {
     /// System-level prerequisites this step requires (e.g., ruby, node, postgres-server).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+
+    /// Per-environment overrides for this step.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub environments: HashMap<String, StepEnvironmentOverride>,
+
+    /// Restrict this step to specific environments.
+    /// Empty list (default) means "run in all environments".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub only_environments: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -514,10 +533,38 @@ pub enum CustomRequirementCheck {
     },
 }
 
+/// Configuration for a named environment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvironmentConfig {
+    /// Rules for auto-detecting this environment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub detect: Vec<EnvironmentDetectRule>,
+
+    /// Default workflow to run in this environment.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_workflow: Option<String>,
+
+    /// Requirements that are assumed to be satisfied in this environment.
+    /// These skip gap detection checks when this environment is active.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub provided_requirements: Vec<String>,
+}
+
+/// A rule for auto-detecting an environment.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnvironmentDetectRule {
+    /// Environment variable name to check.
+    pub env: String,
+
+    /// If set, the variable must equal this value. If absent, just checks presence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<String>,
+}
+
 /// Per-environment overrides for a step.
 ///
 /// All fields are `Option` — only specified fields override the base step.
-/// This struct is NOT deserialized from config yet (Phase 2 wires it in).
 /// The `env` field uses `HashMap<String, Option<String>>`:
 /// `Some(val)` = set/override, `None` = remove the key from the base env.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -1087,6 +1134,18 @@ workflows:
             "empty requires should be omitted"
         );
         assert!(
+            !yaml.contains("environments"),
+            "empty environments should be omitted"
+        );
+        assert!(
+            !yaml.contains("only_environments"),
+            "empty only_environments should be omitted"
+        );
+        assert!(
+            !yaml.contains("default_environment"),
+            "None default_environment should be omitted"
+        );
+        assert!(
             !yaml.contains("overrides"),
             "empty overrides should be omitted"
         );
@@ -1258,6 +1317,131 @@ app_name: "TestApp"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(config.requirements.is_empty());
+    }
+
+    #[test]
+    fn settings_default_environment_defaults_none() {
+        let config: BivvyConfig = serde_yaml::from_str("").unwrap();
+        assert!(config.settings.default_environment.is_none());
+        assert!(config.settings.environments.is_empty());
+    }
+
+    #[test]
+    fn parses_default_environment() {
+        let yaml = r#"
+settings:
+  default_environment: staging
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.settings.default_environment,
+            Some("staging".to_string())
+        );
+    }
+
+    #[test]
+    fn parses_environment_config() {
+        let yaml = r#"
+settings:
+  environments:
+    ci:
+      detect:
+        - env: CI
+        - env: GITHUB_ACTIONS
+      default_workflow: ci
+      provided_requirements:
+        - docker
+        - node
+    staging:
+      detect:
+        - env: DEPLOY_ENV
+          value: staging
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.settings.environments.len(), 2);
+
+        let ci = &config.settings.environments["ci"];
+        assert_eq!(ci.detect.len(), 2);
+        assert_eq!(ci.detect[0].env, "CI");
+        assert!(ci.detect[0].value.is_none());
+        assert_eq!(ci.default_workflow, Some("ci".to_string()));
+        assert_eq!(ci.provided_requirements, vec!["docker", "node"]);
+
+        let staging = &config.settings.environments["staging"];
+        assert_eq!(staging.detect.len(), 1);
+        assert_eq!(staging.detect[0].env, "DEPLOY_ENV");
+        assert_eq!(staging.detect[0].value, Some("staging".to_string()));
+        assert!(staging.default_workflow.is_none());
+        assert!(staging.provided_requirements.is_empty());
+    }
+
+    #[test]
+    fn parses_step_environments_override() {
+        let yaml = r#"
+steps:
+  database:
+    command: "rails db:setup"
+    environments:
+      ci:
+        command: "rails db:schema:load"
+        env:
+          RAILS_ENV: test
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let step = &config.steps["database"];
+        assert_eq!(step.environments.len(), 1);
+
+        let ci_override = &step.environments["ci"];
+        assert_eq!(
+            ci_override.command,
+            Some("rails db:schema:load".to_string())
+        );
+        assert_eq!(
+            ci_override.env.get("RAILS_ENV"),
+            Some(&Some("test".to_string()))
+        );
+    }
+
+    #[test]
+    fn parses_step_only_environments() {
+        let yaml = r#"
+steps:
+  seeds:
+    command: "rails db:seed"
+    only_environments:
+      - development
+      - staging
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let step = &config.steps["seeds"];
+        assert_eq!(step.only_environments, vec!["development", "staging"]);
+    }
+
+    #[test]
+    fn step_only_environments_defaults_empty() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        // Empty means "run in all environments"
+        assert!(config.only_environments.is_empty());
+    }
+
+    #[test]
+    fn step_environments_defaults_empty() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.environments.is_empty());
+    }
+
+    #[test]
+    fn environment_config_defaults() {
+        let config: EnvironmentConfig = serde_yaml::from_str("").unwrap();
+        assert!(config.detect.is_empty());
+        assert!(config.default_workflow.is_none());
+        assert!(config.provided_requirements.is_empty());
     }
 
     #[test]
