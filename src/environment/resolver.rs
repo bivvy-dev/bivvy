@@ -322,31 +322,76 @@ mod tests {
     }
 
     #[test]
-    fn resolve_from_config_uses_custom_rules() {
-        use crate::config::schema::{EnvironmentConfig, EnvironmentDetectRule};
-        use std::collections::HashMap;
+    fn resolve_custom_rule_detected() {
+        use crate::environment::detection::DetectedEnvironment;
 
-        let mut environments = HashMap::new();
-        environments.insert(
+        // Simulate a custom rule firing: resolve_with_detection lets us inject
+        // a pre-computed detection result without depending on real env vars.
+        let detected = Some(DetectedEnvironment {
+            name: "staging".to_string(),
+            detected_via: "DEPLOY_ENV".to_string(),
+        });
+
+        let resolved = ResolvedEnvironment::resolve_with_detection(None, None, detected);
+        assert_eq!(resolved.name, "staging");
+        assert_eq!(
+            resolved.source,
+            EnvironmentSource::AutoDetected("DEPLOY_ENV".to_string())
+        );
+    }
+
+    #[test]
+    fn resolve_custom_rule_via_detector() {
+        use crate::environment::detection::DetectRule;
+
+        // Build a detector with a custom rule and verify it fires via
+        // detect_with_env so we control the env var lookup.
+        let mut custom_rules = BTreeMap::new();
+        custom_rules.insert(
             "custom_ci".to_string(),
-            EnvironmentConfig {
-                detect: vec![EnvironmentDetectRule {
-                    env: "MY_CI".to_string(),
-                    value: None,
-                }],
-                ..Default::default()
-            },
+            vec![DetectRule {
+                env: "MY_CI".to_string(),
+                value: None,
+            }],
         );
 
-        let settings = Settings {
-            environments,
-            ..Default::default()
-        };
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+        let detected = detector
+            .detect_with_env(|key| match key {
+                "MY_CI" => Ok("1".to_string()),
+                _ => Err(std::env::VarError::NotPresent),
+            })
+            .unwrap();
 
-        // Without the env var set, should fall back to development
-        let resolved = ResolvedEnvironment::resolve_from_config(None, &settings);
-        // We can't guarantee the env var isn't set, so just check it resolves
-        assert!(!resolved.name.is_empty());
+        assert_eq!(detected.name, "custom_ci");
+        assert_eq!(detected.detected_via, "MY_CI");
+    }
+
+    #[test]
+    fn resolve_custom_rule_not_present_falls_back() {
+        use crate::environment::detection::DetectRule;
+
+        // When the custom rule's env var is NOT set, detection should not
+        // match — verify the full chain falls through to development.
+        let mut custom_rules = BTreeMap::new();
+        custom_rules.insert(
+            "custom_ci".to_string(),
+            vec![DetectRule {
+                env: "MY_CI".to_string(),
+                value: None,
+            }],
+        );
+
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+        let detected = detector.detect_with_env(|_| Err(std::env::VarError::NotPresent));
+
+        // No env vars set at all, so nothing matches
+        assert!(detected.is_none());
+
+        // When nothing is detected, resolve falls back to development
+        let resolved = ResolvedEnvironment::resolve_with_detection(None, None, None);
+        assert_eq!(resolved.name, "development");
+        assert_eq!(resolved.source, EnvironmentSource::Fallback);
     }
 
     #[test]

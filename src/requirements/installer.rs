@@ -1009,6 +1009,124 @@ mod tests {
         );
     }
 
+    // --- 6F-extra: Non-interactive Inactive blocks ---
+
+    #[test]
+    fn non_interactive_inactive_blocks() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "ruby".to_string(),
+            status: RequirementStatus::Inactive {
+                manager: "rbenv".to_string(),
+                binary_path: PathBuf::from("/home/user/.rbenv/versions/3.2/bin/ruby"),
+                activation_hint: "eval \"$(rbenv init -)\"".to_string(),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, false, &ctx);
+        assert!(result.is_err(), "Inactive in non-interactive should block");
+    }
+
+    #[test]
+    fn non_interactive_inactive_shows_warning() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "ruby".to_string(),
+            status: RequirementStatus::Inactive {
+                manager: "rbenv".to_string(),
+                binary_path: PathBuf::from("/home/user/.rbenv/versions/3.2/bin/ruby"),
+                activation_hint: "eval \"$(rbenv init -)\"".to_string(),
+            },
+        }];
+
+        let _ = handle_gaps(&gaps, &mut checker, &mut ui, false, &ctx);
+        assert!(
+            ui.has_warning("not activated"),
+            "should warn about activation, warnings: {:?}",
+            ui.warnings()
+        );
+    }
+
+    // --- 6C-extra: User declines install ---
+
+    #[test]
+    fn missing_install_declined_skips() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User declines the install prompt
+        ui.set_prompt_response("install_ruby", "no");
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "ruby".to_string(),
+            status: RequirementStatus::Missing {
+                install_template: Some("mise-ruby".to_string()),
+                install_hint: Some("Install Ruby via mise".to_string()),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        assert!(
+            !result.unwrap(),
+            "should skip when user declines install"
+        );
+        assert!(
+            ui.has_warning("ruby") || ui.has_warning("Skipping"),
+            "should warn about skipped install, warnings: {:?}",
+            ui.warnings()
+        );
+    }
+
+    // --- 6D-extra: SystemOnly user accepts managed install ---
+
+    #[test]
+    fn system_only_accepts_managed_install() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // User accepts managed install
+        ui.set_prompt_response("managed_install_ruby", "yes");
+        // handle_missing will be called, which prompts for deps and install
+        ui.set_prompt_response("install_mise", "yes");
+        ui.set_prompt_response("install_ruby", "yes");
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "ruby".to_string(),
+            status: RequirementStatus::SystemOnly {
+                path: PathBuf::from("/usr/bin/ruby"),
+                install_template: Some("mise-ruby".to_string()),
+                warning: "System Ruby detected".to_string(),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        // Should proceed regardless (SystemOnly always can proceed)
+        assert!(result.unwrap());
+        assert!(ui
+            .prompts_shown()
+            .contains(&"managed_install_ruby".to_string()));
+    }
+
     // --- Edge case tests ---
 
     #[test]
