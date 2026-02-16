@@ -68,15 +68,19 @@ pub struct ResolvedStep {
 
 impl ResolvedStep {
     /// Create from a step config that uses a template.
+    ///
+    /// When `environment` is `Some`, applies matching per-environment overrides
+    /// from the step config after the base resolution.
     pub fn from_template(
         name: &str,
         template: &Template,
         config: &StepConfig,
         _inputs: &HashMap<String, serde_yaml::Value>,
+        environment: Option<&str>,
     ) -> Self {
         let step = &template.step;
 
-        Self {
+        let mut resolved = Self {
             name: name.to_string(),
             title: config
                 .title
@@ -113,12 +117,23 @@ impl ResolvedStep {
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
             requires: merge_requires(&step.requires, &config.requires),
+        };
+
+        if let Some(env_name) = environment {
+            if let Some(overrides) = config.environments.get(env_name) {
+                resolved.apply_environment_overrides(overrides);
+            }
         }
+
+        resolved
     }
 
     /// Create from an inline step config (no template).
-    pub fn from_config(name: &str, config: &StepConfig) -> Self {
-        Self {
+    ///
+    /// When `environment` is `Some`, applies matching per-environment overrides
+    /// from the step config after the base resolution.
+    pub fn from_config(name: &str, config: &StepConfig, environment: Option<&str>) -> Self {
+        let mut resolved = Self {
             name: name.to_string(),
             title: config.title.clone().unwrap_or_else(|| name.to_string()),
             description: config.description.clone(),
@@ -137,7 +152,15 @@ impl ResolvedStep {
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
             requires: config.requires.clone(),
+        };
+
+        if let Some(env_name) = environment {
+            if let Some(overrides) = config.environments.get(env_name) {
+                resolved.apply_environment_overrides(overrides);
+            }
         }
+
+        resolved
     }
 
     /// Apply per-environment overrides to this resolved step.
@@ -257,7 +280,8 @@ mod tests {
         let template = make_template();
         let config = StepConfig::default();
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.title, "Template Title");
         assert_eq!(resolved.command, "template command");
@@ -273,7 +297,8 @@ mod tests {
             ..Default::default()
         };
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.title, "Custom Title");
         assert_eq!(resolved.command, "custom command");
@@ -287,7 +312,8 @@ mod tests {
             .env
             .insert("CONFIG_VAR".to_string(), "from_config".to_string());
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(
             resolved.env.get("TEMPLATE_VAR"),
@@ -307,7 +333,8 @@ mod tests {
             .env
             .insert("TEMPLATE_VAR".to_string(), "overridden".to_string());
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(
             resolved.env.get("TEMPLATE_VAR"),
@@ -323,7 +350,7 @@ mod tests {
             ..Default::default()
         };
 
-        let resolved = ResolvedStep::from_config("inline", &config);
+        let resolved = ResolvedStep::from_config("inline", &config, None);
 
         assert_eq!(resolved.title, "Inline Step");
         assert_eq!(resolved.command, "echo inline");
@@ -332,7 +359,7 @@ mod tests {
     #[test]
     fn from_config_uses_name_as_default_title() {
         let config = StepConfig::default();
-        let resolved = ResolvedStep::from_config("step_name", &config);
+        let resolved = ResolvedStep::from_config("step_name", &config, None);
 
         assert_eq!(resolved.title, "step_name");
     }
@@ -342,7 +369,8 @@ mod tests {
         let template = make_template();
         let config = StepConfig::default();
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.watches, vec!["template.lock".to_string()]);
     }
@@ -355,7 +383,8 @@ mod tests {
             ..Default::default()
         };
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.watches, vec!["config.lock".to_string()]);
     }
@@ -368,7 +397,7 @@ mod tests {
             ..Default::default()
         };
 
-        let resolved = ResolvedStep::from_config("deps", &config);
+        let resolved = ResolvedStep::from_config("deps", &config, None);
 
         assert_eq!(resolved.requires, vec!["ruby", "postgres-server"]);
     }
@@ -383,7 +412,8 @@ mod tests {
             ..Default::default()
         };
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.requires, vec!["node", "postgres-server"]);
     }
@@ -398,7 +428,8 @@ mod tests {
             ..Default::default()
         };
 
-        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.requires, vec!["ruby", "node", "postgres-server"]);
     }
@@ -406,7 +437,7 @@ mod tests {
     #[test]
     fn resolved_step_requires_defaults_empty() {
         let config = StepConfig::default();
-        let resolved = ResolvedStep::from_config("test", &config);
+        let resolved = ResolvedStep::from_config("test", &config, None);
 
         assert!(resolved.requires.is_empty());
     }
@@ -437,7 +468,7 @@ mod tests {
             command: Some("echo base".to_string()),
             ..Default::default()
         };
-        let mut resolved = ResolvedStep::from_config("test", &config);
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
 
         let overrides = StepEnvironmentOverride {
             command: Some("echo ci".to_string()),
@@ -455,7 +486,7 @@ mod tests {
             requires: vec!["ruby".to_string(), "postgres-server".to_string()],
             ..Default::default()
         };
-        let mut resolved = ResolvedStep::from_config("test", &config);
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
 
         let overrides = StepEnvironmentOverride {
             requires: Some(vec!["ruby".to_string()]),
@@ -477,7 +508,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let mut resolved = ResolvedStep::from_config("test", &config);
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
 
         let overrides = StepEnvironmentOverride {
             env: {
@@ -505,7 +536,7 @@ mod tests {
             },
             ..Default::default()
         };
-        let mut resolved = ResolvedStep::from_config("test", &config);
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
 
         let overrides = StepEnvironmentOverride {
             env: {
@@ -528,12 +559,114 @@ mod tests {
             command: Some("echo original".to_string()),
             ..Default::default()
         };
-        let mut resolved = ResolvedStep::from_config("test", &config);
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
 
         let overrides = StepEnvironmentOverride::default();
         resolved.apply_environment_overrides(&overrides);
 
         assert_eq!(resolved.title, "Original");
         assert_eq!(resolved.command, "echo original");
+    }
+
+    #[test]
+    fn from_config_applies_environment_overrides() {
+        let mut environments = HashMap::new();
+        environments.insert(
+            "ci".to_string(),
+            StepEnvironmentOverride {
+                command: Some("echo ci-mode".to_string()),
+                ..Default::default()
+            },
+        );
+        let config = StepConfig {
+            command: Some("echo dev-mode".to_string()),
+            environments,
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, Some("ci"));
+        assert_eq!(resolved.command, "echo ci-mode");
+    }
+
+    #[test]
+    fn from_config_no_override_for_unknown_environment() {
+        let mut environments = HashMap::new();
+        environments.insert(
+            "ci".to_string(),
+            StepEnvironmentOverride {
+                command: Some("echo ci-mode".to_string()),
+                ..Default::default()
+            },
+        );
+        let config = StepConfig {
+            command: Some("echo dev-mode".to_string()),
+            environments,
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, Some("staging"));
+        assert_eq!(resolved.command, "echo dev-mode");
+    }
+
+    #[test]
+    fn from_config_none_environment_skips_overrides() {
+        let mut environments = HashMap::new();
+        environments.insert(
+            "ci".to_string(),
+            StepEnvironmentOverride {
+                command: Some("echo ci-mode".to_string()),
+                ..Default::default()
+            },
+        );
+        let config = StepConfig {
+            command: Some("echo dev-mode".to_string()),
+            environments,
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert_eq!(resolved.command, "echo dev-mode");
+    }
+
+    #[test]
+    fn from_template_applies_environment_overrides() {
+        let template = make_template();
+        let mut environments = HashMap::new();
+        environments.insert(
+            "ci".to_string(),
+            StepEnvironmentOverride {
+                command: Some("echo ci-command".to_string()),
+                ..Default::default()
+            },
+        );
+        let config = StepConfig {
+            environments,
+            ..Default::default()
+        };
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), Some("ci"));
+        assert_eq!(resolved.command, "echo ci-command");
+    }
+
+    #[test]
+    fn from_template_none_environment_uses_base() {
+        let template = make_template();
+        let mut environments = HashMap::new();
+        environments.insert(
+            "ci".to_string(),
+            StepEnvironmentOverride {
+                command: Some("echo ci-command".to_string()),
+                ..Default::default()
+            },
+        );
+        let config = StepConfig {
+            environments,
+            ..Default::default()
+        };
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+        assert_eq!(resolved.command, "template command");
     }
 }

@@ -17,7 +17,7 @@
 //! use std::path::Path;
 //!
 //! // Create a resolved step
-//! let step = ResolvedStep::from_config("install", &Default::default());
+//! let step = ResolvedStep::from_config("install", &Default::default(), None);
 //!
 //! // Execute with options
 //! let options = ExecutionOptions {

@@ -27,7 +27,7 @@ fn full_step_execution_workflow() {
     };
 
     // 2. Resolve step
-    let step = ResolvedStep::from_config("setup", &config);
+    let step = ResolvedStep::from_config("setup", &config, None);
     assert_eq!(step.name, "setup");
     assert_eq!(step.command, "echo 'setup complete'");
 
@@ -82,7 +82,7 @@ fn step_skipping_with_completed_check() {
         path: "installed.marker".to_string(),
     });
 
-    let step = ResolvedStep::from_config("install", &config);
+    let step = ResolvedStep::from_config("install", &config, None);
 
     // Execute - should skip
     let ctx = InterpolationContext::new();
@@ -127,7 +127,7 @@ fn dry_run_does_not_execute() {
         command: Some("touch should_not_exist.txt".to_string()),
         ..Default::default()
     };
-    let step = ResolvedStep::from_config("touch", &config);
+    let step = ResolvedStep::from_config("touch", &config, None);
 
     let ctx = InterpolationContext::new();
     let options = ExecutionOptions {
@@ -158,7 +158,7 @@ fn environment_variable_handling() {
         env: step_env,
         ..Default::default()
     };
-    let step = ResolvedStep::from_config("env_test", &config);
+    let step = ResolvedStep::from_config("env_test", &config, None);
 
     let mut global_env = HashMap::new();
     global_env.insert("GLOBAL_VAR".to_string(), "from_global".to_string());

@@ -70,6 +70,7 @@ impl RunCommand {
     fn resolve_steps(
         &self,
         config: &crate::config::BivvyConfig,
+        environment: Option<&str>,
     ) -> Result<HashMap<String, ResolvedStep>> {
         let registry = if config.template_sources.is_empty() {
             Registry::new(Some(&self.project_root))?
@@ -81,9 +82,15 @@ impl RunCommand {
         for (name, step_config) in &config.steps {
             let resolved = if let Some(template_name) = &step_config.template {
                 let (template, _source) = registry.resolve(template_name)?;
-                ResolvedStep::from_template(name, template, step_config, &step_config.inputs)
+                ResolvedStep::from_template(
+                    name,
+                    template,
+                    step_config,
+                    &step_config.inputs,
+                    environment,
+                )
             } else {
-                ResolvedStep::from_config(name, step_config)
+                ResolvedStep::from_config(name, step_config, environment)
             };
             steps.insert(name.clone(), resolved);
         }
@@ -141,7 +148,7 @@ impl Command for RunCommand {
         let mut state = StateStore::load(&project_id)?;
 
         // Resolve steps
-        let steps = self.resolve_steps(&config)?;
+        let steps = self.resolve_steps(&config, None)?;
 
         // Check if workflow exists
         if !config.workflows.contains_key(workflow_name) {
@@ -553,7 +560,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let config = load_merged_config(temp.path()).unwrap();
-        let steps = cmd.resolve_steps(&config).unwrap();
+        let steps = cmd.resolve_steps(&config, None).unwrap();
 
         let brew_step = steps.get("brew").unwrap();
         assert!(
@@ -583,7 +590,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let config = load_merged_config(temp.path()).unwrap();
-        let result = cmd.resolve_steps(&config);
+        let result = cmd.resolve_steps(&config, None);
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -610,7 +617,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let config = load_merged_config(temp.path()).unwrap();
-        let steps = cmd.resolve_steps(&config).unwrap();
+        let steps = cmd.resolve_steps(&config, None).unwrap();
 
         let hello_step = steps.get("hello").unwrap();
         assert_eq!(hello_step.command, "echo hello");

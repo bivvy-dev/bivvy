@@ -400,7 +400,7 @@ mod tests {
             requires,
             ..Default::default()
         };
-        ResolvedStep::from_config("test", &config)
+        ResolvedStep::from_config("test", &config, None)
     }
 
     #[test]
