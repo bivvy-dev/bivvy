@@ -2,6 +2,7 @@
 //!
 //! This module provides structured capture of friction points with session correlation.
 
+pub mod delivery;
 mod entry;
 mod store;
 

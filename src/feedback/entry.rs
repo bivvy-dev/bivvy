@@ -29,6 +29,9 @@ pub struct FeedbackEntry {
     /// Resolution timestamp.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolved_at: Option<DateTime<Utc>>,
+    /// Whether this entry was delivered externally.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub delivered: Option<bool>,
 }
 
 /// Feedback status.
@@ -61,6 +64,7 @@ impl FeedbackEntry {
             status: FeedbackStatus::Open,
             resolution: None,
             resolved_at: None,
+            delivered: None,
         }
     }
 
