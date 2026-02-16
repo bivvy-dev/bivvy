@@ -586,10 +586,6 @@ pub struct StepEnvironmentOverride {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, Option<String>>,
 
-    /// Override env file
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env_file: Option<PathBuf>,
-
     /// Override completed check
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_check: Option<CompletedCheck>,
