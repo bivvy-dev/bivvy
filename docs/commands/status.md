@@ -21,6 +21,10 @@ bivvy status --json
 bivvy status --step=name
 ```
 
+```bash
+bivvy status --env ci
+```
+
 ## Example Output
 
 ```
@@ -50,4 +54,26 @@ When there are steps that haven't been run, the status command will suggest:
 
 ```
 Run `bivvy run --only=database` to run remaining steps
+```
+
+## Environment
+
+The status output shows the active environment:
+
+```
+Environment: ci (auto-detected via CI)
+```
+
+Use `--env` to check status for a different environment.
+
+## Requirements
+
+When steps have requirements, the status output includes gap indicators:
+
+```
+Requirements:
+  ✓ ruby (mise)
+  ✓ node (mise)
+  ✗ postgres-server — not running (start with: pg_ctl start)
+  ○ docker — provided by environment
 ```

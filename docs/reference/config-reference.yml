@@ -76,12 +76,57 @@ settings:
   # Default: 50
   history_retention: 50
 
+  # Default environment when --env is not provided and auto-detection
+  # doesn't match. Omit to fall back to auto-detect → "development".
+  # Type: string (optional)
+  # default_environment: staging
+
+  # Custom environments — detection rules, default workflows, provided reqs
+  # Type: map (optional)
+  # environments:
+  #   staging:
+  #     # Auto-detection rules — any match triggers this environment
+  #     detect:
+  #       - env: DEPLOY_ENV
+  #         value: staging       # Optional: omit to match on presence
+  #     # Workflow to run by default in this environment
+  #     default_workflow: staging
+  #     # Requirements assumed satisfied (skip gap checks)
+  #     provided_requirements:
+  #       - postgres-server
+  #       - redis-server
+  #   review_app:
+  #     detect:
+  #       - env: REVIEW_APP
+  #     provided_requirements:
+  #       - docker
+
 
 # --------------------------------------------------------------------------
 # Extends — inherit from remote base configs
 # --------------------------------------------------------------------------
 # Fetched and merged before local config. Useful for org-wide defaults.
 # Type: list (optional)
+# --------------------------------------------------------------------------
+# Requirements — custom system-level prerequisites
+# --------------------------------------------------------------------------
+# Define requirements not in the built-in registry.
+# Type: map (optional)
+#
+# requirements:
+#   elasticsearch:
+#     check:
+#       type: service_reachable
+#       command: "curl -sf http://localhost:9200/_cluster/health"
+#     install_hint: "Install Elasticsearch: https://elastic.co/downloads"
+#   graphviz:
+#     check:
+#       type: command_succeeds
+#       command: "dot -V"
+#     install_template: brew-install
+#     install_hint: "brew install graphviz"
+
+
 extends:
   - url: https://example.com/team-bivvy-config.yml
 
@@ -252,6 +297,35 @@ steps:
     # Commands to run after the step succeeds
     after:
       - "echo 'Install complete!'"
+
+    # --- Requirements ---
+    # System-level prerequisites that must be available before running
+    # Names can be built-in (ruby, node, docker, etc.) or custom
+    # Type: list of strings
+    requires:
+      - node
+
+    # --- Environment Filtering ---
+    # Restrict this step to specific environments
+    # Empty list (default) means run in all environments
+    # Type: list of strings
+    # only_environments:
+    #   - development
+    #   - staging
+
+    # --- Per-Environment Overrides ---
+    # Override step fields for specific environments
+    # Only specified fields override the base — everything else inherits
+    # Type: map of environment name → overrides
+    # environments:
+    #   ci:
+    #     command: "npm ci"
+    #     env:
+    #       NODE_ENV: test
+    #       CI: "true"
+    #   docker:
+    #     env:
+    #       NODE_ENV: null  # Remove NODE_ENV in Docker
 
   # === Template-based step ===
   ruby_deps:

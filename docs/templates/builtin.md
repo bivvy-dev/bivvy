@@ -243,6 +243,99 @@ Resolves Swift Package Manager dependencies.
 - **Completion check**: `.build` directory exists
 - **Watches**: `Package.swift`, `Package.resolved`
 
+## Install Templates
+
+Install templates are used by the requirements system to install missing
+tools. They are triggered automatically when a requirement gap is detected
+and the user accepts the install prompt.
+
+| Template | Description | Platforms |
+|----------|-------------|-----------|
+| `brew-install` | Install Homebrew package manager | macOS, Linux |
+| `docker-install` | Install Docker Desktop or Docker Engine | macOS, Linux, Windows |
+| `mise-install` | Install mise version manager | macOS, Linux |
+| `mise-node` | Install Node.js using mise | macOS, Linux |
+| `mise-python` | Install Python using mise | macOS, Linux |
+| `mise-ruby` | Install Ruby using mise | macOS, Linux |
+| `postgres-install` | Install PostgreSQL server and client tools | macOS, Linux |
+| `redis-install` | Install Redis in-memory data store | macOS, Linux |
+| `rust-install` | Install Rust toolchain via rustup | macOS, Linux, Windows |
+
+### brew-install
+
+Installs Homebrew package manager.
+
+- **Platforms**: macOS, Linux
+- **Command**: `/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"`
+- **Completion check**: `brew --version`
+
+### docker-install
+
+Installs Docker Desktop (macOS) or Docker Engine (Linux).
+
+- **Platforms**: macOS, Linux, Windows
+- **Command**: Platform-specific (manual on macOS, `curl -fsSL https://get.docker.com | sh` on Linux)
+- **Completion check**: `docker info`
+
+### mise-install
+
+Installs the mise version manager.
+
+- **Platforms**: macOS, Linux
+- **Command**: `curl https://mise.run | sh`
+- **Completion check**: `mise --version`
+
+### mise-node
+
+Installs Node.js using mise. Requires `mise` to be installed first.
+
+- **Platforms**: macOS, Linux
+- **Requires**: `mise`
+- **Command**: `mise install node`
+- **Completion check**: `mise where node`
+
+### mise-python
+
+Installs Python using mise. Requires `mise` to be installed first.
+
+- **Platforms**: macOS, Linux
+- **Requires**: `mise`
+- **Command**: `mise install python`
+- **Completion check**: `mise where python`
+
+### mise-ruby
+
+Installs Ruby using mise. Requires `mise` to be installed first.
+
+- **Platforms**: macOS, Linux
+- **Requires**: `mise`
+- **Command**: `mise install ruby`
+- **Completion check**: `mise where ruby`
+
+### postgres-install
+
+Installs PostgreSQL database server and client tools.
+
+- **Platforms**: macOS, Linux
+- **Command**: Platform-specific (Homebrew on macOS, apt-get on Debian/Ubuntu)
+- **Completion check**: `pg_isready -q`
+
+### redis-install
+
+Installs Redis in-memory data store.
+
+- **Platforms**: macOS, Linux
+- **Command**: Platform-specific (Homebrew on macOS, apt-get on Debian/Ubuntu)
+- **Completion check**: `redis-cli ping`
+
+### rust-install
+
+Installs the Rust toolchain via rustup.
+
+- **Platforms**: macOS, Linux, Windows
+- **Command**: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y`
+- **Completion check**: `rustc --version`
+
 ## Overriding Template Defaults
 
 You can override any field from a template in your step config:

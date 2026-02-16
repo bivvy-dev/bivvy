@@ -33,8 +33,9 @@ bivvy run -w ci
 | `--resume` | | Resume interrupted run |
 | `--save-preferences` | | Save prompt answers |
 | `--dry-run` | | Preview without executing |
+| `--env` | `-e` | Set active environment (e.g., `ci`, `staging`) |
 | `--non-interactive` | | Use defaults, no prompts |
-| `--ci` | | Alias for --non-interactive |
+| `--ci` | | Deprecated: use `--non-interactive` instead |
 
 ## Skip Behaviors
 
@@ -70,10 +71,16 @@ Preview what would run:
 bivvy run --dry-run
 ```
 
-CI mode:
+Run with a specific environment:
 
 ```bash
-bivvy run --ci
+bivvy run --env staging
+```
+
+Non-interactive mode:
+
+```bash
+bivvy run --non-interactive
 ```
 
 Run with a specific workflow:

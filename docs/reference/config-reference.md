@@ -22,6 +22,7 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 | `workflows` | map of [Workflow](#workflow) | `{}` | Step sequences |
 | `template_sources` | list of [TemplateSource](#template-source) | `[]` | Remote template registries |
 | `secrets` | map of [Secret](#secret) | `{}` | External secret providers |
+| `requirements` | map of [CustomRequirement](#custom-requirement) | `{}` | Custom requirement definitions |
 | `extends` | list of `{url}` | — | Base configs to inherit |
 
 ### Settings
@@ -37,6 +38,8 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 | `parallel` | bool | `false` | Enable parallel execution |
 | `max_parallel` | int | `4` | Max concurrent steps |
 | `history_retention` | int | `50` | Execution history entries to keep |
+| `default_environment` | string | — | Default environment when `--env` is not set |
+| `environments` | map of [EnvironmentConfig](#environment-config) | `{}` | Custom environment definitions |
 
 ### Step
 
@@ -67,6 +70,9 @@ At minimum, a step needs either `command` or `template`.
 | `requires_sudo` | bool | `false` | Needs elevated permissions |
 | `before` | list | `[]` | Commands to run before step |
 | `after` | list | `[]` | Commands to run after step |
+| `requires` | list | `[]` | System-level prerequisites |
+| `only_environments` | list | `[]` | Limit step to these environments (empty = all) |
+| `environments` | map of [StepEnvironmentOverride](#step-environment-override) | `{}` | Per-environment field overrides |
 
 ### Completed Check
 
@@ -154,6 +160,65 @@ Used inside `workflows.<name>.overrides.<step>` to tweak step behavior for a spe
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `command` | string | **required** | Command whose stdout is the secret |
+
+### Environment Config
+
+Used inside `settings.environments.<name>`.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `detect` | list of [EnvironmentDetectRule](#environment-detect-rule) | `[]` | Auto-detection rules |
+| `default_workflow` | string | — | Workflow to use when this environment is active |
+| `provided_requirements` | list | `[]` | Requirements assumed satisfied |
+
+### Environment Detect Rule
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `env` | string | **required** | Environment variable name to check |
+| `value` | string | — | Expected value (omit to match on presence) |
+
+### Step Environment Override
+
+Used inside `steps.<name>.environments.<env>`. All fields are optional — only specified fields override the base step.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `title` | string | Override display title |
+| `description` | string | Override description |
+| `command` | string | Override shell command |
+| `env` | map of string → string\|null | Override env vars (`null` removes a key) |
+| `completed_check` | [CompletedCheck](#completed-check) | Override completion check |
+| `skippable` | bool | Override skip permission |
+| `allow_failure` | bool | Override failure behavior |
+| `requires_sudo` | bool | Override sudo requirement |
+| `sensitive` | bool | Override sensitive flag |
+| `before` | list | Override pre-step hooks |
+| `after` | list | Override post-step hooks |
+| `depends_on` | list | Override dependencies |
+| `requires` | list | Override system requirements |
+| `watches` | list | Override watched files |
+| `retry` | int | Override retry attempts |
+
+### Custom Requirement
+
+Used inside the top-level `requirements` map.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `check` | [CustomRequirementCheck](#custom-requirement-check) | **required** | How to verify the requirement |
+| `install_template` | string | — | Template for installation |
+| `install_hint` | string | — | Human-readable install instructions |
+
+### Custom Requirement Check
+
+Tagged union — the `type` field determines which other fields apply.
+
+| Type | Fields | Description |
+|------|--------|-------------|
+| `command_succeeds` | `command` | Run command, pass on exit 0 |
+| `file_exists` | `path` | Check if file/directory exists |
+| `service_reachable` | `command` | Run command that probes a service |
 
 ---
 

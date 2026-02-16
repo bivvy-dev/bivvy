@@ -15,6 +15,8 @@
 - [Steps](configuration/steps.md)
 - [Completed Checks](configuration/completed-checks.md)
 - [Workflows](configuration/workflows.md)
+- [Requirements](configuration/requirements.md)
+- [Environments](configuration/environments.md)
 - [Secrets](configuration/secrets.md)
 - [State](configuration/state.md)
 

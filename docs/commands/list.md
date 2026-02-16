@@ -25,6 +25,10 @@ bivvy list --workflows-only
 bivvy list --json
 ```
 
+```bash
+bivvy list --env ci
+```
+
 ## Example Output
 
 ```
@@ -45,6 +49,8 @@ Each step shows:
 - Step name
 - Template (if using a template)
 - Dependencies (steps it depends on)
+- Requirements (system prerequisites)
+- Environment constraints (`only_environments`)
 
 ### Workflows
 

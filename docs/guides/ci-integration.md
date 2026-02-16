@@ -43,6 +43,62 @@ to view lint results directly in your editor:
 2. Run `bivvy lint --format=sarif > .bivvy/lint.sarif`
 3. Open the SARIF file to see issues in the editor
 
+## Running Bivvy in CI
+
+Beyond linting, you can run Bivvy itself in CI to set up your test
+environment. Use `--env ci --non-interactive` so Bivvy auto-detects the
+CI environment and skips interactive prompts:
+
+```yaml
+# GitHub Actions
+- name: Setup environment
+  run: bivvy run --env ci --non-interactive
+```
+
+### Provided requirements
+
+CI pipelines typically manage services (databases, caches) outside of
+Bivvy. Use `provided_requirements` to skip gap checks for tools that
+are already available:
+
+```yaml
+# .bivvy/config.yml
+settings:
+  environments:
+    ci:
+      provided_requirements:
+        - postgres-server
+        - redis-server
+        - docker
+```
+
+This prevents Bivvy from trying to install or start services that the
+pipeline already provides.
+
+### Environment-specific workflows
+
+You can also set a `default_workflow` for CI to run a different set of
+steps:
+
+```yaml
+settings:
+  environments:
+    ci:
+      default_workflow: ci
+      provided_requirements:
+        - postgres-server
+
+workflows:
+  ci:
+    description: "CI setup (no prompts)"
+    steps: [deps, database, migrations]
+    settings:
+      non_interactive: true
+```
+
+See [Environments](../configuration/environments.md) for the full
+environment configuration reference.
+
 ## Exit Codes
 
 The lint command returns:

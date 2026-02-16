@@ -109,3 +109,64 @@ steps:
     after:
       - echo "Database ready!"
 ```
+
+## Requirements
+
+Declare system-level prerequisites that must be available before a step
+runs:
+
+```yaml
+steps:
+  bundle_install:
+    command: bundle install
+    requires:
+      - ruby
+      - postgres-server
+```
+
+When a requirement is missing, Bivvy offers to install it before running
+the step. See [Requirements](requirements.md) for the full list of
+built-in requirement names and custom requirement definitions.
+
+## Environment Filtering
+
+Restrict a step to specific environments with `only_environments`:
+
+```yaml
+steps:
+  seed_data:
+    command: rails db:seed
+    only_environments:
+      - development
+      - staging
+```
+
+Steps with an empty list (the default) run in all environments.
+
+## Per-Environment Overrides
+
+Override step fields for specific environments:
+
+```yaml
+steps:
+  database_setup:
+    command: rails db:setup
+    env:
+      RAILS_ENV: development
+
+    environments:
+      ci:
+        command: rails db:schema:load
+        env:
+          RAILS_ENV: test
+      docker:
+        env:
+          DATABASE_HOST: db
+          RAILS_ENV: null  # Removes RAILS_ENV in Docker
+```
+
+Only the fields you specify are overridden; everything else inherits from
+the base step. Set an env var to `null` to remove it for that environment.
+
+See [Environments](environments.md) for all overridable fields and
+detection configuration.

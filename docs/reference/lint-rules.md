@@ -279,6 +279,163 @@ steps:
       enabled: true
 ```
 
+### unknown-requirement
+
+**Severity:** Warning
+**Auto-fix:** No
+
+Requirement name in a step's `requires` list is not in the built-in registry
+or the config's `requirements` map.
+
+**Checks:**
+- Every name in `requires` must be a known requirement
+
+**Example - Invalid:**
+```yaml
+steps:
+  build:
+    command: make build
+    requires: [nonexistent-tool]  # Warning: unknown requirement
+```
+
+**Example - Valid:**
+```yaml
+steps:
+  build:
+    command: make build
+    requires: [ruby, node]
+```
+
+---
+
+### circular-requirement-dep
+
+**Severity:** Error
+**Auto-fix:** No
+
+Circular dependency chain detected in requirement install dependencies.
+
+**Example - Invalid:**
+A requirement whose install template depends on itself through a chain.
+
+---
+
+### unknown-environment-in-step
+
+**Severity:** Warning
+**Auto-fix:** No
+
+A step's `environments` override block references an environment name that
+is not a built-in environment and not defined in `settings.environments`.
+
+**Example - Invalid:**
+```yaml
+steps:
+  build:
+    command: make build
+    environments:
+      nonexistent:  # Warning: unknown environment
+        command: make build-fast
+```
+
+---
+
+### unknown-environment-in-only
+
+**Severity:** Warning
+**Auto-fix:** No
+
+A step's `only_environments` list includes an environment name that is not
+a built-in environment and not defined in `settings.environments`.
+
+**Example - Invalid:**
+```yaml
+steps:
+  build:
+    command: make build
+    only_environments: [nonexistent]  # Warning: unknown environment
+```
+
+---
+
+### environment-default-workflow-missing
+
+**Severity:** Error
+**Auto-fix:** No
+
+An environment's `default_workflow` references a workflow that doesn't exist
+in the config.
+
+---
+
+### unreachable-environment-override
+
+**Severity:** Warning
+**Auto-fix:** No
+
+A step has an environment override for an environment that is excluded by
+its own `only_environments` list. The override can never take effect.
+
+---
+
+### custom-environment-shadows-builtin
+
+**Severity:** Warning
+**Auto-fix:** No
+
+A custom environment name in `settings.environments` matches a built-in
+environment name (`ci`, `docker`, `codespace`, `development`).
+
+---
+
+### redundant-environment-override
+
+**Severity:** Hint
+**Auto-fix:** No
+
+An environment override specifies field values identical to the base step.
+
+---
+
+### redundant-env-null
+
+**Severity:** Hint
+**Auto-fix:** No
+
+An environment override sets an env var to `null` (remove), but that var
+is not present in the base step's `env` map.
+
+---
+
+### environment-circular-dependency
+
+**Severity:** Error
+**Auto-fix:** No
+
+Circular dependency detected in per-environment `depends_on` overrides.
+
+---
+
+### install-template-missing
+
+**Severity:** Hint
+**Auto-fix:** No
+
+A requirement has no install template, so Bivvy cannot offer automatic
+installation.
+
+---
+
+### service-requirement-without-hint
+
+**Severity:** Warning
+**Auto-fix:** No
+
+A service requirement (e.g., `postgres-server`) lacks an `install_hint`,
+making it hard for users to fix the gap manually.
+
+---
+
 ## IDE Integration
 
 ### VS Code
