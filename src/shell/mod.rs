@@ -1,6 +1,7 @@
 //! Shell command execution and environment management.
 
 pub mod command;
+pub mod debug;
 pub mod platform;
 pub mod refresh;
 pub mod resume;

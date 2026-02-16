@@ -57,6 +57,10 @@ pub enum BivvyError {
         message: String,
     },
 
+    /// Shell operation failed (e.g., spawning a debug shell).
+    #[error("Shell error: {message}")]
+    ShellError { message: String },
+
     /// IO error wrapper.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),

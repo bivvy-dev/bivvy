@@ -91,6 +91,9 @@ pub struct StepResult {
 
     /// Captured output (if available).
     pub output: Option<String>,
+
+    /// Recovery detail (e.g., "succeeded on retry (attempt 2)", "skipped by user").
+    pub recovery_detail: Option<String>,
 }
 
 impl StepResult {
@@ -105,6 +108,7 @@ impl StepResult {
             check_result: Some(check_result),
             error: None,
             output: None,
+            recovery_detail: None,
         }
     }
 
@@ -124,6 +128,7 @@ impl StepResult {
             check_result: None,
             error: None,
             output,
+            recovery_detail: None,
         }
     }
 
@@ -138,6 +143,7 @@ impl StepResult {
             check_result: None,
             error: Some(error),
             output,
+            recovery_detail: None,
         }
     }
 
@@ -637,6 +643,20 @@ mod tests {
         let line = result.summary_line();
         assert!(line.contains('✓'));
         assert!(line.contains("test"));
+    }
+
+    #[test]
+    fn step_result_recovery_detail_defaults_none() {
+        let success = StepResult::success("test", Duration::from_secs(1), Some(0), None);
+        assert!(success.recovery_detail.is_none());
+
+        let failure =
+            StepResult::failure("test", Duration::from_secs(1), "error".to_string(), None);
+        assert!(failure.recovery_detail.is_none());
+
+        let check_result = crate::steps::CheckResult::complete("done");
+        let skipped = StepResult::skipped("test", check_result);
+        assert!(skipped.recovery_detail.is_none());
     }
 
     #[test]

@@ -1082,10 +1082,7 @@ mod tests {
         }];
 
         let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
-        assert!(
-            !result.unwrap(),
-            "should skip when user declines install"
-        );
+        assert!(!result.unwrap(), "should skip when user declines install");
         assert!(
             ui.has_warning("ruby") || ui.has_warning("Skipping"),
             "should warn about skipped install, warnings: {:?}",
