@@ -3,6 +3,7 @@
 //! A ResolvedStep combines template defaults with config overrides,
 //! producing a fully-specified step that can be executed.
 
+use crate::config::schema::StepEnvironmentOverride;
 use crate::config::{CompletedCheck, StepConfig};
 use crate::registry::template::Template;
 use std::collections::HashMap;
@@ -136,6 +137,65 @@ impl ResolvedStep {
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
             requires: config.requires.clone(),
+        }
+    }
+
+    /// Apply per-environment overrides to this resolved step.
+    ///
+    /// Only fields that are `Some` in the override will replace the base values.
+    /// The `env` field supports add/override (`Some(val)`) and removal (`None`).
+    pub fn apply_environment_overrides(&mut self, overrides: &StepEnvironmentOverride) {
+        if let Some(t) = &overrides.title {
+            self.title = t.clone();
+        }
+        if let Some(d) = &overrides.description {
+            self.description = Some(d.clone());
+        }
+        if let Some(cmd) = &overrides.command {
+            self.command = cmd.clone();
+        }
+        for (k, v) in &overrides.env {
+            match v {
+                Some(val) => {
+                    self.env.insert(k.clone(), val.clone());
+                }
+                None => {
+                    self.env.remove(k);
+                }
+            }
+        }
+        if let Some(check) = &overrides.completed_check {
+            self.completed_check = Some(check.clone());
+        }
+        if let Some(v) = overrides.skippable {
+            self.skippable = v;
+        }
+        if let Some(v) = overrides.allow_failure {
+            self.allow_failure = v;
+        }
+        if let Some(v) = overrides.requires_sudo {
+            self.requires_sudo = v;
+        }
+        if let Some(v) = overrides.sensitive {
+            self.sensitive = v;
+        }
+        if let Some(hooks) = &overrides.before {
+            self.before = hooks.clone();
+        }
+        if let Some(hooks) = &overrides.after {
+            self.after = hooks.clone();
+        }
+        if let Some(deps) = &overrides.depends_on {
+            self.depends_on = deps.clone();
+        }
+        if let Some(reqs) = &overrides.requires {
+            self.requires = reqs.clone();
+        }
+        if let Some(w) = &overrides.watches {
+            self.watches = w.clone();
+        }
+        if let Some(r) = overrides.retry {
+            self.retry = r;
         }
     }
 }
@@ -349,5 +409,131 @@ mod tests {
         let resolved = ResolvedStep::from_config("test", &config);
 
         assert!(resolved.requires.is_empty());
+    }
+
+    #[test]
+    fn step_environment_override_defaults_all_none() {
+        let overrides = StepEnvironmentOverride::default();
+        assert!(overrides.title.is_none());
+        assert!(overrides.description.is_none());
+        assert!(overrides.command.is_none());
+        assert!(overrides.env.is_empty());
+        assert!(overrides.completed_check.is_none());
+        assert!(overrides.skippable.is_none());
+        assert!(overrides.allow_failure.is_none());
+        assert!(overrides.requires_sudo.is_none());
+        assert!(overrides.sensitive.is_none());
+        assert!(overrides.before.is_none());
+        assert!(overrides.after.is_none());
+        assert!(overrides.depends_on.is_none());
+        assert!(overrides.requires.is_none());
+        assert!(overrides.watches.is_none());
+        assert!(overrides.retry.is_none());
+    }
+
+    #[test]
+    fn apply_environment_overrides_replaces_command() {
+        let config = StepConfig {
+            command: Some("echo base".to_string()),
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config);
+
+        let overrides = StepEnvironmentOverride {
+            command: Some("echo ci".to_string()),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.command, "echo ci");
+    }
+
+    #[test]
+    fn apply_environment_overrides_replaces_requires() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            requires: vec!["ruby".to_string(), "postgres-server".to_string()],
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config);
+
+        let overrides = StepEnvironmentOverride {
+            requires: Some(vec!["ruby".to_string()]),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.requires, vec!["ruby"]);
+    }
+
+    #[test]
+    fn apply_environment_overrides_adds_env_var() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            env: {
+                let mut env = HashMap::new();
+                env.insert("BASE_VAR".to_string(), "base".to_string());
+                env
+            },
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config);
+
+        let overrides = StepEnvironmentOverride {
+            env: {
+                let mut env = HashMap::new();
+                env.insert("CI".to_string(), Some("true".to_string()));
+                env
+            },
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.env.get("BASE_VAR"), Some(&"base".to_string()));
+        assert_eq!(resolved.env.get("CI"), Some(&"true".to_string()));
+    }
+
+    #[test]
+    fn apply_environment_overrides_removes_env_var() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            env: {
+                let mut env = HashMap::new();
+                env.insert("DEBUG".to_string(), "true".to_string());
+                env.insert("KEEP".to_string(), "yes".to_string());
+                env
+            },
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config);
+
+        let overrides = StepEnvironmentOverride {
+            env: {
+                let mut env = HashMap::new();
+                env.insert("DEBUG".to_string(), None);
+                env
+            },
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert!(!resolved.env.contains_key("DEBUG"));
+        assert_eq!(resolved.env.get("KEEP"), Some(&"yes".to_string()));
+    }
+
+    #[test]
+    fn apply_environment_overrides_ignores_none_fields() {
+        let config = StepConfig {
+            title: Some("Original".to_string()),
+            command: Some("echo original".to_string()),
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config);
+
+        let overrides = StepEnvironmentOverride::default();
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.title, "Original");
+        assert_eq!(resolved.command, "echo original");
     }
 }

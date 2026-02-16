@@ -514,6 +514,80 @@ pub enum CustomRequirementCheck {
     },
 }
 
+/// Per-environment overrides for a step.
+///
+/// All fields are `Option` — only specified fields override the base step.
+/// This struct is NOT deserialized from config yet (Phase 2 wires it in).
+/// The `env` field uses `HashMap<String, Option<String>>`:
+/// `Some(val)` = set/override, `None` = remove the key from the base env.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StepEnvironmentOverride {
+    /// Override step title
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+
+    /// Override step description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Override step command
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// Override/remove env vars (None value = remove key)
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, Option<String>>,
+
+    /// Override env file
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_file: Option<PathBuf>,
+
+    /// Override completed check
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_check: Option<CompletedCheck>,
+
+    /// Override skippable
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub skippable: Option<bool>,
+
+    /// Override allow_failure
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allow_failure: Option<bool>,
+
+    /// Override requires_sudo
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires_sudo: Option<bool>,
+
+    /// Override sensitive
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitive: Option<bool>,
+
+    /// Override before hooks
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<Vec<String>>,
+
+    /// Override after hooks
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<Vec<String>>,
+
+    /// Override dependencies
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub depends_on: Option<Vec<String>>,
+
+    /// Override requirements
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requires: Option<Vec<String>>,
+
+    /// Override watches
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub watches: Option<Vec<String>>,
+
+    /// Override retry count
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
