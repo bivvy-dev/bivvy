@@ -1,16 +1,23 @@
 //! Feedback command implementation.
 //!
 //! Captures and manages friction points during dogfooding, with automatic
-//! session correlation.
+//! session correlation and optional external delivery via GitHub issues
+//! or email.
 
 use anyhow::Result;
 use clap::{Args, Subcommand};
 
+use crate::feedback::delivery::{
+    self, build_github_url, build_mailto_url, build_preview, build_title, DeliveryMethod,
+};
 use crate::feedback::{default_store_path, FeedbackEntry, FeedbackStatus, FeedbackStore};
-use crate::session::{default_store_path as session_store_path, SessionId, SessionStore};
+use crate::session::{default_store_path as session_store_path, Session, SessionId, SessionStore};
 use crate::ui::{Prompt, PromptOption, PromptResult, PromptType, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
+
+/// Known feedback categories that map to delivery routing.
+const KNOWN_CATEGORIES: &[&str] = &["bug", "feature", "ux", "other"];
 
 /// Arguments for the `feedback` command.
 #[derive(Debug, Clone, Args)]
@@ -29,6 +36,10 @@ pub struct FeedbackArgs {
     /// Session ID to attach (defaults to most recent).
     #[arg(long)]
     pub session: Option<String>,
+
+    /// Skip the delivery prompt (save locally only).
+    #[arg(long)]
+    pub no_deliver: bool,
 }
 
 /// Feedback subcommands.
@@ -89,14 +100,17 @@ impl Command for FeedbackCommand {
             }
             None => {
                 if self.args.message.is_empty() {
-                    capture_interactive(&store, self.args.tag.clone(), ui)?
+                    capture_interactive(&store, self.args.tag.clone(), self.args.no_deliver, ui)?
                 } else {
                     let message = self.args.message.join(" ");
+                    let category = category_from_tags(&self.args.tag);
                     capture_feedback(
                         &store,
                         &message,
+                        &category,
                         self.args.tag.clone(),
                         self.args.session.clone(),
+                        self.args.no_deliver,
                         ui,
                     )?
                 }
@@ -111,11 +125,23 @@ impl Command for FeedbackCommand {
     }
 }
 
+/// Extract a delivery category from the tag list.
+///
+/// Uses the first tag that matches a known category. Falls back to "other".
+fn category_from_tags(tags: &[String]) -> String {
+    tags.iter()
+        .find(|t| KNOWN_CATEGORIES.contains(&t.as_str()))
+        .cloned()
+        .unwrap_or_else(|| "other".to_string())
+}
+
 fn capture_feedback(
     store: &FeedbackStore,
     message: &str,
+    category: &str,
     tags: Vec<String>,
     session_id: Option<String>,
+    no_deliver: bool,
     ui: &mut dyn UserInterface,
 ) -> Result<i32> {
     let session_store = SessionStore::new(session_store_path());
@@ -132,16 +158,23 @@ fn capture_feedback(
         entry = entry.with_tags(tags);
     }
     if let Some(sid) = session.clone() {
-        entry = entry.with_session(sid);
+        entry = entry.with_session(sid.clone());
     }
 
     store.append(&entry)?;
 
     let session_note = session
+        .as_ref()
         .map(|s| format!(" (session {})", s))
         .unwrap_or_default();
 
     ui.success(&format!("Feedback captured{}", session_note));
+
+    // Offer external delivery if interactive and not suppressed
+    if !no_deliver && ui.is_interactive() {
+        let full_session = session.and_then(|sid| session_store.load(&sid).ok());
+        offer_delivery(store, &entry, category, full_session.as_ref(), ui)?;
+    }
 
     Ok(0)
 }
@@ -149,6 +182,7 @@ fn capture_feedback(
 fn capture_interactive(
     store: &FeedbackStore,
     tags: Vec<String>,
+    no_deliver: bool,
     ui: &mut dyn UserInterface,
 ) -> Result<i32> {
     if !ui.is_interactive() {
@@ -209,7 +243,7 @@ fn capture_interactive(
     // Merge category into tags
     let mut all_tags = tags;
     if !category.is_empty() && category != "other" {
-        all_tags.insert(0, category);
+        all_tags.insert(0, category.clone());
     }
 
     let all_tags = if all_tags.is_empty() {
@@ -230,7 +264,80 @@ fn capture_interactive(
         all_tags
     };
 
-    capture_feedback(store, &message, all_tags, None, ui)
+    capture_feedback(store, &message, &category, all_tags, None, no_deliver, ui)
+}
+
+/// Offer to deliver feedback externally via GitHub issue or email.
+fn offer_delivery(
+    store: &FeedbackStore,
+    entry: &FeedbackEntry,
+    category: &str,
+    session: Option<&Session>,
+    ui: &mut dyn UserInterface,
+) -> Result<()> {
+    let method = delivery::determine_method(category);
+
+    // Show preview
+    let preview = build_preview(entry, category, session, &method);
+    ui.message(&preview);
+
+    // Prompt for confirmation
+    let confirm_prompt = Prompt {
+        key: "feedback_deliver".to_string(),
+        question: "Send feedback?".to_string(),
+        prompt_type: PromptType::Select {
+            options: vec![
+                PromptOption {
+                    label: "Open in browser".to_string(),
+                    value: "yes".to_string(),
+                },
+                PromptOption {
+                    label: "Skip".to_string(),
+                    value: "no".to_string(),
+                },
+            ],
+        },
+        default: None,
+    };
+
+    let response = ui.prompt(&confirm_prompt)?;
+    let choice = match response {
+        PromptResult::String(s) => s,
+        _ => "no".to_string(),
+    };
+
+    if choice == "yes" {
+        let url = match &method {
+            DeliveryMethod::GitHubIssue { labels } => {
+                let title = build_title(entry, category);
+                let body = delivery::scrub_payload(&delivery::build_github_body(entry, session));
+                build_github_url(&title, &body, labels)
+            }
+            DeliveryMethod::Email { to } => {
+                let subject = delivery::build_email_subject(entry, category);
+                let body = delivery::scrub_payload(&delivery::build_email_body(entry, session));
+                build_mailto_url(to, &subject, &body)
+            }
+        };
+
+        match delivery::open_url(&url) {
+            Ok(()) => {
+                ui.success("Opened in browser. Complete submission there.");
+                // Mark as delivered
+                let _ = store.update(&entry.id, |e| {
+                    e.delivered = Some(true);
+                });
+            }
+            Err(e) => {
+                ui.warning(&format!("Could not open browser: {}", e));
+                ui.message(&format!("You can open this URL manually:\n  {}", url));
+            }
+        }
+    } else {
+        ui.message("Feedback saved locally.");
+    }
+
+    Ok(())
 }
 
 fn list_feedback(
@@ -384,7 +491,16 @@ mod tests {
         let store = create_test_store(&temp);
         let mut ui = MockUI::new();
 
-        let result = capture_feedback(&store, "test feedback", vec![], None, &mut ui).unwrap();
+        let result = capture_feedback(
+            &store,
+            "test feedback",
+            "other",
+            vec![],
+            None,
+            true,
+            &mut ui,
+        )
+        .unwrap();
 
         assert_eq!(result, 0);
 
@@ -402,8 +518,10 @@ mod tests {
         let result = capture_feedback(
             &store,
             "ux problem",
+            "ux",
             vec!["ux".to_string(), "critical".to_string()],
             None,
+            true,
             &mut ui,
         )
         .unwrap();
@@ -590,7 +708,7 @@ mod tests {
         let mut ui = MockUI::new();
 
         // MockUI is non-interactive, so this should fail
-        let result = capture_interactive(&store, vec![], &mut ui).unwrap();
+        let result = capture_interactive(&store, vec![], false, &mut ui).unwrap();
         assert_eq!(result, 1);
     }
 
@@ -644,5 +762,156 @@ mod tests {
         } else {
             panic!("Expected Select prompt type");
         }
+    }
+
+    // --- New delivery-related tests ---
+
+    #[test]
+    fn no_deliver_flag_parsing() {
+        use clap::Parser;
+
+        #[derive(Parser)]
+        struct TestCli {
+            #[command(flatten)]
+            feedback: FeedbackArgs,
+        }
+
+        let cli = TestCli::parse_from(["test", "--no-deliver", "some", "feedback"]);
+        assert!(cli.feedback.no_deliver);
+    }
+
+    #[test]
+    fn capture_feedback_skips_delivery_when_non_interactive() {
+        let temp = TempDir::new().unwrap();
+        let store = create_test_store(&temp);
+        let mut ui = MockUI::new();
+        // MockUI defaults to non-interactive
+
+        let result =
+            capture_feedback(&store, "test msg", "bug", vec![], None, false, &mut ui).unwrap();
+        assert_eq!(result, 0);
+
+        // No delivery prompt should have been shown
+        assert!(!ui.prompts_shown().contains(&"feedback_deliver".to_string()));
+    }
+
+    #[test]
+    fn capture_feedback_skips_delivery_with_no_deliver_flag() {
+        let temp = TempDir::new().unwrap();
+        let store = create_test_store(&temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result =
+            capture_feedback(&store, "test msg", "bug", vec![], None, true, &mut ui).unwrap();
+        assert_eq!(result, 0);
+
+        // Delivery prompt should NOT be shown when no_deliver=true
+        assert!(!ui.prompts_shown().contains(&"feedback_deliver".to_string()));
+    }
+
+    #[test]
+    fn capture_feedback_offers_delivery_when_interactive() {
+        let temp = TempDir::new().unwrap();
+        let store = create_test_store(&temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("feedback_deliver", "no");
+
+        let result =
+            capture_feedback(&store, "test msg", "bug", vec![], None, false, &mut ui).unwrap();
+        assert_eq!(result, 0);
+
+        // Delivery prompt SHOULD be shown
+        assert!(ui.prompts_shown().contains(&"feedback_deliver".to_string()));
+        // User said "no", so saved locally message
+        assert!(ui.has_message("Feedback saved locally"));
+    }
+
+    #[test]
+    fn offer_delivery_shows_preview() {
+        let temp = TempDir::new().unwrap();
+        let store = create_test_store(&temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("feedback_deliver", "no");
+
+        let entry = FeedbackEntry::new("test issue");
+        store.append(&entry).unwrap();
+
+        offer_delivery(&store, &entry, "bug", None, &mut ui).unwrap();
+
+        // Preview should be shown before the prompt
+        let messages = ui.messages();
+        let has_preview = messages.iter().any(|m| m.contains("What we'll send"));
+        assert!(has_preview, "Preview should be shown");
+    }
+
+    #[test]
+    fn category_from_tags_finds_known_category() {
+        assert_eq!(
+            category_from_tags(&["bug".to_string(), "ui".to_string()]),
+            "bug"
+        );
+        assert_eq!(
+            category_from_tags(&["critical".to_string(), "feature".to_string()]),
+            "feature"
+        );
+    }
+
+    #[test]
+    fn category_from_tags_defaults_to_other() {
+        assert_eq!(
+            category_from_tags(&["critical".to_string(), "ui".to_string()]),
+            "other"
+        );
+        assert_eq!(category_from_tags(&[]), "other");
+    }
+
+    #[test]
+    fn quick_capture_with_tag_uses_category() {
+        let temp = TempDir::new().unwrap();
+        let store = create_test_store(&temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("feedback_deliver", "no");
+
+        // Use "bug" as first tag — should route as bug category
+        let result = capture_feedback(
+            &store,
+            "broken",
+            "bug",
+            vec!["bug".to_string()],
+            None,
+            false,
+            &mut ui,
+        )
+        .unwrap();
+        assert_eq!(result, 0);
+
+        // Delivery was offered (user declined)
+        assert!(ui.prompts_shown().contains(&"feedback_deliver".to_string()));
+        // Preview should mention GitHub (bug routes to GitHub)
+        let has_github = ui.messages().iter().any(|m| m.contains("GitHub issue"));
+        assert!(has_github, "Bug should route to GitHub");
+    }
+
+    #[test]
+    fn delivery_declined_saves_locally_only() {
+        let temp = TempDir::new().unwrap();
+        let store = create_test_store(&temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("feedback_deliver", "no");
+
+        let entry = FeedbackEntry::new("test");
+        store.append(&entry).unwrap();
+
+        offer_delivery(&store, &entry, "bug", None, &mut ui).unwrap();
+
+        assert!(ui.has_message("Feedback saved locally"));
+        // Entry should NOT be marked as delivered
+        let updated = store.get(&entry.id).unwrap().unwrap();
+        assert!(updated.delivered.is_none());
     }
 }
