@@ -1,0 +1,72 @@
+app_name: bivvy
+
+settings:
+  default_output: verbose
+
+steps:
+  rust:
+    title: "Rust toolchain"
+    command: "rustup show active-toolchain"
+    completed_check:
+      type: command_succeeds
+      command: "rustc --version"
+
+  clippy:
+    title: "Clippy"
+    command: "rustup component add clippy"
+    depends_on: [rust]
+    completed_check:
+      type: command_succeeds
+      command: "cargo clippy --version"
+
+  rustfmt:
+    title: "Rustfmt"
+    command: "rustup component add rustfmt"
+    depends_on: [rust]
+    completed_check:
+      type: command_succeeds
+      command: "cargo fmt --version"
+
+  llvm-cov:
+    title: "cargo-llvm-cov"
+    command: "cargo install cargo-llvm-cov"
+    depends_on: [rust]
+    completed_check:
+      type: command_succeeds
+      command: "cargo llvm-cov --version"
+
+  deps:
+    title: "Cargo dependencies"
+    command: "cargo fetch"
+    depends_on: [rust]
+    watches: [Cargo.toml, Cargo.lock]
+    completed_check:
+      type: file_exists
+      path: "target"
+
+  build:
+    title: "Build"
+    command: "cargo build --all-targets --all-features"
+    depends_on: [deps]
+
+  test:
+    title: "Tests"
+    command: "cargo test --all-features"
+    depends_on: [build]
+
+  lint:
+    title: "Lint"
+    command: "cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings"
+    depends_on: [clippy, rustfmt, build]
+
+workflows:
+  default:
+    steps: [rust, clippy, rustfmt, deps, build, test, lint]
+
+  setup:
+    description: "First-time setup (includes cargo-llvm-cov)"
+    steps: [rust, clippy, rustfmt, llvm-cov, deps, build, test, lint]
+
+  check:
+    description: "Pre-commit verification"
+    steps: [lint, test, build]
