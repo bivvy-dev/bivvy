@@ -986,6 +986,72 @@ steps:
     }
 
     #[test]
+    fn extends_child_yaml_replaces_parent_ci_environment_block() {
+        let server = MockServer::start();
+
+        // Parent config: step "setup" with ci environment override
+        let parent_yaml = r#"
+app_name: ParentApp
+steps:
+  setup:
+    command: "parent-default-cmd"
+    environments:
+      ci:
+        command: "parent-ci-cmd"
+        env:
+          PARENT_VAR: "from-parent"
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/parent.yml");
+            then.status(200).body(parent_yaml);
+        });
+
+        // Child config as YAML that extends parent and overrides the ci block
+        let child_yaml = format!(
+            r#"
+extends:
+  - url: {}
+app_name: ChildApp
+steps:
+  setup:
+    environments:
+      ci:
+        command: "child-ci-cmd"
+"#,
+            server.url("/parent.yml")
+        );
+
+        let child_config: BivvyConfig = serde_yaml::from_str(&child_yaml).unwrap();
+
+        let resolver = resolver_with_mock(&server);
+        let resolved = resolver.resolve(&child_config).unwrap();
+
+        // Child's app_name wins
+        assert_eq!(resolved.app_name, Some("ChildApp".to_string()));
+
+        // The ci environment block should be fully replaced by child
+        let ci = &resolved.steps["setup"].environments["ci"];
+        assert_eq!(
+            ci.command,
+            Some("child-ci-cmd".to_string()),
+            "Child's ci command should replace parent's"
+        );
+        // Parent's env vars should be gone (block replaced, not deep-merged)
+        assert!(
+            !ci.env.contains_key("PARENT_VAR"),
+            "Parent's ci env vars should not survive replacement"
+        );
+
+        // Parent's default command should still be inherited (not inside environments block)
+        assert_eq!(
+            resolved.steps["setup"].command,
+            Some("parent-default-cmd".to_string()),
+            "Parent's default command should be inherited"
+        );
+    }
+
+    #[test]
     fn extends_inherits_only_environments_when_unset() {
         let server = MockServer::start();
 

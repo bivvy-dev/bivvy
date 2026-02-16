@@ -750,6 +750,108 @@ mod tests {
         );
     }
 
+    // --- Manager detected but tool not installed ---
+
+    #[test]
+    fn manager_detected_but_tool_not_installed_falls_through() {
+        // Scenario: A version file (.ruby-version) exists, a manager (mise)
+        // is detected as inactive, but the tool binary (ruby) does NOT exist
+        // under the manager's install path. The checker should fall through
+        // to Missing, not report Inactive.
+        //
+        // We create a tempdir with a .ruby-version file. The probe has no
+        // env vars, so augmented_path is whatever the system has. Since we
+        // use a nonexistent tool name that maps to a ManagedCommand check,
+        // we build a custom requirement with managed_path_patterns that
+        // won't match any real paths. The tool binary won't be found
+        // anywhere, so the ManagedCommand check returns None, and the
+        // evaluate method falls through to Missing.
+        use crate::requirements::registry::{Requirement, RequirementCheck};
+
+        let temp = TempDir::new().unwrap();
+        // Create a version file so the managed command check looks for a manager
+        std::fs::write(temp.path().join(".ruby-version"), "3.2.0").unwrap();
+
+        let probe = make_probe();
+        let mut registry = RequirementRegistry::new();
+
+        // Register a custom requirement that uses ManagedCommand with a
+        // tool binary name that definitely doesn't exist on any PATH
+        registry.insert(
+            "fake-ruby".to_string(),
+            Requirement {
+                name: "fake-ruby".to_string(),
+                checks: vec![RequirementCheck::ManagedCommand {
+                    command: "bivvy-nonexistent-ruby-xyz-12345".to_string(),
+                    managed_path_patterns: vec!["mise/".to_string(), "rbenv/".to_string()],
+                    system_path_patterns: vec!["/usr/bin/".to_string()],
+                    version_file: Some(".ruby-version".to_string()),
+                }],
+                install_template: Some("mise-ruby".to_string()),
+                install_hint: Some("Install Ruby via mise".to_string()),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+
+        let status = checker.check_one("fake-ruby");
+        // The tool binary doesn't exist anywhere, so ManagedCommand check
+        // returns None, and evaluate falls through to Missing.
+        assert!(
+            matches!(status, RequirementStatus::Missing { .. }),
+            "Expected Missing when tool binary not found, got: {:?}",
+            status
+        );
+    }
+
+    // --- Circular dependency detection ---
+
+    #[test]
+    fn circular_install_deps_detected() {
+        // Create a registry with requirements where A depends_on B and B depends_on A.
+        // resolve_install_deps should detect the cycle and return an error.
+        use crate::requirements::registry::{Requirement, RequirementCheck};
+
+        let mut registry = RequirementRegistry::new();
+        registry.insert(
+            "tool_a".to_string(),
+            Requirement {
+                name: "tool_a".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds("false".to_string())],
+                install_template: None,
+                install_hint: None,
+                depends_on: vec!["tool_b".to_string()],
+                install_requires: None,
+            },
+        );
+        registry.insert(
+            "tool_b".to_string(),
+            Requirement {
+                name: "tool_b".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds("false".to_string())],
+                install_template: None,
+                install_hint: None,
+                depends_on: vec!["tool_a".to_string()],
+                install_requires: None,
+            },
+        );
+
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let checker = GapChecker::new(&registry, &probe, temp.path());
+
+        let result = checker.resolve_install_deps("tool_a");
+        assert!(result.is_err(), "circular deps should be detected");
+        let err_msg = result.unwrap_err();
+        assert!(
+            err_msg.contains("Circular dependency"),
+            "error should mention circular dependency, got: {}",
+            err_msg
+        );
+    }
+
     // --- 1E-1: Network check test ---
 
     #[test]

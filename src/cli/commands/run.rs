@@ -137,7 +137,7 @@ impl Command for RunCommand {
         let env_name = resolved_env.name.clone();
 
         // Warn if the environment is not known
-        if !resolved_env.is_known(&config.settings) {
+        if !resolved_env.is_known(&config) {
             ui.warning(&format!(
                 "Unknown environment '{}'. It is not defined in settings.environments                  or a built-in. Step overrides for this environment will have no effect.",
                 env_name

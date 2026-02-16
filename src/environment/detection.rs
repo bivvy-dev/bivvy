@@ -65,8 +65,8 @@ impl BuiltinDetector {
     ///
     /// Returns the first matching environment, checking in order:
     /// 1. Custom rules (alphabetical by environment name)
-    /// 2. Codespace (most specific)
-    /// 3. CI (broad)
+    /// 2. CI (broadest, most commonly needed classification)
+    /// 3. Codespace
     /// 4. Docker
     pub fn detect(&self) -> Option<DetectedEnvironment> {
         self.detect_with_env(|key| std::env::var(key))
@@ -78,32 +78,36 @@ impl BuiltinDetector {
         F: Fn(&str) -> Result<String, std::env::VarError>,
     {
         // 1. Custom rules first (BTreeMap = alphabetical order)
-        for (env_name, rules) in &self.custom_rules {
-            for rule in rules {
-                if self.matches_rule(rule, &env_fn) {
-                    return Some(DetectedEnvironment {
-                        name: env_name.clone(),
-                        detected_via: rule.env.clone(),
-                    });
-                }
-            }
+        // Collect all matching custom environments to warn about ambiguity.
+        let matching_custom: Vec<(&String, &str)> = self
+            .custom_rules
+            .iter()
+            .filter_map(|(env_name, rules)| {
+                rules
+                    .iter()
+                    .find(|rule| self.matches_rule(rule, &env_fn))
+                    .map(|rule| (env_name, rule.env.as_str()))
+            })
+            .collect();
+
+        if matching_custom.len() > 1 {
+            let names: Vec<&str> = matching_custom.iter().map(|(n, _)| n.as_str()).collect();
+            eprintln!(
+                "Warning: Multiple custom environments detected: {}. Using '{}' (alphabetically first).",
+                names.join(", "),
+                names[0],
+            );
         }
 
-        // 2. Codespace (most specific built-in)
-        if env_fn("CODESPACES").is_ok() {
+        if let Some((env_name, detected_via)) = matching_custom.first() {
             return Some(DetectedEnvironment {
-                name: "codespace".to_string(),
-                detected_via: "CODESPACES".to_string(),
-            });
-        }
-        if env_fn("GITPOD_WORKSPACE_ID").is_ok() {
-            return Some(DetectedEnvironment {
-                name: "codespace".to_string(),
-                detected_via: "GITPOD_WORKSPACE_ID".to_string(),
+                name: (*env_name).clone(),
+                detected_via: detected_via.to_string(),
             });
         }
 
-        // 3. CI (broad detection)
+        // 2. CI (broadest, most commonly needed classification --
+        //    a Codespace running CI should be classified as CI)
         let ci_vars = [
             "CI",
             "GITHUB_ACTIONS",
@@ -127,6 +131,20 @@ impl BuiltinDetector {
             return Some(DetectedEnvironment {
                 name: "ci".to_string(),
                 detected_via: "TF_BUILD".to_string(),
+            });
+        }
+
+        // 3. Codespace
+        if env_fn("CODESPACES").is_ok() {
+            return Some(DetectedEnvironment {
+                name: "codespace".to_string(),
+                detected_via: "CODESPACES".to_string(),
+            });
+        }
+        if env_fn("GITPOD_WORKSPACE_ID").is_ok() {
+            return Some(DetectedEnvironment {
+                name: "codespace".to_string(),
+                detected_via: "GITPOD_WORKSPACE_ID".to_string(),
             });
         }
 
@@ -256,12 +274,12 @@ mod tests {
     }
 
     #[test]
-    fn codespace_takes_priority_over_ci() {
+    fn ci_takes_priority_over_codespace() {
         let detector = BuiltinDetector::new();
-        // Codespaces also sets CI
+        // Codespaces also sets CI — CI should win because it's the broadest classification
         let env_fn = make_env(&[("CODESPACES", "true"), ("CI", "true")]);
         let result = detector.detect_with_env(env_fn).unwrap();
-        assert_eq!(result.name, "codespace");
+        assert_eq!(result.name, "ci");
     }
 
     #[test]
@@ -270,6 +288,15 @@ mod tests {
         let env_fn = make_env(&[("CI", "true"), ("DOCKER_CONTAINER", "1")]);
         let result = detector.detect_with_env(env_fn).unwrap();
         assert_eq!(result.name, "ci");
+    }
+
+    #[test]
+    fn codespace_detected_without_ci() {
+        let detector = BuiltinDetector::new();
+        // When only CODESPACES is set (no CI var), codespace is detected
+        let env_fn = make_env(&[("CODESPACES", "true")]);
+        let result = detector.detect_with_env(env_fn).unwrap();
+        assert_eq!(result.name, "codespace");
     }
 
     #[test]
@@ -343,6 +370,32 @@ mod tests {
         let env_fn = make_env(&[("ALPHA", "1"), ("BETA", "1")]);
         let result = detector.detect_with_env(env_fn).unwrap();
         assert_eq!(result.name, "alpha");
+    }
+
+    #[test]
+    fn custom_rules_multiple_match_warns() {
+        let mut custom = BTreeMap::new();
+        custom.insert(
+            "beta".to_string(),
+            vec![DetectRule {
+                env: "BETA".to_string(),
+                value: None,
+            }],
+        );
+        custom.insert(
+            "alpha".to_string(),
+            vec![DetectRule {
+                env: "ALPHA".to_string(),
+                value: None,
+            }],
+        );
+        let detector = BuiltinDetector::new().with_custom_rules(custom);
+        // Both match — should still pick "alpha" (alphabetically first)
+        // and emit a warning (tested via stderr capture in integration tests)
+        let env_fn = make_env(&[("ALPHA", "1"), ("BETA", "1")]);
+        let result = detector.detect_with_env(env_fn).unwrap();
+        assert_eq!(result.name, "alpha");
+        assert_eq!(result.detected_via, "ALPHA");
     }
 
     #[test]

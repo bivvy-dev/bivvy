@@ -127,6 +127,27 @@ impl Command for StatusCommand {
         };
 
         for step_name in &step_names {
+            // Check if step is skipped by only_environments
+            let step_config = config.steps.get(*step_name);
+            let skipped = step_config
+                .map(|s| {
+                    !s.only_environments.is_empty()
+                        && !s.only_environments.iter().any(|e| e == &resolved_env.name)
+                })
+                .unwrap_or(false);
+
+            if skipped {
+                ui.message(&format!(
+                    "    {} {:<20} {}",
+                    theme.dim.apply_to("⊘"),
+                    step_name,
+                    theme
+                        .dim
+                        .apply_to(format!("(skipped in {})", resolved_env.name)),
+                ));
+                continue;
+            }
+
             let step_state = state.get_step(step_name);
             let status = step_state.map(|s| s.status).unwrap_or(StepStatus::NeverRun);
             let kind = StatusKind::from(status);
@@ -600,5 +621,88 @@ workflows:
         let (icon, desc) = format_requirement_status(&theme, &RequirementStatus::Unknown);
         assert!(icon.contains("?"));
         assert!(desc.contains("unknown requirement"));
+    }
+
+    #[test]
+    fn status_shows_skipped_steps_for_environment() {
+        let config = r#"
+app_name: Test
+steps:
+  dev_only:
+    command: echo dev
+    only_environments:
+      - development
+  always_run:
+    command: echo always
+workflows:
+  default:
+    steps: [dev_only, always_run]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // dev_only should show as skipped in ci
+        assert!(
+            ui.messages()
+                .iter()
+                .any(|m| m.contains("dev_only") && m.contains("skipped in ci")),
+            "Expected 'dev_only' to be shown as 'skipped in ci', messages: {:?}",
+            ui.messages()
+        );
+        // always_run should show normally (no only_environments = runs in all)
+        assert!(
+            ui.messages()
+                .iter()
+                .any(|m| m.contains("always_run") && !m.contains("skipped")),
+            "Expected 'always_run' to show without skipped, messages: {:?}",
+            ui.messages()
+        );
+    }
+
+    #[test]
+    fn status_no_skipped_when_environment_matches() {
+        let config = r#"
+app_name: Test
+steps:
+  ci_step:
+    command: echo ci
+    only_environments:
+      - ci
+workflows:
+  default:
+    steps: [ci_step]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // ci_step should show normally (pending icon), not skipped
+        assert!(
+            ui.messages()
+                .iter()
+                .any(|m| m.contains("ci_step") && m.contains("◌")),
+            "Expected 'ci_step' to show as pending, messages: {:?}",
+            ui.messages()
+        );
+        assert!(
+            !ui.messages()
+                .iter()
+                .any(|m| m.contains("ci_step") && m.contains("skipped")),
+            "Expected 'ci_step' NOT to be skipped, messages: {:?}",
+            ui.messages()
+        );
     }
 }

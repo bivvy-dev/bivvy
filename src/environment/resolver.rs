@@ -7,9 +7,10 @@
 //! 4. Fallback to "development"
 
 use std::collections::BTreeMap;
+use std::collections::BTreeSet;
 
 use super::detection::{BuiltinDetector, DetectRule, DetectedEnvironment};
-use crate::config::schema::Settings;
+use crate::config::schema::{BivvyConfig, Settings};
 
 /// How the environment was determined.
 #[derive(Debug, Clone, PartialEq)]
@@ -142,10 +143,73 @@ impl ResolvedEnvironment {
     }
 
     /// Check whether the resolved environment is known (defined in config or a built-in).
-    pub fn is_known(&self, settings: &Settings) -> bool {
-        const BUILTINS: &[&str] = &["ci", "docker", "codespace", "development"];
-        BUILTINS.contains(&self.name.as_str()) || settings.environments.contains_key(&self.name)
+    ///
+    /// An environment is considered known if it appears in:
+    /// - Built-in environments: "ci", "docker", "codespace", "development"
+    /// - Custom environments defined in `settings.environments`
+    /// - Environments referenced in steps' `environments` keys or `only_environments` values
+    pub fn is_known(&self, config: &BivvyConfig) -> bool {
+        known_environments(config).contains(&self.name)
     }
+}
+
+/// Returns all known environment names from builtins, config settings, and step references.
+///
+/// This includes:
+/// 1. Built-in environments: "ci", "docker", "codespace", "development"
+/// 2. Custom environments defined in `settings.environments`
+/// 3. Environments referenced in steps' `environments` keys and `only_environments` values
+///
+/// # Example
+///
+/// ```
+/// use bivvy::config::schema::BivvyConfig;
+/// use bivvy::environment::resolver::known_environments;
+///
+/// let config: BivvyConfig = serde_yaml::from_str(r#"
+/// settings:
+///   environments:
+///     staging:
+///       detect:
+///         - env: STAGING
+/// steps:
+///   deploy:
+///     command: "deploy.sh"
+///     only_environments:
+///       - production
+/// "#).unwrap();
+///
+/// let envs = known_environments(&config);
+/// assert!(envs.contains(&"ci".to_string()));
+/// assert!(envs.contains(&"staging".to_string()));
+/// assert!(envs.contains(&"production".to_string()));
+/// ```
+pub fn known_environments(config: &BivvyConfig) -> Vec<String> {
+    let mut envs = BTreeSet::new();
+
+    // 1. Built-in environments
+    for builtin in &["ci", "docker", "codespace", "development"] {
+        envs.insert(builtin.to_string());
+    }
+
+    // 2. Custom environments from settings.environments
+    for name in config.settings.environments.keys() {
+        envs.insert(name.clone());
+    }
+
+    // 3. Environments referenced in steps
+    for step in config.steps.values() {
+        // Keys in step.environments (per-environment overrides)
+        for env_name in step.environments.keys() {
+            envs.insert(env_name.clone());
+        }
+        // Values in step.only_environments
+        for env_name in &step.only_environments {
+            envs.insert(env_name.clone());
+        }
+    }
+
+    envs.into_iter().collect()
 }
 
 #[cfg(test)]
@@ -287,13 +351,13 @@ mod tests {
 
     #[test]
     fn is_known_builtin() {
-        let settings = Settings::default();
+        let config = BivvyConfig::default();
         for name in &["ci", "docker", "codespace", "development"] {
             let resolved = ResolvedEnvironment {
                 name: name.to_string(),
                 source: EnvironmentSource::Flag,
             };
-            assert!(resolved.is_known(&settings), "{} should be known", name);
+            assert!(resolved.is_known(&config), "{} should be known", name);
         }
     }
 
@@ -305,8 +369,11 @@ mod tests {
         let mut environments = HashMap::new();
         environments.insert("staging".to_string(), EnvironmentConfig::default());
 
-        let settings = Settings {
-            environments,
+        let config = BivvyConfig {
+            settings: Settings {
+                environments,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -314,16 +381,176 @@ mod tests {
             name: "staging".to_string(),
             source: EnvironmentSource::Flag,
         };
-        assert!(resolved.is_known(&settings));
+        assert!(resolved.is_known(&config));
     }
 
     #[test]
     fn is_known_unknown() {
-        let settings = Settings::default();
+        let config = BivvyConfig::default();
         let resolved = ResolvedEnvironment {
             name: "foo".to_string(),
             source: EnvironmentSource::Flag,
         };
-        assert!(!resolved.is_known(&settings));
+        assert!(!resolved.is_known(&config));
+    }
+
+    #[test]
+    fn is_known_from_step_environments_key() {
+        use crate::config::schema::{StepConfig, StepEnvironmentOverride};
+        use std::collections::HashMap;
+
+        let mut step_envs = HashMap::new();
+        step_envs.insert("preview".to_string(), StepEnvironmentOverride::default());
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "deploy".to_string(),
+            StepConfig {
+                environments: step_envs,
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            steps,
+            ..Default::default()
+        };
+
+        let resolved = ResolvedEnvironment {
+            name: "preview".to_string(),
+            source: EnvironmentSource::Flag,
+        };
+        assert!(resolved.is_known(&config));
+    }
+
+    #[test]
+    fn is_known_from_step_only_environments() {
+        use crate::config::schema::StepConfig;
+        use std::collections::HashMap;
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "seeds".to_string(),
+            StepConfig {
+                only_environments: vec!["production".to_string()],
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            steps,
+            ..Default::default()
+        };
+
+        let resolved = ResolvedEnvironment {
+            name: "production".to_string(),
+            source: EnvironmentSource::Flag,
+        };
+        assert!(resolved.is_known(&config));
+    }
+
+    #[test]
+    fn known_environments_includes_builtins() {
+        let config = BivvyConfig::default();
+        let envs = known_environments(&config);
+        assert!(envs.contains(&"ci".to_string()));
+        assert!(envs.contains(&"docker".to_string()));
+        assert!(envs.contains(&"codespace".to_string()));
+        assert!(envs.contains(&"development".to_string()));
+    }
+
+    #[test]
+    fn known_environments_includes_custom() {
+        use crate::config::schema::EnvironmentConfig;
+        use std::collections::HashMap;
+
+        let mut environments = HashMap::new();
+        environments.insert("staging".to_string(), EnvironmentConfig::default());
+        environments.insert("preview".to_string(), EnvironmentConfig::default());
+
+        let config = BivvyConfig {
+            settings: Settings {
+                environments,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        let envs = known_environments(&config);
+        assert!(envs.contains(&"staging".to_string()));
+        assert!(envs.contains(&"preview".to_string()));
+    }
+
+    #[test]
+    fn known_environments_includes_step_references() {
+        use crate::config::schema::{StepConfig, StepEnvironmentOverride};
+        use std::collections::HashMap;
+
+        let mut step_envs = HashMap::new();
+        step_envs.insert("canary".to_string(), StepEnvironmentOverride::default());
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "deploy".to_string(),
+            StepConfig {
+                environments: step_envs,
+                only_environments: vec!["production".to_string(), "staging".to_string()],
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            steps,
+            ..Default::default()
+        };
+
+        let envs = known_environments(&config);
+        assert!(envs.contains(&"canary".to_string()));
+        assert!(envs.contains(&"production".to_string()));
+        assert!(envs.contains(&"staging".to_string()));
+        // Builtins still present
+        assert!(envs.contains(&"ci".to_string()));
+    }
+
+    #[test]
+    fn known_environments_deduplicates() {
+        use crate::config::schema::{EnvironmentConfig, StepConfig};
+        use std::collections::HashMap;
+
+        let mut environments = HashMap::new();
+        environments.insert("staging".to_string(), EnvironmentConfig::default());
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "deploy".to_string(),
+            StepConfig {
+                only_environments: vec!["staging".to_string(), "ci".to_string()],
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            settings: Settings {
+                environments,
+                ..Default::default()
+            },
+            steps,
+            ..Default::default()
+        };
+
+        let envs = known_environments(&config);
+        // "staging" and "ci" should appear exactly once each
+        assert_eq!(envs.iter().filter(|e| *e == "staging").count(), 1);
+        assert_eq!(envs.iter().filter(|e| *e == "ci").count(), 1);
+    }
+
+    #[test]
+    fn known_environments_sorted() {
+        let config = BivvyConfig::default();
+        let envs = known_environments(&config);
+        // BTreeSet yields sorted output
+        let mut sorted = envs.clone();
+        sorted.sort();
+        assert_eq!(envs, sorted);
     }
 }

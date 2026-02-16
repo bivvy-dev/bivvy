@@ -7,12 +7,14 @@ use std::collections::HashMap;
 
 use super::rule::{LintRule, RuleId};
 use super::rules::{
-    AppNameRule, CircularDependencyRule, CustomEnvironmentShadowsBuiltinRule,
-    EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule, RedundantEnvNullRule,
+    AppNameRule, CircularDependencyRule, CircularRequirementDepRule,
+    CustomEnvironmentShadowsBuiltinRule, EnvironmentCircularDependencyRule,
+    EnvironmentDefaultWorkflowMissingRule, InstallTemplateMissingRule, RedundantEnvNullRule,
     RedundantEnvironmentOverrideRule, RequiredFieldsRule, SelfDependencyRule,
-    UndefinedDependencyRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
-    UnreachableEnvironmentOverrideRule,
+    ServiceRequirementWithoutHintRule, UndefinedDependencyRule, UnknownEnvironmentInOnlyRule,
+    UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
 };
+use crate::requirements::registry::RequirementRegistry;
 
 /// Registry of all available lint rules.
 pub struct RuleRegistry {
@@ -30,6 +32,9 @@ impl RuleRegistry {
     /// Create a registry with all built-in rules.
     ///
     /// This registers all the default validation rules that come with Bivvy.
+    /// Requirement rules are registered with a default `RequirementRegistry`
+    /// (built-ins only); the lint command re-registers them with config-aware
+    /// custom requirements.
     /// Note: Template-related rules (UndefinedTemplateRule, TemplateInputsRule)
     /// require a Registry and must be registered separately.
     pub fn with_builtins() -> Self {
@@ -47,6 +52,21 @@ impl RuleRegistry {
         registry.register(Box::new(RedundantEnvironmentOverrideRule));
         registry.register(Box::new(RedundantEnvNullRule));
         registry.register(Box::new(EnvironmentCircularDependencyRule));
+
+        // Requirement rules (registered with default RequirementRegistry;
+        // the lint command re-registers with config-aware custom requirements)
+        registry.register(Box::new(UnknownRequirementRule::new(
+            RequirementRegistry::new(),
+        )));
+        registry.register(Box::new(CircularRequirementDepRule::new(
+            RequirementRegistry::new(),
+        )));
+        registry.register(Box::new(InstallTemplateMissingRule::new(
+            RequirementRegistry::new(),
+        )));
+        registry.register(Box::new(ServiceRequirementWithoutHintRule::new(
+            RequirementRegistry::new(),
+        )));
         registry
     }
 
@@ -155,8 +175,8 @@ mod tests {
     fn registry_with_builtins_has_rules() {
         let registry = RuleRegistry::with_builtins();
         assert!(!registry.is_empty());
-        // Should have at least 13 built-in rules
-        assert!(registry.len() >= 13);
+        // Should have at least 17 built-in rules (13 original + 4 requirement rules)
+        assert!(registry.len() >= 17);
         // Verify some specific rules are registered
         assert!(registry.get(&RuleId::new("app-name-format")).is_some());
         assert!(registry.get(&RuleId::new("required-fields")).is_some());
@@ -177,6 +197,17 @@ mod tests {
             .is_some());
         assert!(registry
             .get(&RuleId::new("custom-environment-shadows-builtin"))
+            .is_some());
+        // Requirement rules
+        assert!(registry.get(&RuleId::new("unknown-requirement")).is_some());
+        assert!(registry
+            .get(&RuleId::new("circular-requirement-dep"))
+            .is_some());
+        assert!(registry
+            .get(&RuleId::new("install-template-missing"))
+            .is_some());
+        assert!(registry
+            .get(&RuleId::new("service-requirement-without-hint"))
             .is_some());
     }
 }

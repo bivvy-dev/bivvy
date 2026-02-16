@@ -323,6 +323,12 @@ impl RequirementRegistry {
         self
     }
 
+    /// Insert a requirement directly (test-only).
+    #[cfg(test)]
+    pub(crate) fn insert(&mut self, name: String, requirement: Requirement) {
+        self.requirements.insert(name, requirement);
+    }
+
     /// Look up a requirement by name.
     pub fn get(&self, name: &str) -> Option<&Requirement> {
         self.requirements.get(name)
@@ -487,5 +493,39 @@ mod tests {
             platform,
             Platform::MacOS | Platform::Linux | Platform::Windows
         ));
+    }
+
+    #[test]
+    fn ruby_depends_on_rbenv_when_rbenv_detected() {
+        // Verify the dynamic install_requires on the registry Requirement
+        // switches to rbenv when it's in detected_managers.
+        let registry = RequirementRegistry::new();
+        let ruby = registry.get("ruby").unwrap();
+        let install_requires_fn = ruby
+            .install_requires
+            .expect("ruby should have install_requires");
+        let ctx = InstallContext {
+            detected_managers: vec!["rbenv".to_string()],
+            platform: Platform::MacOS,
+        };
+        let deps = install_requires_fn(&ctx);
+        assert_eq!(deps, vec!["rbenv"]);
+    }
+
+    #[test]
+    fn node_depends_on_nvm_when_nvm_detected() {
+        // Verify the dynamic install_requires on the registry Requirement
+        // switches to nvm when it's in detected_managers.
+        let registry = RequirementRegistry::new();
+        let node = registry.get("node").unwrap();
+        let install_requires_fn = node
+            .install_requires
+            .expect("node should have install_requires");
+        let ctx = InstallContext {
+            detected_managers: vec!["nvm".to_string()],
+            platform: Platform::MacOS,
+        };
+        let deps = install_requires_fn(&ctx);
+        assert_eq!(deps, vec!["nvm"]);
     }
 }

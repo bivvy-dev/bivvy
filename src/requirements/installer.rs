@@ -950,6 +950,65 @@ mod tests {
         assert!(result.is_err());
     }
 
+    // --- 6C-extra: Install success but not on PATH ---
+
+    #[test]
+    fn missing_install_success_but_not_on_path() {
+        // Scenario: A requirement is Missing, the user confirms install,
+        // the install command exits 0 (success), but after invalidating
+        // cache and re-checking, the tool is STILL not found on PATH.
+        // Expected: Outcome::Skip with message containing "may need shell restart".
+        //
+        // We use a custom requirement registered via with_custom whose check
+        // command always fails ("false"), so after install + re-check the
+        // tool remains missing.
+        use crate::config::{CustomRequirement, CustomRequirementCheck};
+        use std::collections::HashMap;
+
+        let mut custom = HashMap::new();
+        custom.insert(
+            "phantom-tool".to_string(),
+            CustomRequirement {
+                check: CustomRequirementCheck::CommandSucceeds {
+                    command: "false".to_string(),
+                },
+                install_template: Some("phantom-install".to_string()),
+                install_hint: Some("install-phantom-tool".to_string()),
+            },
+        );
+
+        let registry = RequirementRegistry::new().with_custom(&custom);
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("install_phantom-tool", "yes");
+
+        // run_command returns true (install "succeeds" exit 0),
+        // but network is available and the check still fails after install
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "phantom-tool".to_string(),
+            status: RequirementStatus::Missing {
+                install_template: Some("phantom-install".to_string()),
+                install_hint: Some("install-phantom-tool".to_string()),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        // Should skip (not error) because install exited 0 but tool not found
+        assert!(!result.unwrap(), "should return false (skip)");
+        assert!(
+            ui.has_warning("not found on PATH")
+                || ui.has_warning("may need shell restart")
+                || ui.has_warning("May need shell restart"),
+            "should warn about PATH or shell restart, warnings: {:?}",
+            ui.warnings()
+        );
+    }
+
     // --- Edge case tests ---
 
     #[test]
