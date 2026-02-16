@@ -2,12 +2,17 @@
 //!
 //! The `bivvy status` command shows current setup status.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::cli::args::StatusArgs;
 use crate::config::load_merged_config;
 use crate::error::{BivvyError, Result};
+use crate::requirements::checker::GapChecker;
+use crate::requirements::probe::EnvironmentProbe;
+use crate::requirements::registry::RequirementRegistry;
+use crate::requirements::status::RequirementStatus;
 use crate::state::{ProjectId, StateStore, StepStatus};
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{format_relative_time, hints, OutputMode, StatusKind, UserInterface};
@@ -138,6 +143,31 @@ impl Command for StatusCommand {
             ));
         }
 
+        // Show requirements section
+        let all_reqs: HashSet<String> = config
+            .steps
+            .values()
+            .flat_map(|s| s.requires.iter().cloned())
+            .collect();
+
+        if !all_reqs.is_empty() {
+            ui.message("");
+            ui.message(&format!("  {}", theme.key.apply_to("Requirements:")));
+
+            let probe = EnvironmentProbe::run();
+            let req_registry = RequirementRegistry::new().with_custom(&config.requirements);
+            let mut gap_checker = GapChecker::new(&req_registry, &probe, &self.project_root);
+
+            let mut sorted_reqs: Vec<&str> = all_reqs.iter().map(|s| s.as_str()).collect();
+            sorted_reqs.sort();
+
+            for req_name in sorted_reqs {
+                let status = gap_checker.check_one(req_name);
+                let (icon, desc) = format_requirement_status(&theme, &status);
+                ui.message(&format!("    {} {:<20} {}", icon, req_name, desc));
+            }
+        }
+
         // Show recommendations
         let never_run: Vec<_> = config
             .steps
@@ -176,6 +206,46 @@ impl Command for StatusCommand {
         }
 
         Ok(CommandResult::success())
+    }
+}
+
+/// Format a requirement status for display.
+fn format_requirement_status(theme: &BivvyTheme, status: &RequirementStatus) -> (String, String) {
+    match status {
+        RequirementStatus::Satisfied => (
+            theme.success.apply_to("✓").to_string(),
+            theme.dim.apply_to("available").to_string(),
+        ),
+        RequirementStatus::SystemOnly { warning, .. } => (
+            theme.warning.apply_to("⚠").to_string(),
+            theme.warning.apply_to(warning).to_string(),
+        ),
+        RequirementStatus::Inactive {
+            manager,
+            activation_hint,
+            ..
+        } => (
+            theme.warning.apply_to("⚠").to_string(),
+            theme
+                .warning
+                .apply_to(format!("{} not activated ({})", manager, activation_hint))
+                .to_string(),
+        ),
+        RequirementStatus::ServiceDown { start_hint, .. } => (
+            theme.error.apply_to("✗").to_string(),
+            theme.error.apply_to(start_hint).to_string(),
+        ),
+        RequirementStatus::Missing { install_hint, .. } => {
+            let hint = install_hint.as_deref().unwrap_or("not installed");
+            (
+                theme.error.apply_to("✗").to_string(),
+                theme.error.apply_to(hint).to_string(),
+            )
+        }
+        RequirementStatus::Unknown => (
+            theme.dim.apply_to("?").to_string(),
+            theme.dim.apply_to("unknown requirement").to_string(),
+        ),
     }
 }
 
@@ -356,5 +426,114 @@ workflows:
         cmd.execute(&mut ui).unwrap();
 
         assert!(ui.messages().iter().any(|m| m.contains("Steps:")));
+    }
+
+    #[test]
+    fn status_shows_requirements_section_when_requires_present() {
+        let config = r#"
+app_name: Test
+steps:
+  install_deps:
+    command: bundle install
+    requires:
+      - ruby
+workflows:
+  default:
+    steps: [install_deps]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // Should show Requirements label
+        assert!(ui.messages().iter().any(|m| m.contains("Requirements:")));
+        // Should show ruby requirement with some status
+        assert!(ui.messages().iter().any(|m| m.contains("ruby")));
+    }
+
+    #[test]
+    fn status_no_requirements_section_when_no_requires() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // Should NOT show Requirements label
+        assert!(!ui.messages().iter().any(|m| m.contains("Requirements:")));
+    }
+
+    #[test]
+    fn status_requirements_deduplicates() {
+        let config = r#"
+app_name: Test
+steps:
+  step_a:
+    command: echo a
+    requires:
+      - node
+  step_b:
+    command: echo b
+    requires:
+      - node
+workflows:
+  default:
+    steps: [step_a, step_b]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // "node" should appear only once in the requirements section
+        let node_count = ui
+            .messages()
+            .iter()
+            .filter(|m| m.contains("node") && !m.contains("Steps:") && !m.contains("⛺"))
+            .count();
+        assert_eq!(node_count, 1, "node should appear exactly once");
+    }
+
+    #[test]
+    fn format_requirement_status_satisfied() {
+        let theme = BivvyTheme::new();
+        let (icon, desc) = format_requirement_status(&theme, &RequirementStatus::Satisfied);
+        assert!(icon.contains("✓"));
+        assert!(desc.contains("available"));
+    }
+
+    #[test]
+    fn format_requirement_status_missing() {
+        let theme = BivvyTheme::new();
+        let status = RequirementStatus::Missing {
+            install_template: None,
+            install_hint: Some("Install via mise".to_string()),
+        };
+        let (icon, desc) = format_requirement_status(&theme, &status);
+        assert!(icon.contains("✗"));
+        assert!(desc.contains("Install via mise"));
+    }
+
+    #[test]
+    fn format_requirement_status_unknown() {
+        let theme = BivvyTheme::new();
+        let (icon, desc) = format_requirement_status(&theme, &RequirementStatus::Unknown);
+        assert!(icon.contains("?"));
+        assert!(desc.contains("unknown requirement"));
     }
 }
