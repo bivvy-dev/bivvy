@@ -12,6 +12,8 @@ step:
   title: "Install Node dependencies"
   description: "Install packages using Yarn"
   command: "yarn install"
+  requires:
+    - node
   completed_check:
     type: command_succeeds
     command: "yarn check --verify-tree"

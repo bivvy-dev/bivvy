@@ -11,6 +11,8 @@ step:
   title: "Install Python dependencies"
   description: "Install packages using Poetry"
   command: "poetry install"
+  requires:
+    - python
   completed_check:
     type: command_succeeds
     command: "poetry check"

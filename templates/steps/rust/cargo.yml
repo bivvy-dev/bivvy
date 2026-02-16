@@ -11,6 +11,8 @@ step:
   title: "Build Rust project"
   description: "Compile the project and download dependencies using Cargo"
   command: "cargo build"
+  requires:
+    - rust
   completed_check:
     type: file_exists
     path: "target"

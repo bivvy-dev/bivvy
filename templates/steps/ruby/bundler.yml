@@ -11,6 +11,8 @@ step:
   title: "Install Ruby dependencies"
   description: "Install gems from Gemfile using Bundler"
   command: "bundle install"
+  requires:
+    - ruby
   completed_check:
     type: command_succeeds
     command: "bundle check"

@@ -268,6 +268,36 @@ step:
     }
 
     #[test]
+    fn builtin_templates_declare_requires() {
+        let registry = Registry::new(None).unwrap();
+
+        let expected: &[(&str, &[&str])] = &[
+            ("bundler", &["ruby"]),
+            ("yarn", &["node"]),
+            ("npm", &["node"]),
+            ("pnpm", &["node"]),
+            ("bun", &["node"]),
+            ("pip", &["python"]),
+            ("poetry", &["python"]),
+            ("uv", &["python"]),
+            ("cargo", &["rust"]),
+            ("brew", &["brew"]),
+        ];
+
+        for (name, reqs) in expected {
+            let template = registry.get(name).unwrap_or_else(|| {
+                panic!("Built-in template '{}' not found", name);
+            });
+            let actual: Vec<&str> = template.step.requires.iter().map(|s| s.as_str()).collect();
+            assert_eq!(
+                actual, *reqs,
+                "Template '{}' has wrong requires: {:?}",
+                name, actual
+            );
+        }
+    }
+
+    #[test]
     fn registry_detection_order() {
         let registry = Registry::new(None).unwrap();
         let order = registry.detection_order();

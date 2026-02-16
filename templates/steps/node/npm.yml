@@ -12,6 +12,8 @@ step:
   title: "Install Node dependencies"
   description: "Install packages using npm"
   command: "npm install"
+  requires:
+    - node
   completed_check:
     type: file_exists
     path: "node_modules"

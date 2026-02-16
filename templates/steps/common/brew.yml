@@ -11,6 +11,8 @@ step:
   title: "Install Homebrew packages"
   description: "Install dependencies from Brewfile using Homebrew"
   command: "brew bundle install"
+  requires:
+    - brew
   completed_check:
     type: command_succeeds
     command: "brew bundle check"

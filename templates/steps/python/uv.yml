@@ -11,6 +11,8 @@ step:
   title: "Install Python dependencies"
   description: "Sync project dependencies using uv"
   command: "uv sync"
+  requires:
+    - python
   completed_check:
     type: file_exists
     path: ".venv"
