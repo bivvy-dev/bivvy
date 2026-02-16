@@ -1,0 +1,8 @@
+extends:
+  - url: https://raw.githubusercontent.com/bivvy-dev/nonexistent-repo/main/base.yml
+
+app_name: "Bad Extends Test"
+
+steps:
+  test:
+    command: "echo test"

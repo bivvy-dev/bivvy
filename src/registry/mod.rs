@@ -32,6 +32,7 @@ pub mod builtin;
 pub mod fetch;
 pub mod local;
 pub mod manifest;
+pub mod remote;
 pub mod resolver;
 pub mod source;
 pub mod template;
@@ -41,6 +42,7 @@ pub use builtin::BuiltinLoader;
 pub use fetch::{FetchResponse, GitFetchResult, GitFetcher, HttpFetcher};
 pub use local::LocalLoader;
 pub use manifest::{Category, RegistryManifest};
+pub use remote::RemoteLoader;
 pub use resolver::Registry;
 pub use source::{RemoteCacheConfig, RemoteCacheStrategy, RemoteSource};
 pub use template::{

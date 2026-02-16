@@ -53,7 +53,7 @@ pub use schema::{
 // Loader re-exports
 pub use loader::{
     find_project_root, load_config, load_config_file, load_config_value, load_merged_config,
-    parse_config, ConfigPaths,
+    load_merged_config_with_resolver, parse_config, ConfigPaths,
 };
 
 // Merger re-exports

@@ -105,7 +105,12 @@ impl Command for LintCommand {
         let mut rule_registry = RuleRegistry::with_builtins();
 
         // Add template-related rules if we can load the template registry
-        if let Ok(template_registry) = Registry::new(Some(&self.project_root)) {
+        let template_registry_result = if config.template_sources.is_empty() {
+            Registry::new(Some(&self.project_root))
+        } else {
+            Registry::with_remote_sources(Some(&self.project_root), &config.template_sources)
+        };
+        if let Ok(template_registry) = template_registry_result {
             rule_registry.register(Box::new(UndefinedTemplateRule::new(
                 template_registry.clone(),
             )));

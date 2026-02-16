@@ -135,6 +135,7 @@ pub fn needs_revalidation(result: &ValidationResult) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use httpmock::prelude::*;
     use tempfile::TempDir;
 
     #[test]
@@ -175,5 +176,111 @@ mod tests {
             RevalidationResult::Failed(msg) => assert_eq!(msg, "network error"),
             _ => panic!("expected Failed"),
         }
+    }
+
+    // --- Mock HTTP revalidation tests ---
+
+    #[test]
+    fn etag_revalidation_unchanged_on_304() {
+        let server = MockServer::start();
+
+        let mock = server.mock(|when, then| {
+            when.method(GET)
+                .path("/template.yml")
+                .header("If-None-Match", "\"etag-v1\"");
+            then.status(304);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let store = CacheStore::new(temp.path());
+        let git_dir = temp.path().join("git");
+        let revalidator = CacheRevalidator::new(&store, git_dir);
+
+        // Create an expired cache entry with an etag
+        let mut entry = store
+            .store("http:test", "template", "old content", 0)
+            .unwrap();
+        entry.metadata.etag = Some("\"etag-v1\"".to_string());
+        store.update(&entry).unwrap();
+
+        let result = revalidator
+            .revalidate_etag(&server.url("/template.yml"), &mut entry, 3600)
+            .unwrap();
+
+        mock.assert();
+        assert!(matches!(result, RevalidationResult::Unchanged));
+        // TTL should be extended
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn etag_revalidation_updated_on_200() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET).path("/template.yml");
+            then.status(200)
+                .header("ETag", "\"etag-v2\"")
+                .body("new content");
+        });
+
+        let temp = TempDir::new().unwrap();
+        let store = CacheStore::new(temp.path());
+        let git_dir = temp.path().join("git");
+        let revalidator = CacheRevalidator::new(&store, git_dir);
+
+        // Create an expired cache entry with an old etag
+        let mut entry = store
+            .store("http:test", "template", "old content", 0)
+            .unwrap();
+        entry.metadata.etag = Some("\"etag-v1\"".to_string());
+        store.update(&entry).unwrap();
+
+        let result = revalidator
+            .revalidate_etag(&server.url("/template.yml"), &mut entry, 3600)
+            .unwrap();
+
+        match result {
+            RevalidationResult::Updated(content) => {
+                assert_eq!(content, "new content");
+            }
+            other => panic!("Expected Updated, got {:?}", other),
+        }
+
+        // ETag should be updated
+        assert_eq!(entry.metadata.etag, Some("\"etag-v2\"".to_string()));
+        // TTL should be extended
+        assert!(!entry.is_expired());
+    }
+
+    #[test]
+    fn etag_revalidation_updates_cached_content_on_disk() {
+        let server = MockServer::start();
+
+        server.mock(|when, then| {
+            when.method(GET).path("/template.yml");
+            then.status(200)
+                .header("ETag", "\"etag-v2\"")
+                .body("updated content on disk");
+        });
+
+        let temp = TempDir::new().unwrap();
+        let store = CacheStore::new(temp.path());
+        let git_dir = temp.path().join("git");
+        let revalidator = CacheRevalidator::new(&store, git_dir);
+
+        let mut entry = store
+            .store("http:test", "template", "old content", 0)
+            .unwrap();
+        entry.metadata.etag = Some("\"etag-v1\"".to_string());
+        store.update(&entry).unwrap();
+
+        revalidator
+            .revalidate_etag(&server.url("/template.yml"), &mut entry, 3600)
+            .unwrap();
+
+        // Verify content on disk is updated
+        let content = store.read_content(&entry).unwrap();
+        assert_eq!(content, "updated content on disk");
     }
 }

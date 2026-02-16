@@ -1,0 +1,4 @@
+extends:
+  - url: https://raw.githubusercontent.com/bivvy-dev/shared-configs/main/base.yml
+
+app_name: "Project App Name"

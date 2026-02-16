@@ -1,0 +1,20 @@
+extends:
+  - url: https://raw.githubusercontent.com/bivvy-dev/shared-configs/main/base.yml
+
+app_name: "Full Story Test"
+
+template_sources:
+  - url: https://raw.githubusercontent.com/bivvy-dev/shared-configs/main/templates.yml
+
+steps:
+  hello:
+    template: remote-hello
+    title: "Hello from Remote Template"
+
+  local_step:
+    command: "echo 'I am purely local'"
+    title: "Local Step"
+
+workflows:
+  default:
+    steps: [check_git, check_curl, hello, local_step]

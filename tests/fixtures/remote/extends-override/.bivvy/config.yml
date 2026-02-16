@@ -1,0 +1,9 @@
+extends:
+  - url: https://raw.githubusercontent.com/bivvy-dev/shared-configs/main/base.yml
+
+app_name: "Extends Override Test"
+
+steps:
+  check_git:
+    title: "Overridden Git Check"
+    command: "echo 'Local override wins'"

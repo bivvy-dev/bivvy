@@ -6,9 +6,11 @@
 //! 3. Remote (by priority) - TODO in M11
 //! 4. Built-in
 
+use crate::config::schema::TemplateSource as TemplateSourceConfig;
 use crate::error::{BivvyError, Result};
 use crate::registry::builtin::BuiltinLoader;
 use crate::registry::local::LocalLoader;
+use crate::registry::remote::RemoteLoader;
 use crate::registry::template::{Template, TemplateSource};
 use std::collections::HashMap;
 use std::path::Path;
@@ -18,15 +20,51 @@ use std::path::Path;
 pub struct Registry {
     builtin: BuiltinLoader,
     local: LocalLoader,
-    // Remote loader will be added in M11
+    remote: RemoteLoader,
 }
 
 impl Registry {
-    /// Create a new registry for a project.
+    /// Create a new registry for a project (without remote sources).
     pub fn new(project_root: Option<&Path>) -> Result<Self> {
         Ok(Self {
             builtin: BuiltinLoader::new()?,
             local: LocalLoader::new(project_root)?,
+            remote: RemoteLoader::empty(),
+        })
+    }
+
+    /// Create a registry with remote template sources.
+    pub fn with_remote_sources(
+        project_root: Option<&Path>,
+        sources: &[TemplateSourceConfig],
+    ) -> Result<Self> {
+        let fetcher = crate::registry::fetch::HttpFetcher::new();
+        let cache_dir = crate::cache::default_cache_dir();
+        let cache = crate::cache::CacheStore::new(cache_dir);
+
+        let remote = RemoteLoader::new(sources, &fetcher, &cache).map_err(|e| {
+            BivvyError::ConfigValidationError {
+                message: format!("Failed to load remote templates: {}", e),
+            }
+        })?;
+
+        Ok(Self {
+            builtin: BuiltinLoader::new()?,
+            local: LocalLoader::new(project_root)?,
+            remote,
+        })
+    }
+
+    /// Create a registry with a pre-loaded remote loader (for testing).
+    #[cfg(test)]
+    pub(crate) fn with_remote_loader(
+        project_root: Option<&Path>,
+        remote: RemoteLoader,
+    ) -> Result<Self> {
+        Ok(Self {
+            builtin: BuiltinLoader::new()?,
+            local: LocalLoader::new(project_root)?,
+            remote,
         })
     }
 
@@ -35,12 +73,17 @@ impl Registry {
     /// Resolution order (first match wins):
     /// 1. Project-local (.bivvy/templates/)
     /// 2. User-local (~/.bivvy/templates/)
-    /// 3. Remote (by priority) - TODO in M11
+    /// 3. Remote (by priority)
     /// 4. Built-in
     pub fn resolve(&self, name: &str) -> Result<(&Template, TemplateSource)> {
         // Check local first (includes both project and user)
         if let Some((template, source)) = self.local.get_with_source(name) {
             return Ok((template, source));
+        }
+
+        // Check remote sources
+        if let Some((template, priority)) = self.remote.get_with_priority(name) {
+            return Ok((template, TemplateSource::Remote { priority }));
         }
 
         // Check built-in
@@ -60,7 +103,7 @@ impl Registry {
 
     /// Check if a template exists.
     pub fn has(&self, name: &str) -> bool {
-        self.local.has(name) || self.builtin.get(name).is_some()
+        self.local.has(name) || self.remote.has(name) || self.builtin.get(name).is_some()
     }
 
     /// Get all available template names.
@@ -72,7 +115,14 @@ impl Registry {
             .map(|s| s.to_string())
             .collect();
 
-        // Add local templates (may override built-in)
+        // Add remote templates
+        for name in self.remote.template_names() {
+            if !names.contains(&name.to_string()) {
+                names.push(name.to_string());
+            }
+        }
+
+        // Add local templates (may override both remote and built-in)
         for name in self.local.template_names() {
             if !names.contains(&name.to_string()) {
                 names.push(name.to_string());
@@ -361,5 +411,182 @@ step:
             .unwrap();
 
         assert_eq!(effective.get("mode").unwrap().as_str(), Some("production"));
+    }
+
+    // --- Remote template integration tests ---
+
+    use crate::cache::CacheStore;
+    use crate::config::schema::TemplateSource as TemplateSourceConfig;
+    use crate::registry::fetch::HttpFetcher;
+    use crate::registry::remote::RemoteLoader;
+    use httpmock::prelude::*;
+
+    #[test]
+    fn registry_resolves_from_remote_http() {
+        let server = MockServer::start();
+
+        let template_yaml = r#"
+name: remote-tool
+description: "Remote tool template"
+category: tools
+step:
+  command: remote-tool run
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/templates.yml");
+            then.status(200).body(template_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let cache = CacheStore::new(temp.path().join("cache"));
+        let fetcher = HttpFetcher::new();
+
+        let sources = vec![TemplateSourceConfig {
+            url: server.url("/templates.yml"),
+            priority: 50,
+            timeout: 30,
+            cache: None,
+            auth: None,
+        }];
+
+        let remote = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let registry = Registry::with_remote_loader(None, remote).unwrap();
+
+        let (template, source) = registry.resolve("remote-tool").unwrap();
+        assert_eq!(template.name, "remote-tool");
+        assert_eq!(source, TemplateSource::Remote { priority: 50 });
+    }
+
+    #[test]
+    fn registry_prefers_local_over_remote() {
+        let server = MockServer::start();
+
+        let remote_yaml = r#"
+name: brew
+description: "Remote brew override"
+category: tools
+step:
+  command: remote-brew
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/templates.yml");
+            then.status(200).body(remote_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+
+        // Create local template with same name
+        let templates_dir = temp.path().join(".bivvy").join("templates").join("steps");
+        fs::create_dir_all(&templates_dir).unwrap();
+        fs::write(
+            templates_dir.join("brew.yml"),
+            r#"
+name: brew
+description: "Local brew"
+category: tools
+step:
+  command: local-brew
+"#,
+        )
+        .unwrap();
+
+        let cache = CacheStore::new(temp.path().join("cache"));
+        let fetcher = HttpFetcher::new();
+
+        let sources = vec![TemplateSourceConfig {
+            url: server.url("/templates.yml"),
+            priority: 50,
+            timeout: 30,
+            cache: None,
+            auth: None,
+        }];
+
+        let remote = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let registry = Registry::with_remote_loader(Some(temp.path()), remote).unwrap();
+
+        let (template, source) = registry.resolve("brew").unwrap();
+        // Local should win over remote
+        assert_eq!(source, TemplateSource::Project);
+        assert_eq!(template.description, "Local brew");
+    }
+
+    #[test]
+    fn registry_caches_remote_templates() {
+        let server = MockServer::start();
+
+        let template_yaml = r#"
+name: cached-tool
+description: "Cached tool"
+category: tools
+step:
+  command: cached-tool run
+"#;
+
+        let mock = server.mock(|when, then| {
+            when.method(GET).path("/templates.yml");
+            then.status(200).body(template_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let cache = CacheStore::new(temp.path().join("cache"));
+        let fetcher = HttpFetcher::new();
+
+        let sources = vec![TemplateSourceConfig {
+            url: server.url("/templates.yml"),
+            priority: 50,
+            timeout: 30,
+            cache: None,
+            auth: None,
+        }];
+
+        // First load - hits server
+        let _remote1 = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        mock.assert_calls(1);
+
+        // Second load - should use cache
+        let _remote2 = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        mock.assert_calls(1); // Still 1, cache was used
+    }
+
+    #[test]
+    fn registry_remote_template_in_all_names() {
+        let server = MockServer::start();
+
+        let template_yaml = r#"
+name: unique-remote-tool
+description: "A unique remote tool"
+category: tools
+step:
+  command: unique-tool
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/templates.yml");
+            then.status(200).body(template_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let cache = CacheStore::new(temp.path().join("cache"));
+        let fetcher = HttpFetcher::new();
+
+        let sources = vec![TemplateSourceConfig {
+            url: server.url("/templates.yml"),
+            priority: 50,
+            timeout: 30,
+            cache: None,
+            auth: None,
+        }];
+
+        let remote = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let registry = Registry::with_remote_loader(None, remote).unwrap();
+
+        let names = registry.all_template_names();
+        assert!(
+            names.contains(&"unique-remote-tool".to_string()),
+            "Remote template should appear in all_template_names: {:?}",
+            names
+        );
     }
 }

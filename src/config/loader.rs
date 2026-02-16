@@ -3,6 +3,7 @@
 //! This module handles finding and loading configuration files from
 //! various locations in the correct priority order.
 
+use crate::config::extends::ExtendsResolver;
 use crate::config::merger::merge_configs;
 use crate::config::schema::BivvyConfig;
 use crate::error::{BivvyError, Result};
@@ -198,6 +199,17 @@ pub fn load_config_value(path: &Path) -> Result<serde_yaml::Value> {
 /// Returns `ConfigNotFound` if no project config exists.
 /// Returns `ConfigParseError` if any config file is invalid.
 pub fn load_merged_config(project_root: &Path) -> Result<BivvyConfig> {
+    load_merged_config_with_resolver(project_root, &ExtendsResolver::default())
+}
+
+/// Load and merge configs with a specific extends resolver.
+///
+/// This is the implementation behind `load_merged_config`, exposed
+/// separately to allow injecting a custom resolver for testing.
+pub fn load_merged_config_with_resolver(
+    project_root: &Path,
+    resolver: &ExtendsResolver,
+) -> Result<BivvyConfig> {
     let paths = ConfigPaths::discover(project_root);
 
     if !paths.has_project_config() {
@@ -218,10 +230,19 @@ pub fn load_merged_config(project_root: &Path) -> Result<BivvyConfig> {
     let merged = merge_configs(&configs);
 
     // Parse merged value into typed config
-    serde_yaml::from_value(merged).map_err(|e| BivvyError::ConfigParseError {
-        path: project_root.join(".bivvy").join("config.yml"),
-        message: format!("Failed to parse merged config: {}", e),
-    })
+    let config: BivvyConfig =
+        serde_yaml::from_value(merged).map_err(|e| BivvyError::ConfigParseError {
+            path: project_root.join(".bivvy").join("config.yml"),
+            message: format!("Failed to parse merged config: {}", e),
+        })?;
+
+    // Resolve extends if present
+    if config.extends.is_some() {
+        let resolved = resolver.resolve(&config)?;
+        Ok(resolved)
+    } else {
+        Ok(config)
+    }
 }
 
 /// Load config with optional path override.
@@ -240,7 +261,10 @@ pub fn load_config(project_root: &Path, config_override: Option<&Path>) -> Resul
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::remote::RemoteFetcher;
+    use httpmock::prelude::*;
     use std::fs;
+    use std::time::Duration;
     use tempfile::TempDir;
 
     #[test]
@@ -502,5 +526,179 @@ steps:
 
         let config = load_config(temp.path(), None).unwrap();
         assert_eq!(config.app_name, Some("Merged".to_string()));
+    }
+
+    // --- Extends pipeline integration tests ---
+
+    fn resolver_for_mock(_server: &MockServer) -> ExtendsResolver {
+        let temp = TempDir::new().unwrap();
+        let cache_dir = temp.keep().join("cache");
+        let fetcher = RemoteFetcher::with_cache_dir(Duration::from_secs(10), cache_dir);
+        ExtendsResolver::with_fetcher(fetcher)
+    }
+
+    #[test]
+    fn load_merged_config_resolves_extends() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+steps:
+  lint:
+    command: eslint .
+    title: Lint code
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!(
+                r#"
+extends:
+  - url: {}
+app_name: MyApp
+steps:
+  test:
+    command: jest
+"#,
+                server.url("/base.yml")
+            ),
+        )
+        .unwrap();
+
+        let resolver = resolver_for_mock(&server);
+        let config = load_merged_config_with_resolver(temp.path(), &resolver).unwrap();
+
+        // Local app_name is preserved
+        assert_eq!(config.app_name, Some("MyApp".to_string()));
+        // Base step is merged in
+        assert!(config.steps.contains_key("lint"));
+        assert_eq!(config.steps["lint"].command, Some("eslint .".to_string()));
+        // Local step is preserved
+        assert!(config.steps.contains_key("test"));
+        // Extends is cleared
+        assert!(config.extends.is_none());
+    }
+
+    #[test]
+    fn extends_merges_before_local_override() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+settings:
+  default_output: quiet
+steps:
+  install:
+    command: npm install
+    title: Base install
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+
+        // Project config extends base and overrides install command
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!(
+                r#"
+extends:
+  - url: {}
+app_name: MyApp
+steps:
+  install:
+    command: yarn install
+"#,
+                server.url("/base.yml")
+            ),
+        )
+        .unwrap();
+
+        let resolver = resolver_for_mock(&server);
+        let config = load_merged_config_with_resolver(temp.path(), &resolver).unwrap();
+
+        // Local overrides base
+        assert_eq!(config.app_name, Some("MyApp".to_string()));
+        assert_eq!(
+            config.steps["install"].command,
+            Some("yarn install".to_string())
+        );
+    }
+
+    #[test]
+    fn extends_with_local_override_file() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+steps:
+  install:
+    command: npm install
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+
+        // Project config extends base
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!(
+                r#"
+extends:
+  - url: {}
+app_name: ProjectApp
+"#,
+                server.url("/base.yml")
+            ),
+        )
+        .unwrap();
+
+        // Local override file overrides app_name
+        fs::write(
+            bivvy_dir.join("config.local.yml"),
+            "app_name: LocalOverride\n",
+        )
+        .unwrap();
+
+        let resolver = resolver_for_mock(&server);
+        let config = load_merged_config_with_resolver(temp.path(), &resolver).unwrap();
+
+        // The extends resolution happens on the merged config,
+        // so local override takes effect before extends
+        // But since extends is in config.yml and local overrides app_name,
+        // the merged config will have app_name=LocalOverride + extends from config.yml
+        assert_eq!(config.app_name, Some("LocalOverride".to_string()));
+        // Base step should be present (extends still works)
+        assert!(config.steps.contains_key("install"));
+    }
+
+    #[test]
+    fn config_without_extends_still_works() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: NoExtends").unwrap();
+
+        // Using default resolver — won't make any HTTP calls
+        let config = load_merged_config(temp.path()).unwrap();
+        assert_eq!(config.app_name, Some("NoExtends".to_string()));
     }
 }

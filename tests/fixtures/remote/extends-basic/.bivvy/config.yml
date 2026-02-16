@@ -1,0 +1,9 @@
+extends:
+  - url: https://raw.githubusercontent.com/bivvy-dev/shared-configs/main/base.yml
+
+app_name: "Extends Basic Test"
+
+steps:
+  local_step:
+    title: "Local Step"
+    command: "echo 'Hello from local step'"

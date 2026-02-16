@@ -1,0 +1,21 @@
+app_name: "Template Sources Test"
+
+template_sources:
+  - url: https://raw.githubusercontent.com/bivvy-dev/shared-configs/main/templates.yml
+
+steps:
+  hello:
+    template: remote-hello
+    title: "Say Hello (Remote Template)"
+
+  check:
+    template: custom-check
+    title: "Custom Check (Remote Template)"
+
+  local_only:
+    command: "echo 'I am a local step'"
+    title: "Local Only Step"
+
+workflows:
+  default:
+    steps: [hello, check, local_only]

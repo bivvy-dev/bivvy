@@ -68,7 +68,11 @@ impl RunCommand {
         &self,
         config: &crate::config::BivvyConfig,
     ) -> Result<HashMap<String, ResolvedStep>> {
-        let registry = Registry::new(Some(&self.project_root))?;
+        let registry = if config.template_sources.is_empty() {
+            Registry::new(Some(&self.project_root))?
+        } else {
+            Registry::with_remote_sources(Some(&self.project_root), &config.template_sources)?
+        };
 
         let mut steps = HashMap::new();
         for (name, step_config) in &config.steps {
