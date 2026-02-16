@@ -2824,4 +2824,85 @@ mod tests {
         assert_eq!(result.steps.len(), 1);
         assert!(skipped_names.contains(&"ci_only".to_string()));
     }
+
+    // --- 7C: Runner environment tests ---
+
+    #[test]
+    fn runner_env_override_depends_on_changes_graph() {
+        // If CI overrides change depends_on, the graph should reflect the new ordering.
+        // Base: a (no deps), b depends_on [a], c depends_on [b]
+        // CI override: c depends_on [a] instead of [b]  — c can now run right after a.
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [a, b, c]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert("a".to_string(), make_step("a", "echo a", vec![]));
+        steps.insert(
+            "b".to_string(),
+            make_step("b", "echo b", vec!["a".to_string()]),
+        );
+        // Simulate CI override already applied: c depends_on [a] instead of [b]
+        steps.insert(
+            "c".to_string(),
+            make_step("c", "echo c", vec!["a".to_string()]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let graph = runner.build_graph("default").unwrap();
+
+        // c's dependency should be a, not b
+        let c_deps = graph.dependencies_of("c").unwrap();
+        assert!(c_deps.contains("a"));
+        assert!(!c_deps.contains("b"));
+
+        // b and c should be in the same parallel group (both depend only on a)
+        let groups = graph.parallel_groups().unwrap();
+        assert_eq!(groups.len(), 2); // [a] then [b, c]
+        assert_eq!(groups[0], vec!["a"]);
+        assert!(groups[1].contains(&"b".to_string()));
+        assert!(groups[1].contains(&"c".to_string()));
+    }
+
+    #[test]
+    fn runner_env_override_depends_on_cycle_detected() {
+        // If CI override introduces a circular dependency, build_graph succeeds
+        // but topological_order returns an error.
+        // a -> b -> a (cycle)
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [a, b]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        // Simulate CI override that created a cycle: a depends_on [b], b depends_on [a]
+        steps.insert(
+            "a".to_string(),
+            make_step("a", "echo a", vec!["b".to_string()]),
+        );
+        steps.insert(
+            "b".to_string(),
+            make_step("b", "echo b", vec!["a".to_string()]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let graph = runner.build_graph("default").unwrap();
+
+        // Topological order should detect the cycle
+        let result = graph.topological_order();
+        assert!(result.is_err());
+
+        // find_cycle should also detect it
+        let cycle = graph.find_cycle();
+        assert!(cycle.is_some());
+    }
 }

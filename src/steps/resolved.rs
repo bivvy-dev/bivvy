@@ -707,4 +707,166 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
         assert_eq!(resolved.only_environments, vec!["ci"]);
     }
+
+    // --- 7B: Resolution override tests ---
+
+    #[test]
+    fn resolved_step_env_overrides_title() {
+        let config = StepConfig {
+            title: Some("Base Title".to_string()),
+            command: Some("echo test".to_string()),
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+
+        let overrides = StepEnvironmentOverride {
+            title: Some("CI".to_string()),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.title, "CI");
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_description() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            description: Some("Base desc".to_string()),
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+
+        let overrides = StepEnvironmentOverride {
+            description: Some("CI desc".to_string()),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.description, Some("CI desc".to_string()));
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_skippable() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            skippable: false,
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(!resolved.skippable);
+
+        let overrides = StepEnvironmentOverride {
+            skippable: Some(true),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert!(resolved.skippable);
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_completed_check() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            completed_check: Some(crate::config::CompletedCheck::FileExists {
+                path: "base.txt".to_string(),
+            }),
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+
+        let overrides = StepEnvironmentOverride {
+            completed_check: Some(crate::config::CompletedCheck::CommandSucceeds {
+                command: "true".to_string(),
+            }),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert!(matches!(
+            resolved.completed_check,
+            Some(crate::config::CompletedCheck::CommandSucceeds { .. })
+        ));
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_depends_on() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            depends_on: vec!["a".to_string(), "b".to_string()],
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+
+        let overrides = StepEnvironmentOverride {
+            depends_on: Some(vec!["x".to_string()]),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.depends_on, vec!["x"]);
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_watches() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            watches: vec!["Gemfile".to_string(), "Gemfile.lock".to_string()],
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+
+        let overrides = StepEnvironmentOverride {
+            watches: Some(vec!["package.json".to_string()]),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.watches, vec!["package.json"]);
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_retry() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+        assert_eq!(resolved.retry, 0);
+
+        let overrides = StepEnvironmentOverride {
+            retry: Some(3),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.retry, 3);
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_existing_env_var() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            env: {
+                let mut env = HashMap::new();
+                env.insert("RAILS_ENV".to_string(), "development".to_string());
+                env
+            },
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+
+        let overrides = StepEnvironmentOverride {
+            env: {
+                let mut env = HashMap::new();
+                env.insert("RAILS_ENV".to_string(), Some("test".to_string()));
+                env
+            },
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert_eq!(resolved.env.get("RAILS_ENV"), Some(&"test".to_string()));
+    }
 }

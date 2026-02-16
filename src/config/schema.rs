@@ -1467,4 +1467,47 @@ steps:
             panic!("Expected All check");
         }
     }
+
+    // --- 7A: Schema override parsing tests ---
+
+    #[test]
+    fn environment_override_depends_on_parses() {
+        let yaml = r#"
+            depends_on: [a, b]
+        "#;
+        let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(o.depends_on, Some(vec!["a".to_string(), "b".to_string()]));
+    }
+
+    #[test]
+    fn environment_override_watches_parses() {
+        let yaml = r#"
+            watches: []
+        "#;
+        let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(o.watches, Some(vec![]));
+    }
+
+    #[test]
+    fn environment_override_title_parses() {
+        let yaml = r#"
+            title: "CI Title"
+        "#;
+        let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(o.title, Some("CI Title".to_string()));
+    }
+
+    #[test]
+    fn environment_override_bare_null_parses_as_none() {
+        let yaml = "command:";
+        let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
+        assert!(o.command.is_none());
+    }
+
+    #[test]
+    fn environment_override_empty_string_is_not_null() {
+        let yaml = r#"command: """#;
+        let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(o.command, Some("".to_string()));
+    }
 }
