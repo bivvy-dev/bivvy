@@ -669,6 +669,9 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         ui.set_prompt_response("run_after_init", "yes");
+        // If a step fails, the recovery menu prompts with a key like "recovery_brew".
+        // Step names depend on template detection, so use a default response to abort.
+        ui.set_default_prompt_response("abort");
 
         // The run may succeed or fail depending on template availability,
         // but the prompt should have been shown and the run attempted.

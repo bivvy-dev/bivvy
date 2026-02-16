@@ -22,6 +22,13 @@ use crate::ui::{
 };
 
 use super::dependency::{DependencyGraph, SkipBehavior};
+use super::patterns::{self, StepContext};
+use super::recovery::{self, RecoveryAction};
+
+/// Maximum total execution attempts per step (auto-retries + manual retries).
+/// Prevents infinite loops when the recovery prompt always returns "retry"
+/// (e.g., in test environments with MockUI).
+const MAX_STEP_ATTEMPTS: u32 = 100;
 
 /// Progress events emitted during workflow execution.
 #[derive(Debug)]
@@ -60,6 +67,8 @@ pub struct WorkflowResult {
     pub duration: Duration,
     /// Whether all steps succeeded.
     pub success: bool,
+    /// Whether the workflow was aborted by the user during recovery.
+    pub aborted: bool,
 }
 
 /// Options for running a workflow.
@@ -248,6 +257,7 @@ impl<'a> WorkflowRunner<'a> {
             skipped: all_skipped,
             duration: start.elapsed(),
             success: all_success,
+            aborted: false,
         })
     }
 
@@ -329,6 +339,7 @@ impl<'a> WorkflowRunner<'a> {
         let mut results = Vec::new();
         let mut all_success = true;
         let mut failed_steps: HashSet<String> = HashSet::new();
+        let mut workflow_aborted = false;
 
         for (index, step_name) in steps_to_run.iter().enumerate() {
             let step =
@@ -553,84 +564,234 @@ impl<'a> WorkflowRunner<'a> {
                 ui.message("");
             }
 
-            // Execute with indented spinner
-            let spinner_msg = format!("Running `{}`...", step.command);
-            let mut spinner = ui.start_spinner_indented(&spinner_msg, 4);
+            // Build step context for pattern matching
+            let step_ctx = StepContext {
+                name: step_name,
+                command: &step.command,
+                requires: &step.requires,
+                template: None,
+            };
 
-            // Create live output callback if the spinner has a progress bar
-            let output_mode = ui.output_mode();
-            let output_callback = spinner.progress_bar().and_then(|bar| {
-                let max_lines = match output_mode {
-                    OutputMode::Verbose => 3,
-                    OutputMode::Normal => 2,
-                    _ => return None,
+            let mut retry_count: u32 = 0;
+            let mut skipped_by_user = false;
+            #[allow(unused_assignments)]
+            let mut final_result: Option<StepResult> = None;
+
+            // Outer loop: step execution (retry/fix re-enter here)
+            'step_execution: loop {
+                // Fresh spinner per attempt
+                let attempt_label = if retry_count > 0 {
+                    format!(
+                        "Running `{}`... (attempt {}/{})",
+                        step.command,
+                        retry_count + 1,
+                        step.retry + 1
+                    )
+                } else {
+                    format!("Running `{}`...", step.command)
                 };
-                Some(live_output_callback(bar, spinner_msg.clone(), 6, max_lines))
-            });
+                let mut spinner = ui.start_spinner_indented(&attempt_label, 4);
 
-            let exec_options = ExecutionOptions {
-                force: needs_force,
-                dry_run: options.dry_run,
-                capture_output: output_callback.is_none(),
-                ..Default::default()
-            };
+                // Create live output callback if the spinner has a progress bar
+                let output_mode = ui.output_mode();
+                let output_callback = spinner.progress_bar().and_then(|bar| {
+                    let max_lines = match output_mode {
+                        OutputMode::Verbose => 3,
+                        OutputMode::Normal => 2,
+                        _ => return None,
+                    };
+                    Some(live_output_callback(
+                        bar,
+                        attempt_label.clone(),
+                        6,
+                        max_lines,
+                    ))
+                });
 
-            let step_start = Instant::now();
-            let result = match execute_step(
-                step,
-                project_root,
-                context,
-                global_env,
-                &exec_options,
-                output_callback,
-            ) {
-                Ok(result) => result,
-                Err(e) => {
-                    warn!("Step '{}' errored: {}", step_name, e);
-                    StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
-                }
-            };
+                let exec_options = ExecutionOptions {
+                    force: needs_force,
+                    dry_run: options.dry_run,
+                    capture_output: output_callback.is_none(),
+                    ..Default::default()
+                };
 
-            let duration_str = format_duration(result.duration);
-            match result.status() {
-                StepStatus::Completed => {
-                    spinner.finish_success(&format!("{} ({})", step_name, duration_str));
-                }
-                StepStatus::Failed => {
-                    spinner.finish_error(&format!("Failed ({})", duration_str));
-
-                    // Show error block with command, combined output, and hint
-                    let mut output_parts = Vec::new();
-                    if let Some(ref err) = result.error {
-                        output_parts.push(err.as_str());
+                let step_start = Instant::now();
+                let result = match execute_step(
+                    step,
+                    project_root,
+                    context,
+                    global_env,
+                    &exec_options,
+                    output_callback,
+                ) {
+                    Ok(result) => result,
+                    Err(e) => {
+                        warn!("Step '{}' errored: {}", step_name, e);
+                        StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
                     }
-                    if let Some(ref output) = result.output {
-                        let trimmed = output.trim();
-                        if !trimmed.is_empty() {
-                            output_parts.push(trimmed);
+                };
+
+                let duration_str = format_duration(result.duration);
+
+                match result.status() {
+                    StepStatus::Completed => {
+                        let detail = if retry_count > 0 {
+                            Some(format!("succeeded on retry (attempt {})", retry_count + 1))
+                        } else {
+                            None
+                        };
+                        spinner.finish_success(&format!("{} ({})", step_name, duration_str));
+                        let mut r = result;
+                        r.recovery_detail = detail;
+                        final_result = Some(r);
+                        break 'step_execution;
+                    }
+                    StepStatus::Skipped => {
+                        spinner.finish_skipped("Skipped");
+                        final_result = Some(result);
+                        break 'step_execution;
+                    }
+                    StepStatus::Failed => {
+                        spinner.finish_error(&format!("Failed ({})", duration_str));
+
+                        // Build combined error output for pattern matching and display
+                        let mut output_parts = Vec::new();
+                        if let Some(ref err) = result.error {
+                            output_parts.push(err.as_str());
+                        }
+                        if let Some(ref output) = result.output {
+                            let trimmed = output.trim();
+                            if !trimmed.is_empty() {
+                                output_parts.push(trimmed);
+                            }
+                        }
+                        let combined_output = output_parts.join("\n");
+
+                        // Match against pattern registry
+                        let fix = patterns::find_fix(&combined_output, &step_ctx);
+                        let hint = patterns::find_hint(&combined_output, &step_ctx);
+
+                        // Show error block with hint if available
+                        ui.show_error_block(&step.command, &combined_output, hint.as_deref());
+
+                        // allow_failure: record and move on, no recovery menu
+                        if step.allow_failure {
+                            final_result = Some(result);
+                            break 'step_execution;
+                        }
+
+                        // Auto-retry before showing recovery menu
+                        if retry_count < step.retry {
+                            retry_count += 1;
+                            ui.message(&format!(
+                                "    Retrying... (attempt {}/{})",
+                                retry_count + 1,
+                                step.retry + 1
+                            ));
+                            continue 'step_execution;
+                        }
+
+                        // Non-interactive: no recovery menu
+                        if !interactive {
+                            final_result = Some(result);
+                            break 'step_execution;
+                        }
+
+                        // Safety: cap total attempts to prevent infinite loops
+                        // (e.g., in tests where MockUI defaults to "retry")
+                        if retry_count >= MAX_STEP_ATTEMPTS {
+                            warn!(
+                                "Step '{}' exceeded max recovery attempts ({})",
+                                step_name, MAX_STEP_ATTEMPTS
+                            );
+                            final_result = Some(result);
+                            break 'step_execution;
+                        }
+
+                        // Interactive recovery menu
+                        let has_hint = hint.is_some();
+                        'recovery_menu: loop {
+                            let action =
+                                recovery::prompt_recovery(ui, step_name, fix.as_ref(), has_hint)?;
+
+                            match action {
+                                RecoveryAction::Retry => {
+                                    retry_count += 1;
+                                    continue 'step_execution;
+                                }
+                                RecoveryAction::Fix(cmd) | RecoveryAction::CustomFix(cmd) => {
+                                    if recovery::confirm_fix(ui, step_name, &cmd)? {
+                                        let fix_ok =
+                                            recovery::run_fix(&cmd, project_root, &step.env)?;
+                                        if fix_ok {
+                                            ui.message("    Fix command succeeded.");
+                                        } else {
+                                            ui.message("    Fix command failed.");
+                                        }
+                                        retry_count += 1;
+                                        continue 'step_execution;
+                                    } else {
+                                        // User declined the fix — re-show recovery menu
+                                        continue 'recovery_menu;
+                                    }
+                                }
+                                RecoveryAction::Shell => {
+                                    ui.message("    Dropping to debug shell (exit to return)...");
+                                    crate::shell::debug::spawn_debug_shell(
+                                        step_name,
+                                        project_root,
+                                        &step.env,
+                                        global_env,
+                                    )?;
+                                    // After shell exit, re-show recovery menu
+                                    continue 'recovery_menu;
+                                }
+                                RecoveryAction::Skip => {
+                                    skipped_by_user = true;
+                                    let mut r = result;
+                                    r.recovery_detail =
+                                        Some("skipped by user after failure".to_string());
+                                    final_result = Some(r);
+                                    break 'step_execution;
+                                }
+                                RecoveryAction::Abort => {
+                                    workflow_aborted = true;
+                                    let mut r = result;
+                                    r.recovery_detail = Some("aborted by user".to_string());
+                                    final_result = Some(r);
+                                    break 'step_execution;
+                                }
+                            }
                         }
                     }
-                    let combined_output = output_parts.join("\n");
-                    ui.show_error_block(&step.command, &combined_output, None);
+                    _ => {
+                        final_result = Some(result);
+                        break 'step_execution;
+                    }
                 }
-                StepStatus::Skipped => {
-                    spinner.finish_skipped("Skipped");
-                }
-                _ => {}
             }
 
             // Update progress bar
             ui.show_workflow_progress(index + 1, total, start.elapsed());
 
-            let status = result.status();
+            // Push the final result exactly once
+            if let Some(result) = final_result {
+                let status = result.status();
+                results.push(result);
 
-            results.push(result);
-
-            if status == StepStatus::Failed {
-                all_success = false;
-                if !step.allow_failure {
-                    failed_steps.insert(step_name.clone());
+                if status == StepStatus::Failed {
+                    all_success = false;
+                    // Skip does NOT add to failed_steps (user made active choice)
+                    if !step.allow_failure && !skipped_by_user {
+                        failed_steps.insert(step_name.clone());
+                    }
                 }
+            }
+
+            // Abort: stop processing further steps
+            if workflow_aborted {
+                all_success = false;
+                break;
             }
         }
 
@@ -646,6 +807,7 @@ impl<'a> WorkflowRunner<'a> {
             skipped: all_skipped,
             duration: start.elapsed(),
             success: all_success,
+            aborted: workflow_aborted,
         })
     }
 
@@ -707,6 +869,19 @@ mod tests {
             requires: vec![],
             only_environments: vec![],
         }
+    }
+
+    #[test]
+    fn workflow_result_aborted_defaults_false() {
+        let result = WorkflowResult {
+            workflow: "default".to_string(),
+            steps: vec![],
+            skipped: vec![],
+            duration: Duration::from_secs(0),
+            success: true,
+            aborted: false,
+        };
+        assert!(!result.aborted);
     }
 
     #[test]
@@ -2867,6 +3042,755 @@ mod tests {
         assert_eq!(groups[0], vec!["a"]);
         assert!(groups[1].contains(&"b".to_string()));
         assert!(groups[1].contains(&"c".to_string()));
+    }
+
+    // --- Recovery loop integration tests ---
+
+    #[test]
+    fn recovery_retry_succeeds() {
+        // Step fails once, user picks Retry, step succeeds on second attempt.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("attempt");
+
+        // Command: create marker on second call (first call fails)
+        let cmd = format!(
+            "if [ -f {m} ]; then exit 0; else touch {m} && exit 1; fi",
+            m = marker.display()
+        );
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [flaky]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert("flaky".to_string(), make_step("flaky", &cmd, vec![]));
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_flaky", "retry");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(result.steps.len(), 1);
+        assert!(result.steps[0].success);
+        assert_eq!(
+            result.steps[0].recovery_detail.as_deref(),
+            Some("succeeded on retry (attempt 2)")
+        );
+    }
+
+    #[test]
+    fn recovery_skip_does_not_block_dependents() {
+        // Step fails, user picks Skip. Dependent step runs.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("dependent_ran.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, dependent]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+        steps.insert(
+            "dependent".to_string(),
+            make_step(
+                "dependent",
+                &format!("touch {}", marker.display()),
+                vec!["failing".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_failing", "skip");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        // Skip does NOT add to failed_steps, so dependent should run
+        assert_eq!(result.steps.len(), 2);
+        let dependent = result.steps.iter().find(|s| s.name == "dependent").unwrap();
+        assert!(dependent.success);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn recovery_abort_stops_workflow() {
+        // Step fails, user picks Abort. No further steps execute.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("should_not_run.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, next]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+        // next depends on failing to ensure deterministic ordering
+        steps.insert(
+            "next".to_string(),
+            make_step(
+                "next",
+                &format!("touch {}", marker.display()),
+                vec!["failing".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_failing", "abort");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.aborted);
+        assert!(!result.success);
+        // Only the failing step should have a result; next is blocked by abort
+        assert_eq!(result.steps.len(), 1);
+        assert!(!marker.exists());
+    }
+
+    #[test]
+    fn recovery_abort_includes_partial_results() {
+        // First step succeeds, second fails and user aborts.
+        // Result should include both steps. Third is blocked by dependency.
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [good, bad, third]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert("good".to_string(), make_step("good", "echo ok", vec![]));
+        // bad depends on good to enforce ordering
+        steps.insert(
+            "bad".to_string(),
+            make_step("bad", "exit 1", vec!["good".to_string()]),
+        );
+        // third depends on bad so it comes after and gets blocked by abort
+        steps.insert(
+            "third".to_string(),
+            make_step("third", "echo third", vec!["bad".to_string()]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_bad", "abort");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.aborted);
+        // good + bad should be in results; third should not
+        assert_eq!(result.steps.len(), 2);
+        let good = result.steps.iter().find(|s| s.name == "good").unwrap();
+        let bad = result.steps.iter().find(|s| s.name == "bad").unwrap();
+        assert!(good.success);
+        assert!(!bad.success);
+    }
+
+    #[test]
+    fn auto_retry_before_menu() {
+        // retry: 2. Step fails 3 times. Menu shown only after auto-retries exhausted.
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [flaky]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("flaky", "exit 1", vec![]);
+        step.retry = 2;
+
+        let mut steps = HashMap::new();
+        steps.insert("flaky".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_flaky", "abort");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.aborted);
+        // Recovery prompt should have been shown (after auto-retries exhausted)
+        assert!(ui.prompts_shown().contains(&"recovery_flaky".to_string()));
+        // Auto-retry messages should appear
+        assert!(ui.has_message("Retrying... (attempt 2/3)"));
+        assert!(ui.has_message("Retrying... (attempt 3/3)"));
+    }
+
+    #[test]
+    fn auto_retry_succeeds() {
+        // retry: 1. Fails first, succeeds on auto-retry. No menu shown.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("attempt");
+
+        let cmd = format!(
+            "if [ -f {m} ]; then exit 0; else touch {m} && exit 1; fi",
+            m = marker.display()
+        );
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [flaky]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("flaky", &cmd, vec![]);
+        step.retry = 1;
+
+        let mut steps = HashMap::new();
+        steps.insert("flaky".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No recovery prompt should have been shown (auto-retry worked)
+        assert!(!ui.prompts_shown().contains(&"recovery_flaky".to_string()));
+        // Auto-retry message should appear
+        assert!(ui.has_message("Retrying... (attempt 2/2)"));
+    }
+
+    #[test]
+    fn allow_failure_suppresses_menu() {
+        // allow_failure: true. No recovery prompt. Workflow continues.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("next_ran.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing, next]
+        "#,
+        )
+        .unwrap();
+
+        let mut failing_step = make_step("failing", "exit 1", vec![]);
+        failing_step.allow_failure = true;
+
+        let mut steps = HashMap::new();
+        steps.insert("failing".to_string(), failing_step);
+        steps.insert(
+            "next".to_string(),
+            make_step(
+                "next",
+                &format!("touch {}", marker.display()),
+                vec!["failing".to_string()],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        // No recovery prompt
+        assert!(!ui.prompts_shown().contains(&"recovery_failing".to_string()));
+        // Next step still runs
+        assert_eq!(result.steps.len(), 2);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn non_interactive_no_menu() {
+        // Non-interactive: step fails, no prompt, failed_steps populated.
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        // Not interactive (default)
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(!result.success);
+        assert!(!result.aborted);
+        // No recovery prompt
+        assert!(!ui.prompts_shown().contains(&"recovery_failing".to_string()));
+    }
+
+    #[test]
+    fn non_interactive_auto_retry() {
+        // Non-interactive + retry: 1. Retries silently, no menu.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("attempt");
+
+        let cmd = format!(
+            "if [ -f {m} ]; then exit 0; else touch {m} && exit 1; fi",
+            m = marker.display()
+        );
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [flaky]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("flaky", &cmd, vec![]);
+        step.retry = 1;
+
+        let mut steps = HashMap::new();
+        steps.insert("flaky".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        // Not interactive
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No recovery prompt
+        assert!(!ui.prompts_shown().contains(&"recovery_flaky".to_string()));
+    }
+
+    #[test]
+    fn recovery_detail_in_skip() {
+        // After Skip, recovery_detail is set.
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [failing]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "failing".to_string(),
+            make_step("failing", "exit 1", vec![]),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_failing", "skip");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert_eq!(
+            result.steps[0].recovery_detail.as_deref(),
+            Some("skipped by user after failure")
+        );
+    }
+
+    #[test]
+    fn recovery_detail_in_retry() {
+        // After successful retry, recovery_detail records the attempt number.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("attempt");
+
+        let cmd = format!(
+            "if [ -f {m} ]; then exit 0; else touch {m} && exit 1; fi",
+            m = marker.display()
+        );
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [flaky]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert("flaky".to_string(), make_step("flaky", &cmd, vec![]));
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("recovery_flaky", "retry");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert_eq!(
+            result.steps[0].recovery_detail.as_deref(),
+            Some("succeeded on retry (attempt 2)")
+        );
+    }
+
+    #[test]
+    fn hint_shown_on_low_confidence() {
+        // A low-confidence pattern match shows a hint in the error block.
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [broken]
+        "#,
+        )
+        .unwrap();
+
+        // "command not found: xyz" triggers the low-confidence command_not_found pattern
+        let mut steps = HashMap::new();
+        steps.insert(
+            "broken".to_string(),
+            make_step(
+                "broken",
+                "echo 'command not found: xyz' >&2; exit 127",
+                vec![],
+            ),
+        );
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        // Non-interactive so no recovery menu
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(!result.success);
+        // Verify hint was passed to show_error_block
+        let blocks = ui.error_blocks();
+        assert!(!blocks.is_empty());
+        let (_, _, hint) = &blocks[0];
+        assert!(
+            hint.is_some(),
+            "Expected a hint for 'command not found' pattern"
+        );
+        assert!(
+            hint.as_deref().unwrap().contains("xyz"),
+            "Hint should reference the missing command"
+        );
+    }
+
+    #[test]
+    fn recovery_fix_confirmed_retries() {
+        // User picks Fix, confirms, fix runs, step re-executes.
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("attempt");
+
+        // Command fails first, succeeds after marker exists
+        let cmd = format!(
+            "if [ -f {m} ]; then exit 0; else exit 1; fi",
+            m = marker.display()
+        );
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [bundler]
+        "#,
+        )
+        .unwrap();
+
+        // Use a command that triggers a known pattern: bundler native ext
+        let mut step = make_step("bundler", &cmd, vec![]);
+        // We need stderr to contain the pattern. Since we can't easily produce
+        // stderr with the right pattern from a shell command in a test,
+        // we instead test the fix flow by using explicit prompt responses.
+        // The fix option won't appear without a pattern match, so we use
+        // the custom_fix path instead.
+        step.requires = vec![];
+
+        let mut steps = HashMap::new();
+        steps.insert("bundler".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // First recovery prompt: pick custom_fix (since no pattern will match)
+        ui.queue_prompt_responses("recovery_bundler", vec!["custom_fix"]);
+        // Enter the fix command
+        ui.set_prompt_response("custom_fix_bundler", &format!("touch {}", marker.display()));
+        // Confirm fix execution
+        ui.set_prompt_response("confirm_fix_bundler", "yes");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn recovery_fix_declined_reprompts() {
+        // User picks Fix, declines confirm, menu re-appears, then aborts.
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [broken]
+        "#,
+        )
+        .unwrap();
+
+        let mut steps = HashMap::new();
+        steps.insert("broken".to_string(), make_step("broken", "exit 1", vec![]));
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // First: pick custom_fix, then abort on second prompt
+        ui.queue_prompt_responses("recovery_broken", vec!["custom_fix", "abort"]);
+        ui.set_prompt_response("custom_fix_broken", "some-fix-cmd");
+        // Decline the fix confirmation
+        ui.set_prompt_response("confirm_fix_broken", "no");
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                None,
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.aborted);
     }
 
     #[test]

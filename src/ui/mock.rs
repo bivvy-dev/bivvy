@@ -21,7 +21,7 @@
 //! assert!(ui.successes().contains(&"Done!".to_string()));
 //! ```
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 use crate::error::Result;
 
@@ -32,6 +32,8 @@ use super::{
 /// Mock UI implementation for testing.
 ///
 /// Captures all UI interactions and allows pre-configured prompt responses.
+/// Supports both single responses (via `set_prompt_response`) and queued
+/// responses (via `queue_prompt_responses`) for keys called multiple times.
 #[derive(Debug, Default)]
 pub struct MockUI {
     mode: OutputMode,
@@ -48,7 +50,10 @@ pub struct MockUI {
     error_blocks: Vec<(String, String, Option<String>)>,
     summaries: Vec<RunSummary>,
     prompt_responses: HashMap<String, String>,
+    prompt_queues: HashMap<String, VecDeque<String>>,
     prompts_shown: Vec<String>,
+    /// Fallback response for any prompt key not in `prompt_responses` or `prompt_queues`.
+    default_prompt_response: Option<String>,
 }
 
 impl MockUI {
@@ -80,6 +85,23 @@ impl MockUI {
     pub fn with_prompt_responses(mut self, responses: HashMap<String, String>) -> Self {
         self.prompt_responses = responses;
         self
+    }
+
+    /// Queue multiple responses for the same prompt key.
+    ///
+    /// Responses are returned in order. After the queue is exhausted,
+    /// falls back to `set_prompt_response` or defaults.
+    pub fn queue_prompt_responses(&mut self, key: &str, responses: Vec<&str>) {
+        let queue = responses.into_iter().map(|s| s.to_string()).collect();
+        self.prompt_queues.insert(key.to_string(), queue);
+    }
+
+    /// Set a default response for any prompt key not explicitly configured.
+    ///
+    /// Useful when a workflow may prompt with unpredictable keys (e.g., recovery
+    /// prompts whose key includes the step name, which depends on template detection).
+    pub fn set_default_prompt_response(&mut self, response: &str) {
+        self.default_prompt_response = Some(response.to_string());
     }
 
     /// Set whether this mock behaves as interactive.
@@ -221,8 +243,38 @@ impl UserInterface for MockUI {
         let is_confirm = matches!(prompt.prompt_type, PromptType::Confirm);
         let is_multiselect = matches!(prompt.prompt_type, PromptType::MultiSelect { .. });
 
+        // Check queued responses first (for keys called multiple times)
+        if let Some(queue) = self.prompt_queues.get_mut(&prompt.key) {
+            if let Some(response) = queue.pop_front() {
+                if is_confirm {
+                    let val = matches!(response.as_str(), "true" | "yes" | "y" | "1");
+                    return Ok(PromptResult::Bool(val));
+                }
+                if is_multiselect {
+                    let values: Vec<String> =
+                        response.split(',').map(|s| s.trim().to_string()).collect();
+                    return Ok(PromptResult::Strings(values));
+                }
+                return Ok(PromptResult::String(response));
+            }
+        }
+
         // Return pre-configured response if available
         if let Some(response) = self.prompt_responses.get(&prompt.key) {
+            if is_confirm {
+                let val = matches!(response.as_str(), "true" | "yes" | "y" | "1");
+                return Ok(PromptResult::Bool(val));
+            }
+            if is_multiselect {
+                let values: Vec<String> =
+                    response.split(',').map(|s| s.trim().to_string()).collect();
+                return Ok(PromptResult::Strings(values));
+            }
+            return Ok(PromptResult::String(response.clone()));
+        }
+
+        // Fall back to default_prompt_response if set (before prompt.default)
+        if let Some(ref response) = self.default_prompt_response {
             if is_confirm {
                 let val = matches!(response.as_str(), "true" | "yes" | "y" | "1");
                 return Ok(PromptResult::Bool(val));
@@ -847,5 +899,57 @@ mod tests {
         assert!(ui.run_headers().is_empty());
         assert!(ui.error_blocks().is_empty());
         assert!(ui.summaries().is_empty());
+    }
+
+    #[test]
+    fn mock_ui_queued_responses_returned_in_order() {
+        let mut ui = MockUI::new();
+        ui.queue_prompt_responses("recovery_bundler", vec!["shell", "retry"]);
+
+        let prompt = Prompt {
+            key: "recovery_bundler".to_string(),
+            question: "How to proceed?".to_string(),
+            prompt_type: PromptType::Input,
+            default: None,
+        };
+
+        assert_eq!(ui.prompt(&prompt).unwrap().as_string(), "shell");
+        assert_eq!(ui.prompt(&prompt).unwrap().as_string(), "retry");
+        // Queue exhausted, falls back to empty string (no set_prompt_response or default)
+        assert_eq!(ui.prompt(&prompt).unwrap().as_string(), "");
+    }
+
+    #[test]
+    fn mock_ui_queued_responses_fallback_to_set_response() {
+        let mut ui = MockUI::new();
+        ui.set_prompt_response("key", "fallback");
+        ui.queue_prompt_responses("key", vec!["first"]);
+
+        let prompt = Prompt {
+            key: "key".to_string(),
+            question: "?".to_string(),
+            prompt_type: PromptType::Input,
+            default: None,
+        };
+
+        assert_eq!(ui.prompt(&prompt).unwrap().as_string(), "first");
+        // Queue exhausted, falls back to set_prompt_response
+        assert_eq!(ui.prompt(&prompt).unwrap().as_string(), "fallback");
+    }
+
+    #[test]
+    fn mock_ui_queued_confirm_responses() {
+        let mut ui = MockUI::new();
+        ui.queue_prompt_responses("confirm", vec!["yes", "no"]);
+
+        let prompt = Prompt {
+            key: "confirm".to_string(),
+            question: "Continue?".to_string(),
+            prompt_type: PromptType::Confirm,
+            default: None,
+        };
+
+        assert_eq!(ui.prompt(&prompt).unwrap().as_bool(), Some(true));
+        assert_eq!(ui.prompt(&prompt).unwrap().as_bool(), Some(false));
     }
 }
