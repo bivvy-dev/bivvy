@@ -10,6 +10,8 @@
 //! - Null values in overlay delete the corresponding key from base
 //! - Scalars in overlay replace scalars in base
 
+use std::collections::HashSet;
+
 use serde_yaml::Value;
 
 /// Deep merge two YAML values.
@@ -27,6 +29,25 @@ use serde_yaml::Value;
 ///
 /// A new Value with merged contents
 pub fn deep_merge(base: &Value, overlay: &Value) -> Value {
+    deep_merge_with_leaves(base, overlay, &HashSet::new())
+}
+
+/// Deep merge two YAML values with leaf-key awareness.
+///
+/// Like `deep_merge`, but keys in `leaf_keys` get special treatment:
+/// the MAP at that key is merged (entries added/replaced), but each
+/// entry's VALUE replaces entirely instead of recursing. This is used
+/// for `environments` blocks where each environment override should
+/// replace as a whole rather than being field-merged with the base.
+///
+/// Null values at the leaf level delete the corresponding entry.
+///
+/// # Arguments
+///
+/// * `base` - The base configuration
+/// * `overlay` - The overlay configuration (takes precedence)
+/// * `leaf_keys` - Keys whose children should replace rather than merge
+pub fn deep_merge_with_leaves(base: &Value, overlay: &Value, leaf_keys: &HashSet<&str>) -> Value {
     match (base, overlay) {
         // Both are mappings: merge recursively
         (Value::Mapping(base_map), Value::Mapping(overlay_map)) => {
@@ -36,9 +57,30 @@ pub fn deep_merge(base: &Value, overlay: &Value) -> Value {
                 if overlay_value.is_null() {
                     // Null in overlay = delete from result
                     result.remove(key);
+                } else if leaf_keys.contains(key.as_str().unwrap_or("")) {
+                    // Leaf key: merge the MAP (add/replace entries) but
+                    // each entry's VALUE replaces entirely
+                    if let (Some(base_inner), Value::Mapping(overlay_inner)) =
+                        (result.get(key).and_then(|v| v.as_mapping()), overlay_value)
+                    {
+                        let mut merged_inner = base_inner.clone();
+                        for (inner_key, inner_value) in overlay_inner {
+                            if inner_value.is_null() {
+                                merged_inner.remove(inner_key);
+                            } else {
+                                merged_inner.insert(inner_key.clone(), inner_value.clone());
+                            }
+                        }
+                        result.insert(key.clone(), Value::Mapping(merged_inner));
+                    } else {
+                        result.insert(key.clone(), overlay_value.clone());
+                    }
                 } else if let Some(base_value) = base_map.get(key) {
                     // Key exists in both: recurse
-                    result.insert(key.clone(), deep_merge(base_value, overlay_value));
+                    result.insert(
+                        key.clone(),
+                        deep_merge_with_leaves(base_value, overlay_value, leaf_keys),
+                    );
                 } else {
                     // Key only in overlay: insert
                     result.insert(key.clone(), overlay_value.clone());
@@ -63,10 +105,11 @@ pub fn deep_merge(base: &Value, overlay: &Value) -> Value {
 ///
 /// A single merged Value
 pub fn merge_configs(configs: &[Value]) -> Value {
+    let leaf_keys = HashSet::from(["environments"]);
     configs
         .iter()
         .fold(Value::Mapping(Default::default()), |acc, config| {
-            deep_merge(&acc, config)
+            deep_merge_with_leaves(&acc, config, &leaf_keys)
         })
 }
 
@@ -248,5 +291,153 @@ a:
     fn merge_empty_configs_returns_empty() {
         let result = merge_configs(&[]);
         assert!(result.as_mapping().unwrap().is_empty());
+    }
+
+    #[test]
+    fn leaf_key_replaces_entry_values() {
+        let leaf_keys: HashSet<&str> = ["environments"].iter().copied().collect();
+
+        let base = yaml(
+            r#"
+steps:
+  db:
+    environments:
+      ci:
+        command: "pg_isready"
+        env:
+          A: "1"
+"#,
+        );
+        let overlay = yaml(
+            r#"
+steps:
+  db:
+    environments:
+      ci:
+        env:
+          FOO: "1"
+"#,
+        );
+
+        let result = deep_merge_with_leaves(&base, &overlay, &leaf_keys);
+
+        // Overlay's ci block replaces base's entirely
+        assert!(result["steps"]["db"]["environments"]["ci"]["env"]["FOO"] == "1");
+        // Base's command should be gone (replaced, not merged)
+        assert!(result["steps"]["db"]["environments"]["ci"]
+            .get("command")
+            .is_none());
+        // Base's env.A should be gone
+        assert!(result["steps"]["db"]["environments"]["ci"]["env"]
+            .get("A")
+            .is_none());
+    }
+
+    #[test]
+    fn leaf_key_adds_new_entries() {
+        let leaf_keys: HashSet<&str> = ["environments"].iter().copied().collect();
+
+        let base = yaml(
+            r#"
+environments:
+  ci:
+    command: "ci-cmd"
+"#,
+        );
+        let overlay = yaml(
+            r#"
+environments:
+  staging:
+    command: "staging-cmd"
+"#,
+        );
+
+        let result = deep_merge_with_leaves(&base, &overlay, &leaf_keys);
+
+        // ci preserved
+        assert_eq!(result["environments"]["ci"]["command"], "ci-cmd");
+        // staging added
+        assert_eq!(result["environments"]["staging"]["command"], "staging-cmd");
+    }
+
+    #[test]
+    fn leaf_key_null_removes_entry() {
+        let leaf_keys: HashSet<&str> = ["environments"].iter().copied().collect();
+
+        let base = yaml(
+            r#"
+environments:
+  ci:
+    command: "ci-cmd"
+  staging:
+    command: "staging-cmd"
+"#,
+        );
+        let overlay = yaml(
+            r#"
+environments:
+  ci: null
+"#,
+        );
+
+        let result = deep_merge_with_leaves(&base, &overlay, &leaf_keys);
+
+        // ci removed
+        assert!(result["environments"].get("ci").is_none());
+        // staging preserved
+        assert_eq!(result["environments"]["staging"]["command"], "staging-cmd");
+    }
+
+    #[test]
+    fn leaf_key_preserves_unmentioned_entries() {
+        let leaf_keys: HashSet<&str> = ["environments"].iter().copied().collect();
+
+        let base = yaml(
+            r#"
+environments:
+  ci:
+    command: "ci-cmd"
+  staging:
+    command: "staging-cmd"
+"#,
+        );
+        let overlay = yaml(
+            r#"
+environments:
+  ci:
+    command: "new-ci-cmd"
+"#,
+        );
+
+        let result = deep_merge_with_leaves(&base, &overlay, &leaf_keys);
+
+        // ci replaced with overlay value
+        assert_eq!(result["environments"]["ci"]["command"], "new-ci-cmd");
+        // staging untouched
+        assert_eq!(result["environments"]["staging"]["command"], "staging-cmd");
+    }
+
+    #[test]
+    fn deep_merge_without_leaves_behaves_as_before() {
+        // Verify deep_merge (convenience wrapper) still works identically
+        let base = yaml(
+            r#"
+a:
+  b:
+    c: 1
+    d: 2
+"#,
+        );
+        let overlay = yaml(
+            r#"
+a:
+  b:
+    c: 10
+"#,
+        );
+
+        let result = deep_merge(&base, &overlay);
+        assert_eq!(result["a"]["b"]["c"], 10);
+        assert_eq!(result["a"]["b"]["d"], 2);
     }
 }

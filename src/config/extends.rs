@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use anyhow::{anyhow, Result};
 
-use super::merger::deep_merge;
+use super::merger::deep_merge_with_leaves;
 use super::remote::RemoteFetcher;
 use super::schema::{BivvyConfig, ExtendsConfig};
 
@@ -87,6 +87,9 @@ impl ExtendsResolver {
         // Convert current config to Value for merging
         let config_value = serde_yaml::to_value(config)?;
 
+        // Environment override blocks should replace entirely, not field-merge
+        let leaf_keys = std::collections::HashSet::from(["environments"]);
+
         // Start with empty Value
         let mut merged = serde_yaml::Value::Mapping(serde_yaml::Mapping::new());
 
@@ -107,11 +110,11 @@ impl ExtendsResolver {
 
             // Convert to Value and merge
             let base_value = serde_yaml::to_value(&resolved_base)?;
-            merged = deep_merge(&merged, &base_value);
+            merged = deep_merge_with_leaves(&merged, &base_value, &leaf_keys);
         }
 
         // Finally merge the current config on top
-        let final_value = deep_merge(&merged, &config_value);
+        let final_value = deep_merge_with_leaves(&merged, &config_value, &leaf_keys);
 
         // Deserialize back to BivvyConfig
         let mut final_config: BivvyConfig = serde_yaml::from_value(final_value)?;
@@ -750,6 +753,283 @@ steps:
         assert_eq!(
             resolved.steps["step_shared"].command,
             Some("from-second".to_string())
+        );
+    }
+
+    #[test]
+    fn extends_env_override_replaces_ci_block() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+steps:
+  db:
+    command: "db-setup"
+    environments:
+      ci:
+        command: "pg_isready"
+        env:
+          A: "1"
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        // Overlay replaces ci block entirely
+        let mut steps = std::collections::HashMap::new();
+        let mut envs = std::collections::HashMap::new();
+        let mut env_vars = std::collections::HashMap::new();
+        env_vars.insert("FOO".to_string(), Some("1".to_string()));
+        envs.insert(
+            "ci".to_string(),
+            super::super::schema::StepEnvironmentOverride {
+                env: env_vars,
+                ..Default::default()
+            },
+        );
+        steps.insert(
+            "db".to_string(),
+            super::super::schema::StepConfig {
+                environments: envs,
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            extends: Some(vec![ExtendsConfig {
+                url: server.url("/base.yml"),
+            }]),
+            steps,
+            ..Default::default()
+        };
+
+        let resolver = resolver_with_mock(&server);
+        let resolved = resolver.resolve(&config).unwrap();
+
+        let ci = &resolved.steps["db"].environments["ci"];
+        // Overlay's env is present
+        assert_eq!(ci.env.get("FOO"), Some(&Some("1".to_string())));
+        // Base's command is gone (block replaced, not merged)
+        assert!(ci.command.is_none());
+        // Base's env.A is gone
+        assert!(!ci.env.contains_key("A"));
+    }
+
+    #[test]
+    fn extends_env_override_adds_new_environment() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+steps:
+  db:
+    command: "db-setup"
+    environments:
+      ci:
+        command: "ci-cmd"
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        // Overlay adds staging without affecting ci
+        let mut steps = std::collections::HashMap::new();
+        let mut envs = std::collections::HashMap::new();
+        envs.insert(
+            "staging".to_string(),
+            super::super::schema::StepEnvironmentOverride {
+                command: Some("staging-cmd".to_string()),
+                ..Default::default()
+            },
+        );
+        steps.insert(
+            "db".to_string(),
+            super::super::schema::StepConfig {
+                environments: envs,
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            extends: Some(vec![ExtendsConfig {
+                url: server.url("/base.yml"),
+            }]),
+            steps,
+            ..Default::default()
+        };
+
+        let resolver = resolver_with_mock(&server);
+        let resolved = resolver.resolve(&config).unwrap();
+
+        // ci preserved from base
+        assert_eq!(
+            resolved.steps["db"].environments["ci"].command,
+            Some("ci-cmd".to_string())
+        );
+        // staging added from overlay
+        assert_eq!(
+            resolved.steps["db"].environments["staging"].command,
+            Some("staging-cmd".to_string())
+        );
+    }
+
+    #[test]
+    fn extends_env_override_preserves_unmentioned_environments() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+steps:
+  db:
+    command: "db-setup"
+    environments:
+      ci:
+        command: "ci-cmd"
+      staging:
+        command: "staging-cmd"
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        // Overlay only mentions ci
+        let mut steps = std::collections::HashMap::new();
+        let mut envs = std::collections::HashMap::new();
+        envs.insert(
+            "ci".to_string(),
+            super::super::schema::StepEnvironmentOverride {
+                command: Some("new-ci-cmd".to_string()),
+                ..Default::default()
+            },
+        );
+        steps.insert(
+            "db".to_string(),
+            super::super::schema::StepConfig {
+                environments: envs,
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            extends: Some(vec![ExtendsConfig {
+                url: server.url("/base.yml"),
+            }]),
+            steps,
+            ..Default::default()
+        };
+
+        let resolver = resolver_with_mock(&server);
+        let resolved = resolver.resolve(&config).unwrap();
+
+        // ci replaced
+        assert_eq!(
+            resolved.steps["db"].environments["ci"].command,
+            Some("new-ci-cmd".to_string())
+        );
+        // staging preserved
+        assert_eq!(
+            resolved.steps["db"].environments["staging"].command,
+            Some("staging-cmd".to_string())
+        );
+    }
+
+    #[test]
+    fn extends_only_environments_replaces_list() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+steps:
+  db:
+    command: "db-setup"
+    only_environments:
+      - dev
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        // Overlay replaces only_environments list
+        let mut steps = std::collections::HashMap::new();
+        steps.insert(
+            "db".to_string(),
+            super::super::schema::StepConfig {
+                only_environments: vec!["dev".to_string(), "ci".to_string()],
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            extends: Some(vec![ExtendsConfig {
+                url: server.url("/base.yml"),
+            }]),
+            steps,
+            ..Default::default()
+        };
+
+        let resolver = resolver_with_mock(&server);
+        let resolved = resolver.resolve(&config).unwrap();
+
+        // Array replaced entirely
+        assert_eq!(
+            resolved.steps["db"].only_environments,
+            vec!["dev".to_string(), "ci".to_string()]
+        );
+    }
+
+    #[test]
+    fn extends_inherits_only_environments_when_unset() {
+        let server = MockServer::start();
+
+        let base_yaml = r#"
+app_name: BaseApp
+steps:
+  db:
+    command: "db-setup"
+    only_environments:
+      - dev
+"#;
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        // Overlay doesn't mention only_environments
+        let mut steps = std::collections::HashMap::new();
+        steps.insert(
+            "db".to_string(),
+            super::super::schema::StepConfig {
+                command: Some("custom-cmd".to_string()),
+                ..Default::default()
+            },
+        );
+
+        let config = BivvyConfig {
+            extends: Some(vec![ExtendsConfig {
+                url: server.url("/base.yml"),
+            }]),
+            steps,
+            ..Default::default()
+        };
+
+        let resolver = resolver_with_mock(&server);
+        let resolved = resolver.resolve(&config).unwrap();
+
+        // Command overridden
+        assert_eq!(resolved.steps["db"].command, Some("custom-cmd".to_string()));
+        // only_environments inherited from base
+        assert_eq!(
+            resolved.steps["db"].only_environments,
+            vec!["dev".to_string()]
         );
     }
 }
