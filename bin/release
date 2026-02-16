@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Read version from Cargo.toml
+VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+
+if [ -z "$VERSION" ]; then
+  echo "Error: could not read version from Cargo.toml"
+  exit 1
+fi
+
+printf "Release version $VERSION? [Y/n] "
+read -r version_answer
+if [ "$version_answer" = "n" ] || [ "$version_answer" = "N" ]; then
+  echo "Update the version in Cargo.toml and try again."
+  exit 0
+fi
+echo ""
+
+# Ensure we're on main
+BRANCH=$(git branch --show-current)
+if [ "$BRANCH" != "main" ]; then
+  echo "Error: must be on main (currently on $BRANCH)"
+  exit 1
+fi
+
+# Ensure working tree is clean
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Error: working tree has uncommitted changes"
+  git status --short
+  exit 1
+fi
+
+# Check if tag already exists
+if git rev-parse "$VERSION" >/dev/null 2>&1; then
+  echo "Error: tag $VERSION already exists"
+  exit 1
+fi
+
+# Run checks
+echo "Running checks..."
+cargo fmt -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-features
+cargo build --all-targets --all-features
+echo ""
+
+# Confirm
+echo "Ready to tag and push $VERSION"
+echo "This will trigger CI to build, create a GitHub release, publish packages, and update the Homebrew formula."
+echo ""
+printf "Continue? [y/N] "
+read -r answer
+if [ "$answer" != "y" ] && [ "$answer" != "Y" ]; then
+  echo "Aborted."
+  exit 0
+fi
+
+# Tag and push
+git tag "$VERSION"
+git push origin main
+git push origin "$VERSION"
+
+echo ""
+echo "Tagged and pushed $VERSION"
+echo "CI will handle the rest: https://github.com/bivvy-dev/bivvy/actions"
