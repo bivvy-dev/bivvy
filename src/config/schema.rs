@@ -37,6 +37,10 @@ pub struct BivvyConfig {
     /// Config inheritance
     #[serde(skip_serializing_if = "Option::is_none")]
     pub extends: Option<Vec<ExtendsConfig>>,
+
+    /// Custom requirement definitions
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub requirements: HashMap<String, CustomRequirement>,
 }
 
 /// Global settings that apply to all workflows and steps
@@ -470,6 +474,44 @@ pub struct ExtendsConfig {
 pub struct SecretConfig {
     /// Command to fetch the secret
     pub command: String,
+}
+
+/// A project-specific requirement definition.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomRequirement {
+    /// How to check if this requirement is satisfied
+    pub check: CustomRequirementCheck,
+
+    /// Template to use for installation
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_template: Option<String>,
+
+    /// Human-readable install instructions
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub install_hint: Option<String>,
+}
+
+/// Check type for a custom requirement.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum CustomRequirementCheck {
+    /// Check if a command succeeds (exit code 0)
+    CommandSucceeds {
+        /// Command to run
+        command: String,
+    },
+
+    /// Check if a file or directory exists
+    FileExists {
+        /// Path to check
+        path: String,
+    },
+
+    /// Check if a service is reachable
+    ServiceReachable {
+        /// Command to check reachability (e.g., curl health endpoint)
+        command: String,
+    },
 }
 
 #[cfg(test)]
@@ -907,6 +949,10 @@ workflows:
             "empty template_sources should be omitted"
         );
         assert!(!yaml.contains("secrets"), "empty secrets should be omitted");
+        assert!(
+            !yaml.contains("requirements"),
+            "empty requirements should be omitted"
+        );
         assert!(!yaml.contains("extends"), "None extends should be omitted");
         assert!(
             !yaml.contains("log_path"),
@@ -1055,6 +1101,89 @@ settings:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.requires, vec!["ruby", "postgres-server"]);
+    }
+
+    #[test]
+    fn custom_requirement_parses() {
+        let yaml = r#"
+requirements:
+  internal-cli:
+    check:
+      type: command_succeeds
+      command: "internal-cli --version"
+    install_hint: "Download from https://internal.company.com/cli"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.requirements.contains_key("internal-cli"));
+        let req = &config.requirements["internal-cli"];
+        assert!(matches!(
+            &req.check,
+            CustomRequirementCheck::CommandSucceeds { command } if command == "internal-cli --version"
+        ));
+        assert_eq!(
+            req.install_hint,
+            Some("Download from https://internal.company.com/cli".to_string())
+        );
+        assert!(req.install_template.is_none());
+    }
+
+    #[test]
+    fn custom_requirement_service_check_parses() {
+        let yaml = r#"
+requirements:
+  minio:
+    check:
+      type: service_reachable
+      command: "curl -sf http://localhost:9000/minio/health/live"
+    install_hint: "Run: docker compose up -d minio"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let req = &config.requirements["minio"];
+        assert!(matches!(
+            &req.check,
+            CustomRequirementCheck::ServiceReachable { command } if command.contains("curl")
+        ));
+    }
+
+    #[test]
+    fn custom_requirement_with_install_template() {
+        let yaml = r#"
+requirements:
+  libvips:
+    check:
+      type: command_succeeds
+      command: "vips --version"
+    install_template: libvips
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let req = &config.requirements["libvips"];
+        assert_eq!(req.install_template, Some("libvips".to_string()));
+    }
+
+    #[test]
+    fn custom_requirement_file_exists_check() {
+        let yaml = r#"
+requirements:
+  local-config:
+    check:
+      type: file_exists
+      path: "/etc/myapp/config.yml"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let req = &config.requirements["local-config"];
+        assert!(matches!(
+            &req.check,
+            CustomRequirementCheck::FileExists { path } if path == "/etc/myapp/config.yml"
+        ));
+    }
+
+    #[test]
+    fn empty_requirements_defaults() {
+        let yaml = r#"
+app_name: "TestApp"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.requirements.is_empty());
     }
 
     #[test]

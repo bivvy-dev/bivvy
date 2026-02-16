@@ -46,8 +46,9 @@ pub mod validator;
 
 // Schema re-exports
 pub use schema::{
-    BivvyConfig, CompletedCheck, OutputMode, PromptConfig, PromptType, SecretConfig, Settings,
-    StepConfig, StepOutputConfig, StepOverride, TemplateSource, WorkflowConfig, WorkflowSettings,
+    BivvyConfig, CompletedCheck, CustomRequirement, CustomRequirementCheck, OutputMode,
+    PromptConfig, PromptType, SecretConfig, Settings, StepConfig, StepOutputConfig, StepOverride,
+    TemplateSource, WorkflowConfig, WorkflowSettings,
 };
 
 // Loader re-exports
