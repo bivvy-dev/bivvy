@@ -7,8 +7,10 @@ use std::collections::HashMap;
 
 use super::rule::{LintRule, RuleId};
 use super::rules::{
-    AppNameRule, CircularDependencyRule, RequiredFieldsRule, SelfDependencyRule,
-    UndefinedDependencyRule,
+    AppNameRule, CircularDependencyRule, CustomEnvironmentShadowsBuiltinRule,
+    EnvironmentDefaultWorkflowMissingRule, RequiredFieldsRule, SelfDependencyRule,
+    UndefinedDependencyRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
+    UnreachableEnvironmentOverrideRule,
 };
 
 /// Registry of all available lint rules.
@@ -36,6 +38,11 @@ impl RuleRegistry {
         registry.register(Box::new(CircularDependencyRule));
         registry.register(Box::new(SelfDependencyRule));
         registry.register(Box::new(UndefinedDependencyRule));
+        registry.register(Box::new(UnknownEnvironmentInStepRule));
+        registry.register(Box::new(UnknownEnvironmentInOnlyRule));
+        registry.register(Box::new(EnvironmentDefaultWorkflowMissingRule));
+        registry.register(Box::new(UnreachableEnvironmentOverrideRule));
+        registry.register(Box::new(CustomEnvironmentShadowsBuiltinRule));
         registry
     }
 
@@ -144,13 +151,28 @@ mod tests {
     fn registry_with_builtins_has_rules() {
         let registry = RuleRegistry::with_builtins();
         assert!(!registry.is_empty());
-        // Should have at least 5 built-in rules
-        assert!(registry.len() >= 5);
+        // Should have at least 10 built-in rules
+        assert!(registry.len() >= 10);
         // Verify some specific rules are registered
         assert!(registry.get(&RuleId::new("app-name-format")).is_some());
         assert!(registry.get(&RuleId::new("required-fields")).is_some());
         assert!(registry.get(&RuleId::new("circular-dependency")).is_some());
         assert!(registry.get(&RuleId::new("self-dependency")).is_some());
         assert!(registry.get(&RuleId::new("undefined-dependency")).is_some());
+        assert!(registry
+            .get(&RuleId::new("unknown-environment-in-step"))
+            .is_some());
+        assert!(registry
+            .get(&RuleId::new("unknown-environment-in-only"))
+            .is_some());
+        assert!(registry
+            .get(&RuleId::new("environment-default-workflow-missing"))
+            .is_some());
+        assert!(registry
+            .get(&RuleId::new("unreachable-environment-override"))
+            .is_some());
+        assert!(registry
+            .get(&RuleId::new("custom-environment-shadows-builtin"))
+            .is_some());
     }
 }

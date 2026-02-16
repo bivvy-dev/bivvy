@@ -9,6 +9,7 @@ pub mod self_dependency;
 pub mod template_inputs;
 pub mod undefined_dependency;
 pub mod undefined_template;
+pub mod valid_environments;
 pub mod valid_requires;
 
 pub use app_name::AppNameRule;
@@ -18,6 +19,10 @@ pub use self_dependency::SelfDependencyRule;
 pub use template_inputs::TemplateInputsRule;
 pub use undefined_dependency::UndefinedDependencyRule;
 pub use undefined_template::UndefinedTemplateRule;
+pub use valid_environments::{
+    CustomEnvironmentShadowsBuiltinRule, EnvironmentDefaultWorkflowMissingRule,
+    UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule, UnreachableEnvironmentOverrideRule,
+};
 pub use valid_requires::{
     CircularRequirementDepRule, InstallTemplateMissingRule, ServiceRequirementWithoutHintRule,
     UnknownRequirementRule,
