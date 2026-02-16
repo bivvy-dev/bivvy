@@ -485,7 +485,7 @@ impl<'a> WorkflowRunner<'a> {
             if interactive && step.skippable && !already_prompted {
                 let prompt = Prompt {
                     key: format!("run_{}", step_name),
-                    question: format!("Run {}?", step_display),
+                    question: format!("{}?", step_display),
                     prompt_type: PromptType::Select {
                         options: vec![
                             PromptOption {

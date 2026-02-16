@@ -1,6 +1,6 @@
 //! Interactive prompts.
 
-use console::{style, Term};
+use console::{measure_text_width, style, Key, Style, Term};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, MultiSelect, Select};
 
@@ -62,7 +62,35 @@ fn prompt_input(prompt: &Prompt, term: &Term) -> Result<PromptResult> {
     Ok(PromptResult::String(result))
 }
 
+/// Dialoguer theme for general select prompts with `›`/`·` indicators.
+fn select_theme() -> ColorfulTheme {
+    ColorfulTheme {
+        prompt_prefix: style("".to_string()),
+        prompt_suffix: style("".to_string()),
+        success_prefix: style("".to_string()),
+        success_suffix: style("·".to_string()).for_stderr().dim(),
+        active_item_prefix: style("›".to_string()).for_stderr().bold(),
+        inactive_item_prefix: style("·".to_string()).for_stderr().dim(),
+        active_item_style: Style::new().for_stderr().bold(),
+        inactive_item_style: Style::new().for_stderr().dim(),
+        values_style: Style::new().for_stderr().bold(),
+        ..ColorfulTheme::default()
+    }
+}
+
+/// Check if options form a yes/no pair.
+fn is_yes_no(options: &[PromptOption]) -> bool {
+    options.len() == 2
+        && options.iter().any(|o| o.value == "yes")
+        && options.iter().any(|o| o.value == "no")
+}
+
 fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Result<PromptResult> {
+    // Use custom yes/no prompt for y/n keyboard shortcut support
+    if is_yes_no(options) {
+        return prompt_yes_no(prompt, options, term);
+    }
+
     let labels: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
 
     let default_idx = prompt
@@ -71,7 +99,7 @@ fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
         .and_then(|d| options.iter().position(|o| o.value == *d))
         .unwrap_or(0);
 
-    let selection = Select::new()
+    let selection = Select::with_theme(&select_theme())
         .with_prompt(&prompt.question)
         .items(&labels)
         .default(default_idx)
@@ -79,6 +107,104 @@ fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
         .map_err(map_dialoguer_err)?;
 
     Ok(PromptResult::String(options[selection].value.clone()))
+}
+
+/// Custom yes/no prompt with `›`/`·` indicators and `y`/`n` keyboard shortcuts.
+///
+/// Renders options below the prompt question, indented to align with
+/// the step name. Supports arrow keys, j/k, Enter/Space, and y/n.
+fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Result<PromptResult> {
+    let default_idx = prompt
+        .default
+        .as_ref()
+        .and_then(|d| options.iter().position(|o| o.value == *d))
+        .unwrap_or(0);
+
+    let mut sel = default_idx;
+
+    // Calculate indent: measure the visible width of the question text
+    // to find where `[n/t] ` ends. We use a heuristic: find the first `]`
+    // and add 2 for `] `.
+    let indent = measure_text_width(&prompt.question)
+        .min(prompt.question.find(']').map(|i| i + 2).unwrap_or(6));
+    let pad = " ".repeat(indent);
+
+    let active_prefix = Style::new().bold();
+    let active_style = Style::new().bold();
+    let inactive_prefix = Style::new().dim();
+    let inactive_style = Style::new().dim();
+
+    // Write prompt question
+    term.write_line(&prompt.question).map_err(BivvyError::Io)?;
+    term.hide_cursor().map_err(BivvyError::Io)?;
+
+    loop {
+        // Draw option lines
+        for (i, opt) in options.iter().enumerate() {
+            let line = if i == sel {
+                format!(
+                    "{}{} {}",
+                    pad,
+                    active_prefix.apply_to("›"),
+                    active_style.apply_to(&opt.label)
+                )
+            } else {
+                format!(
+                    "{}{} {}",
+                    pad,
+                    inactive_prefix.apply_to("·"),
+                    inactive_style.apply_to(&opt.label)
+                )
+            };
+            term.write_line(&line).map_err(BivvyError::Io)?;
+        }
+        term.flush().map_err(BivvyError::Io)?;
+
+        // Read key
+        let key = term.read_key().map_err(BivvyError::Io)?;
+
+        let chosen = match key {
+            Key::Char('y') | Key::Char('Y') => options.iter().position(|o| o.value == "yes"),
+            Key::Char('n') | Key::Char('N') => options.iter().position(|o| o.value == "no"),
+            Key::Enter | Key::Char(' ') => Some(sel),
+            Key::ArrowDown | Key::Tab | Key::Char('j') => {
+                sel = (sel + 1) % options.len();
+                None
+            }
+            Key::ArrowUp | Key::BackTab | Key::Char('k') => {
+                sel = (sel + options.len() - 1) % options.len();
+                None
+            }
+            _ => None,
+        };
+
+        if let Some(idx) = chosen {
+            // Clear option lines
+            term.clear_last_lines(options.len())
+                .map_err(BivvyError::Io)?;
+            // Clear the prompt question line
+            term.clear_last_lines(1).map_err(BivvyError::Io)?;
+            // Re-print prompt with selection (show "yes" or "no")
+            let answer_text = if options[idx].value == "yes" {
+                "yes"
+            } else {
+                "no"
+            };
+            term.write_line(&format!(
+                "{} {}",
+                prompt.question,
+                Style::new().bold().apply_to(answer_text)
+            ))
+            .map_err(BivvyError::Io)?;
+            term.show_cursor().map_err(BivvyError::Io)?;
+
+            return Ok(PromptResult::String(options[idx].value.clone()));
+        }
+
+        // Clear option lines for redraw
+        term.clear_last_lines(options.len())
+            .map_err(BivvyError::Io)?;
+    }
 }
 
 fn prompt_multiselect(
@@ -184,5 +310,76 @@ mod tests {
         } else {
             panic!("Expected MultiSelect variant");
         }
+    }
+
+    #[test]
+    fn is_yes_no_returns_true_for_yes_no_options() {
+        let options = vec![
+            PromptOption {
+                label: "Yes (y)".to_string(),
+                value: "yes".to_string(),
+            },
+            PromptOption {
+                label: "No (n)".to_string(),
+                value: "no".to_string(),
+            },
+        ];
+        assert!(is_yes_no(&options));
+    }
+
+    #[test]
+    fn is_yes_no_returns_true_regardless_of_order() {
+        let options = vec![
+            PromptOption {
+                label: "No (n)".to_string(),
+                value: "no".to_string(),
+            },
+            PromptOption {
+                label: "Yes (y)".to_string(),
+                value: "yes".to_string(),
+            },
+        ];
+        assert!(is_yes_no(&options));
+    }
+
+    #[test]
+    fn is_yes_no_returns_false_for_other_options() {
+        let options = vec![
+            PromptOption {
+                label: "Option A".to_string(),
+                value: "a".to_string(),
+            },
+            PromptOption {
+                label: "Option B".to_string(),
+                value: "b".to_string(),
+            },
+        ];
+        assert!(!is_yes_no(&options));
+    }
+
+    #[test]
+    fn is_yes_no_returns_false_for_more_than_two() {
+        let options = vec![
+            PromptOption {
+                label: "Yes".to_string(),
+                value: "yes".to_string(),
+            },
+            PromptOption {
+                label: "No".to_string(),
+                value: "no".to_string(),
+            },
+            PromptOption {
+                label: "Maybe".to_string(),
+                value: "maybe".to_string(),
+            },
+        ];
+        assert!(!is_yes_no(&options));
+    }
+
+    #[test]
+    fn select_theme_creates_without_panic() {
+        let theme = select_theme();
+        // Verify the theme object can be used (smoke test)
+        drop(theme);
     }
 }
