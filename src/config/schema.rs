@@ -239,6 +239,10 @@ pub struct StepConfig {
     /// Commands to run after the step succeeds
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub after: Vec<String>,
+
+    /// System-level prerequisites this step requires (e.g., ruby, node, postgres-server).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub requires: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -959,6 +963,10 @@ workflows:
         assert!(!yaml.contains("after"), "empty after should be omitted");
         assert!(!yaml.contains("prompts"), "empty prompts should be omitted");
         assert!(
+            !yaml.contains("requires"),
+            "empty requires should be omitted"
+        );
+        assert!(
             !yaml.contains("overrides"),
             "empty overrides should be omitted"
         );
@@ -1026,6 +1034,27 @@ settings:
             yaml.contains("max_parallel"),
             "non-default max_parallel should be present"
         );
+    }
+
+    #[test]
+    fn step_config_requires_defaults_empty() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.requires.is_empty());
+    }
+
+    #[test]
+    fn step_config_requires_parses() {
+        let yaml = r#"
+            command: "bundle install"
+            requires:
+              - ruby
+              - postgres-server
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.requires, vec!["ruby", "postgres-server"]);
     }
 
     #[test]

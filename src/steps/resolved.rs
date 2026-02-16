@@ -60,6 +60,9 @@ pub struct ResolvedStep {
 
     /// Requires sudo.
     pub requires_sudo: bool,
+
+    /// System-level prerequisites this step requires.
+    pub requires: Vec<String>,
 }
 
 impl ResolvedStep {
@@ -108,6 +111,7 @@ impl ResolvedStep {
             after: config.after.clone(),
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
+            requires: merge_requires(&step.requires, &config.requires),
         }
     }
 
@@ -131,8 +135,20 @@ impl ResolvedStep {
             after: config.after.clone(),
             sensitive: config.sensitive,
             requires_sudo: config.requires_sudo,
+            requires: config.requires.clone(),
         }
     }
+}
+
+fn merge_requires(template_requires: &[String], config_requires: &[String]) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut result = Vec::new();
+    for r in template_requires.iter().chain(config_requires.iter()) {
+        if seen.insert(r.clone()) {
+            result.push(r.clone());
+        }
+    }
+    result
 }
 
 fn merge_env(
@@ -170,6 +186,7 @@ mod tests {
                     env
                 },
                 watches: vec!["template.lock".to_string()],
+                requires: vec![],
             },
             environment_impact: None,
         }
@@ -281,5 +298,56 @@ mod tests {
         let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
 
         assert_eq!(resolved.watches, vec!["config.lock".to_string()]);
+    }
+
+    #[test]
+    fn resolved_step_carries_requires_from_config() {
+        let config = StepConfig {
+            command: Some("bundle install".to_string()),
+            requires: vec!["ruby".to_string(), "postgres-server".to_string()],
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("deps", &config);
+
+        assert_eq!(resolved.requires, vec!["ruby", "postgres-server"]);
+    }
+
+    #[test]
+    fn resolved_step_merges_template_and_config_requires() {
+        let mut template = make_template();
+        template.step.requires = vec!["node".to_string()];
+
+        let config = StepConfig {
+            requires: vec!["postgres-server".to_string()],
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+
+        assert_eq!(resolved.requires, vec!["node", "postgres-server"]);
+    }
+
+    #[test]
+    fn resolved_step_deduplicates_merged_requires() {
+        let mut template = make_template();
+        template.step.requires = vec!["ruby".to_string(), "node".to_string()];
+
+        let config = StepConfig {
+            requires: vec!["node".to_string(), "postgres-server".to_string()],
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_template("test", &template, &config, &HashMap::new());
+
+        assert_eq!(resolved.requires, vec!["ruby", "node", "postgres-server"]);
+    }
+
+    #[test]
+    fn resolved_step_requires_defaults_empty() {
+        let config = StepConfig::default();
+        let resolved = ResolvedStep::from_config("test", &config);
+
+        assert!(resolved.requires.is_empty());
     }
 }

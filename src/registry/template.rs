@@ -194,6 +194,10 @@ pub struct TemplateStep {
     /// Files to watch for change detection
     #[serde(default)]
     pub watches: Vec<String>,
+
+    /// System-level prerequisites this template's step requires.
+    #[serde(default)]
+    pub requires: Vec<String>,
 }
 
 /// Environment impact after a step runs.
@@ -420,5 +424,33 @@ step:
             input.effective_value(None).unwrap().as_str(),
             Some("default")
         );
+    }
+
+    #[test]
+    fn template_step_requires_parses() {
+        let yaml = r#"
+name: bundler
+description: "Install Ruby dependencies"
+category: ruby
+step:
+  command: "bundle install"
+  requires:
+    - ruby
+"#;
+        let template: Template = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(template.step.requires, vec!["ruby"]);
+    }
+
+    #[test]
+    fn template_step_requires_defaults_empty() {
+        let yaml = r#"
+name: test
+description: "A test template"
+category: common
+step:
+  command: "echo test"
+"#;
+        let template: Template = serde_yaml::from_str(yaml).unwrap();
+        assert!(template.step.requires.is_empty());
     }
 }

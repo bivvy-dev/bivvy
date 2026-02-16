@@ -344,6 +344,7 @@ mod tests {
             after: vec![],
             sensitive: false,
             requires_sudo: false,
+            requires: vec![],
         }
     }
 
