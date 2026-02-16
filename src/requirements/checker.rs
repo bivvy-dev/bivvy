@@ -23,7 +23,7 @@ pub struct GapChecker<'a> {
     registry: &'a RequirementRegistry,
     probe: &'a EnvironmentProbe,
     project_root: PathBuf,
-    cache: HashMap<String, RequirementStatus>,
+    pub(crate) cache: HashMap<String, RequirementStatus>,
 }
 
 impl<'a> GapChecker<'a> {

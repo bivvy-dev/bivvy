@@ -10,6 +10,8 @@ use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::config::BivvyConfig;
 use crate::error::{BivvyError, Result};
+use crate::requirements::checker::GapChecker;
+use crate::requirements::status::RequirementStatus;
 use crate::steps::{
     execute_step, run_check, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
 };
@@ -91,7 +93,7 @@ impl<'a> WorkflowRunner<'a> {
         global_env: &HashMap<String, String>,
         project_root: &Path,
     ) -> Result<WorkflowResult> {
-        self.run_with_progress(options, context, global_env, project_root, |_| {})
+        self.run_with_progress(options, context, global_env, project_root, None, |_| {})
     }
 
     /// Run the specified workflow with a progress callback.
@@ -101,6 +103,7 @@ impl<'a> WorkflowRunner<'a> {
         context: &InterpolationContext,
         global_env: &HashMap<String, String>,
         project_root: &Path,
+        mut gap_checker: Option<&mut GapChecker<'_>>,
         mut on_progress: impl FnMut(RunProgress<'_>),
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
@@ -148,6 +151,26 @@ impl<'a> WorkflowRunner<'a> {
                 all_success = false;
                 failed_steps.insert(step_name.clone());
                 continue;
+            }
+
+            // Check requirement gaps (non-UI: any blocking gap is an error)
+            if let Some(ref mut checker) = gap_checker {
+                let gaps = checker.check_step(step, None);
+                let blocking: Vec<_> = gaps
+                    .iter()
+                    .filter(|g| !g.status.is_satisfied() && !g.status.can_proceed())
+                    .collect();
+                if !blocking.is_empty() {
+                    let names: Vec<_> = blocking.iter().map(|g| g.requirement.as_str()).collect();
+                    return Err(BivvyError::RequirementMissing {
+                        requirement: names.join(", "),
+                        message: format!(
+                            "Step '{}' requires: {}. Run 'bivvy lint' for details.",
+                            step_name,
+                            names.join(", ")
+                        ),
+                    });
+                }
             }
 
             on_progress(RunProgress::StepStarting {
@@ -203,6 +226,7 @@ impl<'a> WorkflowRunner<'a> {
     ///
     /// Unlike `run_with_progress`, this method takes a `UserInterface` directly
     /// and handles interactive prompts for completed steps and sensitive steps.
+    /// An optional `GapChecker` enables requirement gap detection before step execution.
     #[allow(clippy::too_many_arguments)]
     pub fn run_with_ui(
         &self,
@@ -212,6 +236,7 @@ impl<'a> WorkflowRunner<'a> {
         project_root: &Path,
         workflow_non_interactive: bool,
         step_overrides: &HashMap<String, StepOverride>,
+        mut gap_checker: Option<&mut GapChecker<'_>>,
         ui: &mut dyn UserInterface,
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
@@ -293,6 +318,69 @@ impl<'a> WorkflowRunner<'a> {
                 all_success = false;
                 failed_steps.insert(step_name.clone());
                 continue;
+            }
+
+            // Check requirement gaps before proceeding
+            if let Some(ref mut checker) = gap_checker {
+                let gaps = checker.check_step(step, None);
+                if !gaps.is_empty() {
+                    let mut blocking_gaps = Vec::new();
+                    for gap in &gaps {
+                        match &gap.status {
+                            RequirementStatus::SystemOnly { warning, .. } => {
+                                ui.warning(warning);
+                            }
+                            RequirementStatus::Inactive {
+                                manager,
+                                activation_hint,
+                                ..
+                            } => {
+                                ui.warning(&format!(
+                                    "'{}' found via {} but not activated. {}",
+                                    gap.requirement, manager, activation_hint
+                                ));
+                            }
+                            RequirementStatus::ServiceDown { start_hint, .. } => {
+                                if interactive {
+                                    ui.warning(&format!(
+                                        "Service '{}' is not running. {}",
+                                        gap.requirement, start_hint
+                                    ));
+                                } else {
+                                    blocking_gaps.push(&gap.requirement);
+                                }
+                            }
+                            RequirementStatus::Missing { install_hint, .. } => {
+                                if interactive {
+                                    let hint =
+                                        install_hint.as_deref().unwrap_or("Install manually");
+                                    ui.warning(&format!(
+                                        "Missing requirement '{}'. {}",
+                                        gap.requirement, hint
+                                    ));
+                                } else {
+                                    blocking_gaps.push(&gap.requirement);
+                                }
+                            }
+                            RequirementStatus::Unknown => {
+                                blocking_gaps.push(&gap.requirement);
+                            }
+                            RequirementStatus::Satisfied => {}
+                        }
+                    }
+
+                    if !blocking_gaps.is_empty() {
+                        let names: Vec<_> = blocking_gaps.iter().map(|s| s.as_str()).collect();
+                        return Err(BivvyError::RequirementMissing {
+                            requirement: names.join(", "),
+                            message: format!(
+                                "Step '{}' requires: {}. Run 'bivvy lint' for details.",
+                                step_name,
+                                names.join(", ")
+                            ),
+                        });
+                    }
+                }
             }
 
             // Resolve effective prompt_if_complete (step-level, possibly overridden)
@@ -755,8 +843,13 @@ mod tests {
 
         let mut events = Vec::new();
         let result = runner
-            .run_with_progress(&options, &ctx, &HashMap::new(), temp.path(), |progress| {
-                match &progress {
+            .run_with_progress(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                None,
+                |progress| match &progress {
                     RunProgress::StepStarting { name, .. } => {
                         events.push(format!("start:{}", name));
                     }
@@ -766,8 +859,8 @@ mod tests {
                     RunProgress::StepSkipped { name } => {
                         events.push(format!("skip:{}", name));
                     }
-                }
-            })
+                },
+            )
             .unwrap();
 
         assert!(result.success);
@@ -811,11 +904,18 @@ mod tests {
         let ctx = InterpolationContext::new();
         let mut skipped_names = Vec::new();
         runner
-            .run_with_progress(&options, &ctx, &HashMap::new(), temp.path(), |progress| {
-                if let RunProgress::StepSkipped { name } = progress {
-                    skipped_names.push(name.to_string());
-                }
-            })
+            .run_with_progress(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                None,
+                |progress| {
+                    if let RunProgress::StepSkipped { name } = progress {
+                        skipped_names.push(name.to_string());
+                    }
+                },
+            )
             .unwrap();
 
         assert!(skipped_names.contains(&"first".to_string()));
@@ -902,6 +1002,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -950,6 +1051,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1001,6 +1103,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1060,6 +1163,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1115,6 +1219,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1167,6 +1272,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1220,6 +1326,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1266,6 +1373,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1312,6 +1420,7 @@ mod tests {
             temp.path(),
             false,
             &HashMap::new(),
+            None,
             &mut ui,
         );
 
@@ -1360,6 +1469,7 @@ mod tests {
                 temp.path(),
                 true, // workflow_non_interactive
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1420,6 +1530,7 @@ mod tests {
                 temp.path(),
                 false,
                 &overrides,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1668,6 +1779,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1715,6 +1827,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1927,6 +2040,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1973,6 +2087,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2017,6 +2132,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2060,6 +2176,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2111,6 +2228,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2159,6 +2277,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2166,5 +2285,331 @@ mod tests {
         assert!(!result.success);
         // The dependent step should show a blocked message
         assert!(ui.has_message("Blocked (dependency failed)"));
+    }
+
+    // --- 1E-2: Gap checking integration tests ---
+
+    use crate::requirements::checker::GapChecker;
+    use crate::requirements::probe::EnvironmentProbe;
+    use crate::requirements::registry::RequirementRegistry;
+    use crate::requirements::status::RequirementStatus;
+
+    fn make_gap_checker() -> (EnvironmentProbe, RequirementRegistry) {
+        let probe = EnvironmentProbe::run_with_env(|_| Err(std::env::VarError::NotPresent));
+        let registry = RequirementRegistry::new();
+        (probe, registry)
+    }
+
+    #[test]
+    fn run_with_ui_proceeds_when_all_satisfied() {
+        let temp = TempDir::new().unwrap();
+        let marker = temp.path().join("ran.txt");
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("hello", &format!("touch {}", marker.display()), vec![]);
+        step.requires = vec!["fake-tool".to_string()];
+
+        let mut steps = HashMap::new();
+        steps.insert("hello".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let (probe, registry) = make_gap_checker();
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+        // Pre-cache as satisfied
+        checker
+            .cache
+            .insert("fake-tool".to_string(), RequirementStatus::Satisfied);
+
+        let mut ui = MockUI::new();
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                Some(&mut checker),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(marker.exists());
+    }
+
+    #[test]
+    fn run_with_ui_warns_on_system_only() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("hello", "echo hello", vec![]);
+        step.requires = vec!["system-ruby".to_string()];
+
+        let mut steps = HashMap::new();
+        steps.insert("hello".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let (probe, registry) = make_gap_checker();
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+        checker.cache.insert(
+            "system-ruby".to_string(),
+            RequirementStatus::SystemOnly {
+                path: "/usr/bin/ruby".into(),
+                install_template: None,
+                warning: "System ruby detected at /usr/bin/ruby. Consider using a version manager."
+                    .to_string(),
+            },
+        );
+
+        let mut ui = MockUI::new();
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                Some(&mut checker),
+                &mut ui,
+            )
+            .unwrap();
+
+        // Should succeed — SystemOnly allows proceeding
+        assert!(result.success);
+        // Warning should be shown
+        assert!(ui.has_warning("System ruby detected"));
+    }
+
+    #[test]
+    fn run_with_ui_errors_on_unknown_requirement() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("hello", "echo hello", vec![]);
+        step.requires = vec!["nonexistent-xyz".to_string()];
+
+        let mut steps = HashMap::new();
+        steps.insert("hello".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let (probe, registry) = make_gap_checker();
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+        // Unknown is not cached — it's the default for unknown requirements
+        // But we can pre-cache it for clarity
+        checker
+            .cache
+            .insert("nonexistent-xyz".to_string(), RequirementStatus::Unknown);
+
+        // Non-interactive (default MockUI) → should error
+        let mut ui = MockUI::new();
+
+        let result = runner.run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            Some(&mut checker),
+            &mut ui,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            matches!(err, BivvyError::RequirementMissing { .. }),
+            "expected RequirementMissing, got: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn run_with_ui_non_interactive_fails_on_missing() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("hello", "echo hello", vec![]);
+        step.requires = vec!["missing-tool".to_string()];
+
+        let mut steps = HashMap::new();
+        steps.insert("hello".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let (probe, registry) = make_gap_checker();
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+        checker.cache.insert(
+            "missing-tool".to_string(),
+            RequirementStatus::Missing {
+                install_template: None,
+                install_hint: Some("brew install missing-tool".to_string()),
+            },
+        );
+
+        // Non-interactive → should error
+        let mut ui = MockUI::new();
+
+        let result = runner.run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            Some(&mut checker),
+            &mut ui,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, BivvyError::RequirementMissing { .. }));
+    }
+
+    #[test]
+    fn run_with_ui_interactive_warns_on_missing() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        let mut step = make_step("hello", "echo hello", vec![]);
+        step.requires = vec!["missing-tool".to_string()];
+
+        let mut steps = HashMap::new();
+        steps.insert("hello".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let (probe, registry) = make_gap_checker();
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+        checker.cache.insert(
+            "missing-tool".to_string(),
+            RequirementStatus::Missing {
+                install_template: None,
+                install_hint: Some("brew install missing-tool".to_string()),
+            },
+        );
+
+        // Interactive → should warn but proceed
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                Some(&mut checker),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        assert!(ui.has_warning("Missing requirement"));
+        assert!(ui.has_warning("brew install missing-tool"));
+    }
+
+    #[test]
+    fn run_with_ui_no_gaps_when_requires_empty() {
+        let temp = TempDir::new().unwrap();
+
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+            workflows:
+              default:
+                steps: [hello]
+        "#,
+        )
+        .unwrap();
+
+        // Step with empty requires — no gap checking needed
+        let step = make_step("hello", "echo hello", vec![]);
+
+        let mut steps = HashMap::new();
+        steps.insert("hello".to_string(), step);
+
+        let runner = WorkflowRunner::new(&config, steps);
+        let options = RunOptions::default();
+        let ctx = InterpolationContext::new();
+
+        let (probe, registry) = make_gap_checker();
+        let mut checker = GapChecker::new(&registry, &probe, temp.path());
+
+        let mut ui = MockUI::new();
+
+        let result = runner
+            .run_with_ui(
+                &options,
+                &ctx,
+                &HashMap::new(),
+                temp.path(),
+                false,
+                &HashMap::new(),
+                Some(&mut checker),
+                &mut ui,
+            )
+            .unwrap();
+
+        assert!(result.success);
+        // No warnings should appear
+        assert!(ui.warnings().is_empty());
     }
 }

@@ -9,6 +9,9 @@ use crate::cli::args::RunArgs;
 use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;
+use crate::requirements::checker::GapChecker;
+use crate::requirements::probe::EnvironmentProbe;
+use crate::requirements::registry::RequirementRegistry;
 use crate::runner::{RunOptions, SkipBehavior, WorkflowRunner};
 use crate::state::{ProjectId, RunHistoryBuilder, StateStore};
 use crate::steps::ResolvedStep;
@@ -166,6 +169,11 @@ impl Command for RunCommand {
         // Create runner
         let runner = WorkflowRunner::new(&config, steps);
 
+        // Create gap checker for requirement detection
+        let probe = EnvironmentProbe::run();
+        let req_registry = RequirementRegistry::new().with_custom(&config.requirements);
+        let mut gap_checker = GapChecker::new(&req_registry, &probe, &self.project_root);
+
         // Create interpolation context
         let ctx = InterpolationContext::new();
         let global_env: HashMap<String, String> = std::env::vars().collect();
@@ -181,6 +189,7 @@ impl Command for RunCommand {
             &self.project_root,
             workflow_non_interactive,
             &step_overrides,
+            Some(&mut gap_checker),
             ui,
         )?;
 
