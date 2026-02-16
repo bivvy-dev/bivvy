@@ -7,6 +7,7 @@
 //!
 //! - [`cli`] - Command-line interface and argument parsing
 //! - [`config`] - Configuration loading, parsing, and validation
+//! - [`environment`] - Environment detection and resolution
 //! - [`error`] - Error types and result aliases
 //! - [`lint`] - Configuration validation and linting
 //! - [`registry`] - Template registry and resolution
@@ -35,6 +36,7 @@ pub mod cache;
 pub mod cli;
 pub mod config;
 pub mod detection;
+pub mod environment;
 pub mod error;
 pub mod feedback;
 pub mod lint;
