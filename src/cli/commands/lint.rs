@@ -8,10 +8,13 @@ use crate::cli::args::LintArgs;
 use crate::config::{load_merged_config, ConfigPaths};
 use crate::error::{BivvyError, Result};
 use crate::lint::{
-    Fix, FixEngine, HumanFormatter, JsonFormatter, LintDiagnostic, LintFormatter, RuleRegistry,
-    SarifFormatter, Severity, TemplateInputsRule, UndefinedTemplateRule,
+    CircularRequirementDepRule, Fix, FixEngine, HumanFormatter, InstallTemplateMissingRule,
+    JsonFormatter, LintDiagnostic, LintFormatter, RuleRegistry, SarifFormatter,
+    ServiceRequirementWithoutHintRule, Severity, TemplateInputsRule, UndefinedTemplateRule,
+    UnknownRequirementRule,
 };
 use crate::registry::Registry;
+use crate::requirements::registry::RequirementRegistry;
 use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
@@ -116,6 +119,20 @@ impl Command for LintCommand {
             )));
             rule_registry.register(Box::new(TemplateInputsRule::new(template_registry)));
         }
+
+        // Add requirement-related rules
+        // Each rule takes ownership of its own RequirementRegistry instance
+        let make_req_registry = || RequirementRegistry::new().with_custom(&config.requirements);
+        rule_registry.register(Box::new(UnknownRequirementRule::new(make_req_registry())));
+        rule_registry.register(Box::new(CircularRequirementDepRule::new(
+            make_req_registry(),
+        )));
+        rule_registry.register(Box::new(InstallTemplateMissingRule::new(
+            make_req_registry(),
+        )));
+        rule_registry.register(Box::new(ServiceRequirementWithoutHintRule::new(
+            make_req_registry(),
+        )));
 
         // Run all lint rules
         let mut diagnostics = self.run_rules(&rule_registry, &config);

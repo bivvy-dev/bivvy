@@ -42,8 +42,9 @@ pub use output::{HumanFormatter, JsonFormatter, LintFormatter, OutputFormat, Sar
 pub use registry::RuleRegistry;
 pub use rule::{LintRule, RuleId, Severity};
 pub use rules::{
-    AppNameRule, CircularDependencyRule, RequiredFieldsRule, SelfDependencyRule,
-    TemplateInputsRule, UndefinedDependencyRule, UndefinedTemplateRule,
+    AppNameRule, CircularDependencyRule, CircularRequirementDepRule, InstallTemplateMissingRule,
+    RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule, TemplateInputsRule,
+    UndefinedDependencyRule, UndefinedTemplateRule, UnknownRequirementRule,
 };
 pub use schema::SchemaGenerator;
 pub use span::Span;
