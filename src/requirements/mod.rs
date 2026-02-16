@@ -7,7 +7,9 @@
 //! # Modules
 //!
 //! - [`probe`] - Environment probe for discovering version managers and tools
+//! - [`registry`] - Requirement definitions and registry
 //! - [`status`] - Requirement status types for gap detection results
 
 pub mod probe;
+pub mod registry;
 pub mod status;
