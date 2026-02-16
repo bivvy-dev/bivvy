@@ -6,6 +6,8 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::args::ListArgs;
 use crate::config::load_merged_config;
+use crate::environment::detection::{BuiltinDetector, DetectRule};
+use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{OutputMode, UserInterface};
@@ -36,6 +38,32 @@ impl ListCommand {
     pub fn args(&self) -> &ListArgs {
         &self.args
     }
+
+    /// Resolve the target environment using the priority chain.
+    fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
+        let mut custom_rules = std::collections::BTreeMap::new();
+        for (env_name, env_config) in &config.settings.environments {
+            if !env_config.detect.is_empty() {
+                let rules: Vec<DetectRule> = env_config
+                    .detect
+                    .iter()
+                    .map(|r| DetectRule {
+                        env: r.env.clone(),
+                        value: r.value.clone(),
+                    })
+                    .collect();
+                custom_rules.insert(env_name.clone(), rules);
+            }
+        }
+
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+
+        ResolvedEnvironment::resolve(
+            self.args.env.as_deref(),
+            config.settings.default_environment.as_deref(),
+            &detector,
+        )
+    }
 }
 
 impl Command for ListCommand {
@@ -57,10 +85,35 @@ impl Command for ListCommand {
 
         let theme = BivvyTheme::new();
 
+        // Resolve environment
+        let resolved_env = self.resolve_environment(&config);
+        let env_name = &resolved_env.name;
+
+        // Show environment info
+        ui.message(&format!(
+            "  {} {} ({})\n",
+            theme.key.apply_to("Environment:"),
+            theme.highlight.apply_to(env_name),
+            theme.dim.apply_to(resolved_env.source.to_string()),
+        ));
+
         // Show steps
         if !self.args.workflows_only {
             ui.message(&format!("  {}", theme.key.apply_to("Steps:")));
             for (name, step) in &config.steps {
+                // Check if step is skipped by only_environments
+                let skipped = !step.only_environments.is_empty()
+                    && !step.only_environments.iter().any(|e| e == env_name);
+
+                if skipped {
+                    ui.message(&format!(
+                        "    {} {}",
+                        theme.dim.apply_to(name),
+                        theme.dim.apply_to(format!("(skipped in {})", env_name)),
+                    ));
+                    continue;
+                }
+
                 // First line: step name with template/command detail
                 let detail = if let Some(ref template) = step.template {
                     format!(
@@ -370,6 +423,123 @@ workflows:
             .messages()
             .iter()
             .any(|m| m.contains("depends on:") && m.contains("install")));
+    }
+
+    #[test]
+    fn list_shows_environment_info() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs::default();
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("Environment:")));
+        assert!(ui.messages().iter().any(|m| m.contains("development")));
+    }
+
+    #[test]
+    fn list_shows_environment_from_env_flag() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("ci")));
+    }
+
+    #[test]
+    fn list_shows_skipped_steps_for_environment() {
+        let config = r#"
+app_name: Test
+steps:
+  dev_only:
+    command: echo dev
+    only_environments:
+      - development
+  always_run:
+    command: echo always
+workflows:
+  default:
+    steps: [dev_only, always_run]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // dev_only should show as skipped in ci
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("dev_only") && m.contains("skipped")));
+        // always_run should show normally (no only_environments = runs in all)
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("always_run") && m.contains("echo always")));
+    }
+
+    #[test]
+    fn list_no_skipped_when_environment_matches() {
+        let config = r#"
+app_name: Test
+steps:
+  ci_step:
+    command: echo ci
+    only_environments:
+      - ci
+workflows:
+  default:
+    steps: [ci_step]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // ci_step should show normally, not skipped
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("ci_step") && m.contains("echo ci")));
+        assert!(!ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("ci_step") && m.contains("skipped")));
     }
 
     #[test]

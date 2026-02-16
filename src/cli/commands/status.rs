@@ -8,6 +8,8 @@ use std::time::Duration;
 
 use crate::cli::args::StatusArgs;
 use crate::config::load_merged_config;
+use crate::environment::detection::{BuiltinDetector, DetectRule};
+use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::probe::EnvironmentProbe;
@@ -43,6 +45,32 @@ impl StatusCommand {
     pub fn args(&self) -> &StatusArgs {
         &self.args
     }
+
+    /// Resolve the target environment using the priority chain.
+    fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
+        let mut custom_rules = std::collections::BTreeMap::new();
+        for (env_name, env_config) in &config.settings.environments {
+            if !env_config.detect.is_empty() {
+                let rules: Vec<DetectRule> = env_config
+                    .detect
+                    .iter()
+                    .map(|r| DetectRule {
+                        env: r.env.clone(),
+                        value: r.value.clone(),
+                    })
+                    .collect();
+                custom_rules.insert(env_name.clone(), rules);
+            }
+        }
+
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+
+        ResolvedEnvironment::resolve(
+            self.args.env.as_deref(),
+            config.settings.default_environment.as_deref(),
+            &detector,
+        )
+    }
 }
 
 impl Command for StatusCommand {
@@ -70,6 +98,9 @@ impl Command for StatusCommand {
 
         let theme = BivvyTheme::new();
 
+        // Resolve environment
+        let resolved_env = self.resolve_environment(&config);
+
         // Show header: ⛺ AppName — Status
         let app_name = config.app_name.as_deref().unwrap_or("Bivvy Setup");
         ui.message(&format!(
@@ -79,6 +110,15 @@ impl Command for StatusCommand {
             theme.dim.apply_to("—"),
             theme.dim.apply_to("Status"),
         ));
+
+        // Show environment info
+        ui.message(&format!(
+            "  {} {} ({})",
+            theme.key.apply_to("Environment:"),
+            theme.highlight.apply_to(&resolved_env.name),
+            theme.dim.apply_to(resolved_env.source.to_string()),
+        ));
+        ui.message("");
 
         // Show last run info with relative time
         if let Some(last_run) = state.last_run_record() {
@@ -507,6 +547,53 @@ workflows:
             .filter(|m| m.contains("node") && !m.contains("Steps:") && !m.contains("⛺"))
             .count();
         assert_eq!(node_count, 1, "node should appear exactly once");
+    }
+
+    #[test]
+    fn status_shows_environment_info() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs::default();
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        // Should show Environment label with fallback
+        assert!(ui.messages().iter().any(|m| m.contains("Environment:")));
+        assert!(ui.messages().iter().any(|m| m.contains("development")));
+    }
+
+    #[test]
+    fn status_shows_environment_from_env_flag() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = StatusArgs {
+            env: Some("staging".to_string()),
+            ..Default::default()
+        };
+        let cmd = StatusCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("staging")));
     }
 
     #[test]
