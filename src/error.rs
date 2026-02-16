@@ -43,6 +43,20 @@ pub enum BivvyError {
     #[error("Command failed with exit code {code:?}: {command}")]
     CommandFailed { command: String, code: Option<i32> },
 
+    /// A required tool or service is missing and cannot be auto-installed.
+    #[error("Missing requirement '{requirement}': {message}")]
+    RequirementMissing {
+        requirement: String,
+        message: String,
+    },
+
+    /// A requirement check failed unexpectedly (e.g., network error during install).
+    #[error("Requirement check failed for '{requirement}': {message}")]
+    RequirementCheckFailed {
+        requirement: String,
+        message: String,
+    },
+
     /// IO error wrapper.
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -122,6 +136,28 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("npm install"));
         assert!(msg.contains("1"));
+    }
+
+    #[test]
+    fn requirement_missing_displays_requirement_and_message() {
+        let err = BivvyError::RequirementMissing {
+            requirement: "ruby".into(),
+            message: "Not found on PATH".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("ruby"));
+        assert!(msg.contains("Not found on PATH"));
+    }
+
+    #[test]
+    fn requirement_check_failed_displays_requirement_and_message() {
+        let err = BivvyError::RequirementCheckFailed {
+            requirement: "node".into(),
+            message: "Install command exited with code 1".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("node"));
+        assert!(msg.contains("Install command exited with code 1"));
     }
 
     #[test]
