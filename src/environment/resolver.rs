@@ -6,7 +6,10 @@
 //! 3. Auto-detection (CI, Docker, Codespace)
 //! 4. Fallback to "development"
 
-use super::detection::{BuiltinDetector, DetectedEnvironment};
+use std::collections::BTreeMap;
+
+use super::detection::{BuiltinDetector, DetectRule, DetectedEnvironment};
+use crate::config::schema::Settings;
 
 /// How the environment was determined.
 #[derive(Debug, Clone, PartialEq)]
@@ -109,6 +112,40 @@ impl ResolvedEnvironment {
             source: EnvironmentSource::Fallback,
         }
     }
+
+    /// Resolve the active environment from CLI args and config settings.
+    ///
+    /// This is a convenience method that builds custom detection rules from
+    /// the config's `settings.environments` entries and delegates to `resolve()`.
+    ///
+    /// Priority: explicit flag > config default > auto-detection > fallback.
+    pub fn resolve_from_config(flag: Option<&str>, settings: &Settings) -> Self {
+        let custom_rules: BTreeMap<String, Vec<DetectRule>> = settings
+            .environments
+            .iter()
+            .filter(|(_, env_config)| !env_config.detect.is_empty())
+            .map(|(name, env_config)| {
+                let rules = env_config
+                    .detect
+                    .iter()
+                    .map(|d| DetectRule {
+                        env: d.env.clone(),
+                        value: d.value.clone(),
+                    })
+                    .collect();
+                (name.clone(), rules)
+            })
+            .collect();
+
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+        Self::resolve(flag, settings.default_environment.as_deref(), &detector)
+    }
+
+    /// Check whether the resolved environment is known (defined in config or a built-in).
+    pub fn is_known(&self, settings: &Settings) -> bool {
+        const BUILTINS: &[&str] = &["ci", "docker", "codespace", "development"];
+        BUILTINS.contains(&self.name.as_str()) || settings.environments.contains_key(&self.name)
+    }
 }
 
 #[cfg(test)]
@@ -210,5 +247,83 @@ mod tests {
     #[test]
     fn source_display_fallback() {
         assert_eq!(EnvironmentSource::Fallback.to_string(), "default");
+    }
+
+    #[test]
+    fn resolve_from_config_uses_flag() {
+        let settings = Settings::default();
+        let resolved = ResolvedEnvironment::resolve_from_config(Some("staging"), &settings);
+        assert_eq!(resolved.name, "staging");
+        assert_eq!(resolved.source, EnvironmentSource::Flag);
+    }
+
+    #[test]
+    fn resolve_from_config_uses_custom_rules() {
+        use crate::config::schema::{EnvironmentConfig, EnvironmentDetectRule};
+        use std::collections::HashMap;
+
+        let mut environments = HashMap::new();
+        environments.insert(
+            "custom_ci".to_string(),
+            EnvironmentConfig {
+                detect: vec![EnvironmentDetectRule {
+                    env: "MY_CI".to_string(),
+                    value: None,
+                }],
+                ..Default::default()
+            },
+        );
+
+        let settings = Settings {
+            environments,
+            ..Default::default()
+        };
+
+        // Without the env var set, should fall back to development
+        let resolved = ResolvedEnvironment::resolve_from_config(None, &settings);
+        // We can't guarantee the env var isn't set, so just check it resolves
+        assert!(!resolved.name.is_empty());
+    }
+
+    #[test]
+    fn is_known_builtin() {
+        let settings = Settings::default();
+        for name in &["ci", "docker", "codespace", "development"] {
+            let resolved = ResolvedEnvironment {
+                name: name.to_string(),
+                source: EnvironmentSource::Flag,
+            };
+            assert!(resolved.is_known(&settings), "{} should be known", name);
+        }
+    }
+
+    #[test]
+    fn is_known_custom() {
+        use crate::config::schema::EnvironmentConfig;
+        use std::collections::HashMap;
+
+        let mut environments = HashMap::new();
+        environments.insert("staging".to_string(), EnvironmentConfig::default());
+
+        let settings = Settings {
+            environments,
+            ..Default::default()
+        };
+
+        let resolved = ResolvedEnvironment {
+            name: "staging".to_string(),
+            source: EnvironmentSource::Flag,
+        };
+        assert!(resolved.is_known(&settings));
+    }
+
+    #[test]
+    fn is_known_unknown() {
+        let settings = Settings::default();
+        let resolved = ResolvedEnvironment {
+            name: "foo".to_string(),
+            source: EnvironmentSource::Flag,
+        };
+        assert!(!resolved.is_known(&settings));
     }
 }

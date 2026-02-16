@@ -7,7 +7,6 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::args::RunArgs;
 use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
-use crate::environment::detection::{BuiltinDetector, DetectRule};
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;
@@ -68,29 +67,7 @@ impl RunCommand {
 
     /// Resolve the target environment using the priority chain.
     fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
-        // Build custom detection rules from config environments
-        let mut custom_rules = std::collections::BTreeMap::new();
-        for (env_name, env_config) in &config.settings.environments {
-            if !env_config.detect.is_empty() {
-                let rules: Vec<DetectRule> = env_config
-                    .detect
-                    .iter()
-                    .map(|r| DetectRule {
-                        env: r.env.clone(),
-                        value: r.value.clone(),
-                    })
-                    .collect();
-                custom_rules.insert(env_name.clone(), rules);
-            }
-        }
-
-        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
-
-        ResolvedEnvironment::resolve(
-            self.args.env.as_deref(),
-            config.settings.default_environment.as_deref(),
-            &detector,
-        )
+        ResolvedEnvironment::resolve_from_config(self.args.env.as_deref(), &config.settings)
     }
 
     /// Resolve steps from configuration.
@@ -158,6 +135,14 @@ impl Command for RunCommand {
         // Resolve environment (before header so we can use resolved workflow)
         let resolved_env = self.resolve_environment(&config);
         let env_name = resolved_env.name.clone();
+
+        // Warn if the environment is not known
+        if !resolved_env.is_known(&config.settings) {
+            ui.warning(&format!(
+                "Unknown environment '{}'. It is not defined in settings.environments                  or a built-in. Step overrides for this environment will have no effect.",
+                env_name
+            ));
+        }
 
         // Get provided_requirements from environment config
         let provided_requirements: HashSet<String> = config

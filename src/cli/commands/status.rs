@@ -8,7 +8,6 @@ use std::time::Duration;
 
 use crate::cli::args::StatusArgs;
 use crate::config::load_merged_config;
-use crate::environment::detection::{BuiltinDetector, DetectRule};
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
@@ -48,28 +47,7 @@ impl StatusCommand {
 
     /// Resolve the target environment using the priority chain.
     fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
-        let mut custom_rules = std::collections::BTreeMap::new();
-        for (env_name, env_config) in &config.settings.environments {
-            if !env_config.detect.is_empty() {
-                let rules: Vec<DetectRule> = env_config
-                    .detect
-                    .iter()
-                    .map(|r| DetectRule {
-                        env: r.env.clone(),
-                        value: r.value.clone(),
-                    })
-                    .collect();
-                custom_rules.insert(env_name.clone(), rules);
-            }
-        }
-
-        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
-
-        ResolvedEnvironment::resolve(
-            self.args.env.as_deref(),
-            config.settings.default_environment.as_deref(),
-            &detector,
-        )
+        ResolvedEnvironment::resolve_from_config(self.args.env.as_deref(), &config.settings)
     }
 }
 
