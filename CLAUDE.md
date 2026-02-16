@@ -1,8 +1,6 @@
 # Bivvy Development Guidelines
 
 > Cross-language development environment setup automation, built in Rust.
->
-> "Set up your bivvy before the mission."
 
 ## Project Overview
 
@@ -21,7 +19,7 @@ Bivvy is a CLI tool that replaces ad-hoc `bin/setup` scripts with a declarative 
 <workflow-summary>
   <step ref="specification">Write failing tests first</step>
   <step ref="implementation">Implement minimum code to pass tests</step>
-  <step ref="documentation">Document while context is fresh</step>
+  <step ref="documentation">Document while context is fresh (rustdoc for APIs, `docs/` for user-facing changes, source READMEs for design)</step>
   <step ref="linting">Pass `cargo fmt` and `cargo clippy`</step>
   <step ref="testing">Pass all tests with >90% coverage</step>
   <step ref="build">Verify clean build</step>
@@ -61,7 +59,7 @@ Bivvy is a CLI tool that replaces ad-hoc `bin/setup` scripts with a declarative 
   <behavior>Moving on to other work when tests are failing</behavior>
   <behavior>Large commits with multiple unrelated changes</behavior>
   <behavior>Straying from the implementation plan without explicit approval</behavior>
-  <behavior>Filtering tests (e.g., `cargo test config` instead of `cargo test`)</behavior>
+  <behavior>Filtering tests when not debugging (e.g., `cargo test config` instead of `cargo test`)</behavior>
 </prohibited-behaviors>
 
 ## Architecture
@@ -148,6 +146,40 @@ workflows:
   default:
     steps: [step1, step2, step3]
 ```
+
+## Documentation
+
+Bivvy has two distinct documentation audiences. Keep them separate.
+
+<documentation>
+  <audience name="user-facing" path="docs/">
+    <description>Pages served by Starlight on Bivvy's website. Written for end users.</description>
+    <rule>All user-facing documentation lives in `docs/`</rule>
+    <rule>Write for someone who has never seen the source code</rule>
+    <rule>Focus on what Bivvy does and how to use it, not how it's built</rule>
+    <rule>Follow the structure in `docs/SUMMARY.md`</rule>
+    <rule>When adding a new command, feature, or config option, add or update the corresponding `docs/` page</rule>
+  </audience>
+
+  <audience name="dev-facing" path="src/">
+    <description>Developer documentation lives inside the source tree. Written for contributors.</description>
+    <form name="rustdoc">
+      <rule>Add `///` and `//!` doc comments to all public items (structs, functions, modules)</rule>
+      <rule>Primary way to document what code does and how to use it</rule>
+    </form>
+    <form name="source-readmes">
+      <description>Higher-level `README.md` files in source directories that document subsystem design. Example: `src/ui/README.md` documents CLX design norms, color assignments, and spinner lifecycle.</description>
+      <rule>Place `README.md` files in source directories to document subsystem design (e.g., `src/cli/README.md`, `src/config/README.md`)</rule>
+      <rule>Cover: purpose, key modules/files, design decisions, testing guidance, guiding principles</rule>
+      <rule>Focus on the "why" and "how it fits together" — leave API details to rustdoc</rule>
+    </form>
+  </audience>
+
+  <boundaries>
+    <rule>Do NOT put developer documentation in `docs/` — that directory is exclusively for end users</rule>
+    <rule>Do NOT put user-facing documentation in source READMEs — point to `docs/` instead</rule>
+  </boundaries>
+</documentation>
 
 ## Coding Standards
 

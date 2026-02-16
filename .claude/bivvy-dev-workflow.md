@@ -46,23 +46,32 @@
 
   <step number="3" id="documentation">
     <title>Documentation</title>
-    <goal>Document while context is fresh.</goal>
+    <goal>Document while context is fresh. User-facing and dev-facing docs are separate concerns.</goal>
     <prerequisite ref="implementation">Tests passing</prerequisite>
     <instructions>
       <instruction>
-        Rustdoc Comments: Add `///` doc comments to all public items (structs, functions, modules).
+        Rustdoc Comments: Add `///` doc comments to all public items (structs, functions, modules). This is the primary form of API documentation.
       </instruction>
       <instruction>
-        User-Facing Docs: Update `docs/` if adding commands, config options, or user-visible features.
+        User-Facing Docs: Update `docs/` if adding commands, config options, or user-visible features. These are Starlight pages written for end users — never reference internals.
+      </instruction>
+      <instruction>
+        Source READMEs: Update or create `README.md` in source directories (e.g., `src/cli/README.md`) when adding or changing subsystem design, architecture, or guiding principles.
       </instruction>
       <instruction>
         Inline Comments: Add comments only where the "why" isn't obvious from the code.
       </instruction>
     </instructions>
+    <boundaries>
+      <rule>Developer docs go in source tree (rustdoc + source READMEs), never in `docs/`</rule>
+      <rule>User-facing docs go in `docs/`, never in source READMEs</rule>
+    </boundaries>
     <anti-patterns>
       <anti-pattern>Documenting "what" the code does (the code should show that)</anti-pattern>
       <anti-pattern>Leaving documentation for later (it won't happen)</anti-pattern>
       <anti-pattern>Over-commenting obvious code</anti-pattern>
+      <anti-pattern>Putting developer architecture docs in `docs/`</anti-pattern>
+      <anti-pattern>Putting user-facing guides in source READMEs</anti-pattern>
     </anti-patterns>
   </step>
 
@@ -155,12 +164,17 @@
       <instruction>
         Write the Message: Explain WHY, not just WHAT.
         <format>
-          <line>type(scope): short description</line>
+          <line>Short description in imperative mood, 50 chars or less</line>
           <line></line>
           <line>Longer explanation of why this change was made,</line>
           <line>what problem it solves, and any important context.</line>
+          <line>Wrap at 72 characters.</line>
         </format>
-        <types>feat, fix, docs, test, refactor, chore, ci</types>
+        <rules>
+          <rule>Imperative mood ("Add feature" not "Added feature")</rule>
+          <rule>Capitalize first letter, no period at end</rule>
+          <rule>No type prefixes (no "feat:", "fix:", etc.)</rule>
+        </rules>
       </instruction>
       <instruction>
         Verify Atomicity: This commit should be independently checkable, buildable, testable, and documented.
