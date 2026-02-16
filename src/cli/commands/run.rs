@@ -140,6 +140,14 @@ impl Command for RunCommand {
             Err(e) => return Err(e),
         };
 
+        // Deprecation warning for --ci flag
+        if self.args.ci {
+            ui.warning(
+                "--ci is deprecated and will be removed in 2.0. \
+                 Use --non-interactive and --env ci instead.",
+            );
+        }
+
         // Apply config default_output when no CLI flag was explicitly set.
         // OutputMode::Normal means the user didn't pass --verbose or --quiet.
         if ui.output_mode() == OutputMode::Normal {
@@ -961,6 +969,53 @@ workflows:
         // With ci environment
         let steps = cmd.resolve_steps(&config, Some("ci")).unwrap();
         assert_eq!(steps.get("hello").unwrap().command, "echo ci-hello");
+    }
+
+    #[test]
+    fn execute_ci_flag_shows_deprecation_warning() {
+        let config = r#"
+app_name: Test Project
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs {
+            ci: true,
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.has_warning("--ci is deprecated"));
+        assert!(ui.has_warning("--non-interactive"));
+        assert!(ui.has_warning("--env ci"));
+    }
+
+    #[test]
+    fn execute_without_ci_flag_no_deprecation_warning() {
+        let config = r#"
+app_name: Test Project
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(!ui.has_warning("--ci is deprecated"));
     }
 
     #[test]

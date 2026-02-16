@@ -120,8 +120,8 @@ pub struct RunArgs {
     #[arg(long)]
     pub non_interactive: bool,
 
-    /// Alias for --non-interactive
-    #[arg(long)]
+    /// Deprecated: use --non-interactive and --env ci instead
+    #[arg(long, hide = true)]
     pub ci: bool,
 
     /// Target environment (e.g., development, ci, staging)
