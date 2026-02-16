@@ -96,6 +96,12 @@ impl BuiltinDetector {
                 detected_via: "CODESPACES".to_string(),
             });
         }
+        if env_fn("GITPOD_WORKSPACE_ID").is_ok() {
+            return Some(DetectedEnvironment {
+                name: "codespace".to_string(),
+                detected_via: "GITPOD_WORKSPACE_ID".to_string(),
+            });
+        }
 
         // 3. CI (broad detection)
         let ci_vars = [
@@ -104,6 +110,8 @@ impl BuiltinDetector {
             "GITLAB_CI",
             "CIRCLECI",
             "JENKINS_URL",
+            "BUILDKITE",
+            "TRAVIS",
         ];
         for var in &ci_vars {
             if env_fn(var).is_ok() {
@@ -114,11 +122,26 @@ impl BuiltinDetector {
             }
         }
 
+        // TF_BUILD must equal "True" (Azure DevOps)
+        if env_fn("TF_BUILD").as_deref() == Ok("True") {
+            return Some(DetectedEnvironment {
+                name: "ci".to_string(),
+                detected_via: "TF_BUILD".to_string(),
+            });
+        }
+
         // 4. Docker
         if env_fn("DOCKER_CONTAINER").is_ok() {
             return Some(DetectedEnvironment {
                 name: "docker".to_string(),
                 detected_via: "DOCKER_CONTAINER".to_string(),
+            });
+        }
+        // Fallback: check for /.dockerenv file (not unit-testable outside Docker)
+        if std::path::Path::new("/.dockerenv").exists() {
+            return Some(DetectedEnvironment {
+                name: "docker".to_string(),
+                detected_via: "/.dockerenv".to_string(),
             });
         }
 
@@ -349,5 +372,49 @@ mod tests {
     #[test]
     fn default_creates_detector() {
         let _detector = BuiltinDetector::default();
+    }
+
+    #[test]
+    fn detect_ci_from_buildkite() {
+        let detector = BuiltinDetector::new();
+        let env_fn = make_env(&[("BUILDKITE", "true")]);
+        let result = detector.detect_with_env(env_fn).unwrap();
+        assert_eq!(result.name, "ci");
+        assert_eq!(result.detected_via, "BUILDKITE");
+    }
+
+    #[test]
+    fn detect_ci_from_travis() {
+        let detector = BuiltinDetector::new();
+        let env_fn = make_env(&[("TRAVIS", "true")]);
+        let result = detector.detect_with_env(env_fn).unwrap();
+        assert_eq!(result.name, "ci");
+        assert_eq!(result.detected_via, "TRAVIS");
+    }
+
+    #[test]
+    fn detect_ci_from_tf_build() {
+        let detector = BuiltinDetector::new();
+        let env_fn = make_env(&[("TF_BUILD", "True")]);
+        let result = detector.detect_with_env(env_fn).unwrap();
+        assert_eq!(result.name, "ci");
+        assert_eq!(result.detected_via, "TF_BUILD");
+    }
+
+    #[test]
+    fn detect_ci_tf_build_wrong_value() {
+        let detector = BuiltinDetector::new();
+        // TF_BUILD must be "True", not just present
+        let env_fn = make_env(&[("TF_BUILD", "false")]);
+        assert!(detector.detect_with_env(env_fn).is_none());
+    }
+
+    #[test]
+    fn detect_codespace_from_gitpod() {
+        let detector = BuiltinDetector::new();
+        let env_fn = make_env(&[("GITPOD_WORKSPACE_ID", "abc123")]);
+        let result = detector.detect_with_env(env_fn).unwrap();
+        assert_eq!(result.name, "codespace");
+        assert_eq!(result.detected_via, "GITPOD_WORKSPACE_ID");
     }
 }
