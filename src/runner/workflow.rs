@@ -695,8 +695,13 @@ impl<'a> WorkflowRunner<'a> {
                         let fix = patterns::find_fix(&combined_output, &step_ctx);
                         let hint = patterns::find_hint(&combined_output, &step_ctx);
 
-                        // Show error block with hint if available
-                        ui.show_error_block(&step.command, &combined_output, hint.as_deref());
+                        // Show error block — skip in non-interactive verbose
+                        // where output was already streamed to stdout
+                        let output_was_streamed =
+                            !ui.is_interactive() && output_mode == OutputMode::Verbose;
+                        if !output_was_streamed {
+                            ui.show_error_block(&step.command, &combined_output, hint.as_deref());
+                        }
 
                         // allow_failure: record and move on, no recovery menu
                         if step.allow_failure {
