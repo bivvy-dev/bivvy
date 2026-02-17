@@ -146,12 +146,18 @@ impl UserInterface for NonInteractiveUI {
         }
     }
 
-    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
+    fn show_run_header(
+        &mut self,
+        app_name: &str,
+        workflow: &str,
+        step_count: usize,
+        version: &str,
+    ) {
         if self.mode.shows_status() {
             let step_label = if step_count == 1 { "step" } else { "steps" };
             println!(
-                "\n⛺ {} · {} workflow · {} {}\n",
-                app_name, workflow, step_count, step_label
+                "\n⛺ {} v{} · {} workflow · {} {}\n",
+                app_name, version, workflow, step_count, step_label
             );
         }
     }

@@ -108,14 +108,21 @@ impl UserInterface for TerminalUI {
         self.mode = mode;
     }
 
-    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
+    fn show_run_header(
+        &mut self,
+        app_name: &str,
+        workflow: &str,
+        step_count: usize,
+        version: &str,
+    ) {
         if self.mode.shows_status() {
             let step_label = if step_count == 1 { "step" } else { "steps" };
             writeln!(
                 self.term,
-                "\n{} {} {} {} {}\n",
+                "\n{} {} {} {} {} {}\n",
                 self.theme.header.apply_to("⛺"),
                 self.theme.highlight.apply_to(app_name),
+                self.theme.dim.apply_to(format!("v{}", version)),
                 self.theme.dim.apply_to("·"),
                 self.theme.dim.apply_to(format!("{} workflow", workflow)),
                 self.theme

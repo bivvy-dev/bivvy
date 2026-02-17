@@ -90,9 +90,15 @@ pub trait UserInterface {
     /// Change the output mode at runtime.
     fn set_output_mode(&mut self, mode: OutputMode);
 
-    /// Show a rich run header with app name, workflow, and step count.
-    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
-        let _ = (workflow, step_count);
+    /// Show a rich run header with app name, version, workflow, and step count.
+    fn show_run_header(
+        &mut self,
+        app_name: &str,
+        workflow: &str,
+        step_count: usize,
+        version: &str,
+    ) {
+        let _ = (workflow, step_count, version);
         self.show_header(app_name);
     }
 

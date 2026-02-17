@@ -46,7 +46,7 @@ pub struct MockUI {
     hints: Vec<String>,
     progress: Vec<(usize, usize)>,
     spinners: Vec<String>,
-    run_headers: Vec<(String, String, usize)>,
+    run_headers: Vec<(String, String, usize, String)>,
     error_blocks: Vec<(String, String, Option<String>)>,
     summaries: Vec<RunSummary>,
     prompt_responses: HashMap<String, String>,
@@ -179,8 +179,8 @@ impl MockUI {
         self.warnings.iter().any(|m| m.contains(msg))
     }
 
-    /// Get all captured run headers as (app_name, workflow, step_count).
-    pub fn run_headers(&self) -> &[(String, String, usize)] {
+    /// Get all captured run headers as (app_name, workflow, step_count, version).
+    pub fn run_headers(&self) -> &[(String, String, usize, String)] {
         &self.run_headers
     }
 
@@ -328,9 +328,19 @@ impl UserInterface for MockUI {
         self.progress.push((current, total));
     }
 
-    fn show_run_header(&mut self, app_name: &str, workflow: &str, step_count: usize) {
-        self.run_headers
-            .push((app_name.to_string(), workflow.to_string(), step_count));
+    fn show_run_header(
+        &mut self,
+        app_name: &str,
+        workflow: &str,
+        step_count: usize,
+        version: &str,
+    ) {
+        self.run_headers.push((
+            app_name.to_string(),
+            workflow.to_string(),
+            step_count,
+            version.to_string(),
+        ));
         self.headers.push(app_name.to_string());
     }
 
@@ -759,12 +769,17 @@ mod tests {
     fn mock_ui_captures_run_headers() {
         let mut ui = MockUI::new();
 
-        ui.show_run_header("MyApp", "default", 7);
+        ui.show_run_header("MyApp", "default", 7, "1.0.0");
 
         assert_eq!(ui.run_headers().len(), 1);
         assert_eq!(
             ui.run_headers()[0],
-            ("MyApp".to_string(), "default".to_string(), 7)
+            (
+                "MyApp".to_string(),
+                "default".to_string(),
+                7,
+                "1.0.0".to_string()
+            )
         );
         // Also delegates to headers for backward compat
         assert!(ui.headers().contains(&"MyApp".to_string()));
@@ -878,7 +893,7 @@ mod tests {
 
         let mut ui = MockUI::new();
 
-        ui.show_run_header("App", "default", 3);
+        ui.show_run_header("App", "default", 3, "1.0.0");
         ui.show_error_block("cmd", "err", Some("hint"));
         let summary = RunSummary {
             step_results: vec![],

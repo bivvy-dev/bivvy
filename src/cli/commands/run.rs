@@ -171,7 +171,12 @@ impl Command for RunCommand {
             .get(workflow_name.as_str())
             .map(|w| w.steps.len())
             .unwrap_or(0);
-        ui.show_run_header(app_name, &workflow_name, step_count);
+        ui.show_run_header(
+            app_name,
+            &workflow_name,
+            step_count,
+            crate::updates::version::VERSION,
+        );
 
         // Show environment and config info
         ui.message(&format!(
