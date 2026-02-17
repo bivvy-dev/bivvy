@@ -87,7 +87,7 @@ If user picks **Yes** → flows into `bivvy run` below.
 ⛺ MyApp · default workflow · 4 steps
 
 [1/4] bundler — Install Ruby gems
-    ○ Skipped (already complete)                        ← [dim] ○
+    ○ Skipped (bundle exec --version)                    ← [dim] ○
 
 [2/4] yarn — Install Node packages
     ⠋ Running yarn...
@@ -114,7 +114,7 @@ If user picks **Yes** → flows into `bivvy run` below.
   [████████████████] 4/4 steps · 4.0s elapsed
 
   ┌─ Summary ──────────────────────────
-  │ ○ bundler              already complete             ← [dim] ○  [dim] detail
+  │ ○ bundler              bundle exec --version             ← [dim] ○  [dim] detail
   │ ✓ yarn                 3.2s                         ← [green] ✓
   │ ✗ db_setup             0.8s                         ← [red bold] ✗
   │ ⊘ migrate                                           ← [orange] ⊘
@@ -135,7 +135,7 @@ If user picks **Yes** → flows into `bivvy run` below.
 ? Already complete. Re-run [1/2] bundler — Install Ruby gems? [y/N]
                                                         ← dialoguer confirm
     (user presses N)
-    ○ Skipped (already complete)
+    ○ Skipped (bundle exec --version)
 
 ? Run [2/2] db_setup — Set up database? [Y/n]          ← dialoguer confirm
     (user presses Y)
@@ -145,7 +145,7 @@ If user picks **Yes** → flows into `bivvy run` below.
   [████████████████] 2/2 steps · 1.2s elapsed
 
   ┌─ Summary ──────────────────────────
-  │ ○ bundler              already complete
+  │ ○ bundler              bundle exec --version
   │ ✓ db_setup             1.2s
   ├────────────────────────────────────
   │ Total: 1.2s · 1 run · 1 skipped

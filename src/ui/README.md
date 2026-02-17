@@ -87,7 +87,7 @@ spinner.set_message("Installing packages...");
 // finish with exactly ONE of:
 spinner.finish_success("install_deps (1.2s)");
 spinner.finish_error("install_deps failed");
-spinner.finish_skipped("install_deps (already complete)");
+spinner.finish_skipped("install_deps (bundle exec --version)");
 ```
 
 Spinners are hidden in Quiet/Silent mode (they create a `ProgressBar::hidden()`).
@@ -127,6 +127,15 @@ In non-interactive mode, prompts use defaults or skip entirely.
 - Status uses bracketed text: `[ok]`, `[FAIL]`, `[skip]`, etc.
 - No prompts — uses defaults or skips
 - Respects `NO_COLOR` env var
+
+### CI Output
+
+When `is_ci()` detects a CI environment (via `CI`, `GITHUB_ACTIONS`, etc.):
+
+- Non-interactive mode is forced automatically (no need for `--non-interactive`)
+- The workflow progress bar is suppressed (noisy in log-based CI output)
+- Headers, step output, summaries, and errors are preserved
+- Version is shown in the run header: `⛺ bivvy v1.6.1 · ci workflow · 9 steps`
 
 ## Adding New UI Methods
 

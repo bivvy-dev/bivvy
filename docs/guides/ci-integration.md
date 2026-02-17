@@ -46,14 +46,18 @@ to view lint results directly in your editor:
 ## Running Bivvy in CI
 
 Beyond linting, you can run Bivvy itself in CI to set up your test
-environment. Use `--env ci --non-interactive` so Bivvy auto-detects the
-CI environment and skips interactive prompts:
+environment. Bivvy auto-detects CI environments (via `CI`, `GITHUB_ACTIONS`,
+and other common variables) and automatically forces non-interactive mode:
 
 ```yaml
 # GitHub Actions
 - name: Setup environment
-  run: bivvy run --env ci --non-interactive
+  run: bivvy run --env ci
 ```
+
+In CI mode, the workflow progress bar is suppressed to avoid noisy output
+in log-based environments. You can also explicitly pass `--non-interactive`
+or `--ci` to force this behavior outside auto-detected CI.
 
 ### Provided requirements
 
