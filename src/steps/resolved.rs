@@ -29,6 +29,9 @@ pub struct ResolvedStep {
     /// Completion check.
     pub completed_check: Option<CompletedCheck>,
 
+    /// Precondition that must pass before running.
+    pub precondition: Option<CompletedCheck>,
+
     /// Whether step can be skipped.
     pub skippable: bool,
 
@@ -105,6 +108,7 @@ impl ResolvedStep {
                 .completed_check
                 .clone()
                 .or_else(|| step.completed_check.clone()),
+            precondition: config.precondition.clone(),
             skippable: config.skippable,
             required: config.required,
             prompt_if_complete: config.prompt_if_complete,
@@ -145,6 +149,7 @@ impl ResolvedStep {
             command: config.command.clone().unwrap_or_default(),
             depends_on: config.depends_on.clone(),
             completed_check: config.completed_check.clone(),
+            precondition: config.precondition.clone(),
             skippable: config.skippable,
             required: config.required,
             prompt_if_complete: config.prompt_if_complete,
@@ -195,6 +200,9 @@ impl ResolvedStep {
         }
         if let Some(check) = &overrides.completed_check {
             self.completed_check = Some(check.clone());
+        }
+        if let Some(check) = &overrides.precondition {
+            self.precondition = Some(check.clone());
         }
         if let Some(v) = overrides.skippable {
             self.skippable = v;
@@ -448,6 +456,69 @@ mod tests {
         assert!(resolved.requires.is_empty());
     }
 
+    // --- Precondition resolution tests ---
+
+    #[test]
+    fn resolved_step_includes_precondition() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                command: "exit 0".to_string(),
+            }),
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.precondition.is_some());
+        assert!(matches!(
+            resolved.precondition,
+            Some(crate::config::CompletedCheck::CommandSucceeds { .. })
+        ));
+    }
+
+    #[test]
+    fn resolved_step_precondition_defaults_none() {
+        let config = StepConfig::default();
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.precondition.is_none());
+    }
+
+    #[test]
+    fn resolved_step_environment_override_precondition() {
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                command: "exit 0".to_string(),
+            }),
+            environments: {
+                let mut envs = HashMap::new();
+                envs.insert(
+                    "ci".to_string(),
+                    StepEnvironmentOverride {
+                        precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                            command: "exit 1".to_string(),
+                        }),
+                        ..Default::default()
+                    },
+                );
+                envs
+            },
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, Some("ci"));
+        if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
+            &resolved.precondition
+        {
+            assert_eq!(
+                command, "exit 1",
+                "environment override should replace precondition"
+            );
+        } else {
+            panic!("Expected CommandSucceeds precondition");
+        }
+    }
+
     #[test]
     fn step_environment_override_defaults_all_none() {
         let overrides = StepEnvironmentOverride::default();
@@ -456,6 +527,7 @@ mod tests {
         assert!(overrides.command.is_none());
         assert!(overrides.env.is_empty());
         assert!(overrides.completed_check.is_none());
+        assert!(overrides.precondition.is_none());
         assert!(overrides.skippable.is_none());
         assert!(overrides.allow_failure.is_none());
         assert!(overrides.requires_sudo.is_none());

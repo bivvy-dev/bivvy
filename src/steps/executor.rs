@@ -6,7 +6,7 @@
 use crate::config::interpolation::{resolve_string, InterpolationContext};
 use crate::error::{BivvyError, Result};
 use crate::shell::{execute, execute_streaming, CommandOptions, OutputCallback};
-use crate::steps::completed_check::{run_check, CheckResult};
+use crate::steps::completed_check::{run_check, run_check_interpolated, CheckResult};
 use crate::steps::resolved::ResolvedStep;
 use std::collections::HashMap;
 use std::path::Path;
@@ -234,6 +234,19 @@ pub fn execute_step(
         }
     }
 
+    // Check preconditions (never bypassed by --force)
+    if let Some(ref precondition) = step.precondition {
+        let check_result = run_check_interpolated(precondition, project_root, context)?;
+        if !check_result.complete {
+            return Ok(StepResult::failure(
+                &step.name,
+                Duration::ZERO,
+                format!("Precondition failed: {}", check_result.short_description()),
+                check_result.details,
+            ));
+        }
+    }
+
     // Dry run mode
     if options.dry_run {
         let command = resolve_string(&step.command, context)?;
@@ -344,6 +357,7 @@ mod tests {
             command: command.to_string(),
             depends_on: vec![],
             completed_check: None,
+            precondition: None,
             skippable: true,
             required: false,
             prompt_if_complete: true,
@@ -681,6 +695,121 @@ mod tests {
         let check_result = crate::steps::CheckResult::complete("done");
         let skipped = StepResult::skipped("test", check_result);
         assert!(skipped.recovery_detail.is_none());
+    }
+
+    // --- Precondition tests ---
+
+    #[test]
+    fn precondition_passes_allows_execution() {
+        let temp = TempDir::new().unwrap();
+        let mut step = make_step("echo hello");
+        step.precondition = Some(CompletedCheck::CommandSucceeds {
+            command: "exit 0".to_string(),
+        });
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            capture_output: true,
+            ..Default::default()
+        };
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        assert!(result.success);
+        assert!(!result.skipped);
+    }
+
+    #[test]
+    fn precondition_fails_returns_failure() {
+        let temp = TempDir::new().unwrap();
+        let mut step = make_step("echo should not run");
+        step.precondition = Some(CompletedCheck::CommandSucceeds {
+            command: "exit 1".to_string(),
+        });
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions::default();
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        assert!(!result.success);
+        assert!(result
+            .error
+            .as_ref()
+            .unwrap()
+            .contains("Precondition failed"));
+    }
+
+    #[test]
+    fn precondition_not_bypassed_by_force() {
+        let temp = TempDir::new().unwrap();
+        let mut step = make_step("echo should not run");
+        step.precondition = Some(CompletedCheck::CommandSucceeds {
+            command: "exit 1".to_string(),
+        });
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            force: true,
+            ..Default::default()
+        };
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        assert!(
+            !result.success,
+            "precondition should not be bypassed by force"
+        );
+    }
+
+    #[test]
+    fn precondition_evaluated_after_completed_check() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("done.txt"), "").unwrap();
+
+        let mut step = make_step("echo should not run");
+        // completed_check passes → should skip; precondition would fail
+        step.completed_check = Some(CompletedCheck::FileExists {
+            path: "done.txt".to_string(),
+        });
+        step.precondition = Some(CompletedCheck::CommandSucceeds {
+            command: "exit 1".to_string(),
+        });
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions::default();
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        // completed_check causes skip, precondition never evaluated
+        assert!(result.success);
+        assert!(result.skipped);
+    }
+
+    #[test]
+    fn precondition_failure_message_includes_description() {
+        let temp = TempDir::new().unwrap();
+        let mut step = make_step("echo test");
+        step.precondition = Some(CompletedCheck::CommandSucceeds {
+            command: "exit 1".to_string(),
+        });
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions::default();
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        let error = result.error.as_ref().unwrap();
+        assert!(
+            error.contains("Precondition failed"),
+            "error should mention precondition: {}",
+            error
+        );
     }
 
     #[test]

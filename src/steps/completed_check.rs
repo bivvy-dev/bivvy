@@ -3,7 +3,9 @@
 //! Completed checks determine if a step has already been executed
 //! and can be skipped.
 
+use crate::config::interpolation::{resolve_string, InterpolationContext};
 use crate::config::CompletedCheck;
+use crate::error::Result;
 use crate::shell::execute_check;
 use std::path::Path;
 
@@ -75,6 +77,69 @@ pub fn run_check(check: &CompletedCheck, project_root: &Path) -> CheckResult {
         CompletedCheck::Marker => check_marker(project_root),
         CompletedCheck::All { checks } => check_all(checks, project_root),
         CompletedCheck::Any { checks } => check_any(checks, project_root),
+    }
+}
+
+/// Run a completed check with variable interpolation.
+///
+/// Command strings in `CommandSucceeds` checks are resolved through the
+/// interpolation context before execution. File paths and other fields
+/// are not interpolated.
+pub fn run_check_interpolated(
+    check: &CompletedCheck,
+    project_root: &Path,
+    context: &InterpolationContext,
+) -> Result<CheckResult> {
+    match check {
+        CompletedCheck::CommandSucceeds { command } => {
+            let resolved = resolve_string(command, context)?;
+            Ok(check_command_succeeds(&resolved, project_root))
+        }
+        CompletedCheck::FileExists { path } => Ok(check_file_exists(path, project_root)),
+        CompletedCheck::Marker => Ok(check_marker(project_root)),
+        CompletedCheck::All { checks } => {
+            let mut results = Vec::new();
+            for c in checks {
+                results.push(run_check_interpolated(c, project_root, context)?);
+            }
+            if results.iter().all(|r| r.complete) {
+                Ok(CheckResult::complete(format!(
+                    "All {} checks passed",
+                    checks.len()
+                )))
+            } else {
+                let failed: Vec<_> = results
+                    .iter()
+                    .filter(|r| !r.complete)
+                    .map(|r| r.description.clone())
+                    .collect();
+                Ok(CheckResult::incomplete(
+                    format!("{}/{} checks failed", failed.len(), checks.len()),
+                    failed.join("; "),
+                ))
+            }
+        }
+        CompletedCheck::Any { checks } => {
+            let mut results = Vec::new();
+            for c in checks {
+                results.push(run_check_interpolated(c, project_root, context)?);
+            }
+            if let Some(passed) = results.iter().find(|r| r.complete) {
+                Ok(CheckResult::complete(format!(
+                    "Check passed: {}",
+                    passed.description
+                )))
+            } else {
+                Ok(CheckResult::incomplete(
+                    format!("None of {} checks passed", checks.len()),
+                    results
+                        .iter()
+                        .map(|r| r.description.clone())
+                        .collect::<Vec<_>>()
+                        .join("; "),
+                ))
+            }
+        }
     }
 }
 
@@ -449,6 +514,36 @@ mod tests {
     fn short_description_passes_through_unknown_prefix() {
         let result = CheckResult::complete("All 3 checks passed");
         assert_eq!(result.short_description(), "All 3 checks passed");
+    }
+
+    // --- run_check_interpolated tests ---
+
+    #[test]
+    fn run_check_interpolated_resolves_vars() {
+        let temp = TempDir::new().unwrap();
+        let mut ctx = crate::config::InterpolationContext::new();
+        ctx.vars
+            .insert("check_cmd".to_string(), "exit 0".to_string());
+
+        let check = CompletedCheck::CommandSucceeds {
+            command: "${check_cmd}".to_string(),
+        };
+
+        let result = run_check_interpolated(&check, temp.path(), &ctx).unwrap();
+        assert!(result.complete);
+    }
+
+    #[test]
+    fn run_check_interpolated_errors_on_missing_var() {
+        let temp = TempDir::new().unwrap();
+        let ctx = crate::config::InterpolationContext::new();
+
+        let check = CompletedCheck::CommandSucceeds {
+            command: "${undefined_var}".to_string(),
+        };
+
+        let result = run_check_interpolated(&check, temp.path(), &ctx);
+        assert!(result.is_err());
     }
 
     #[test]

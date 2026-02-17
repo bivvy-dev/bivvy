@@ -50,7 +50,7 @@ pub mod executor;
 pub mod resolved;
 pub mod sensitive;
 
-pub use completed_check::{run_check, CheckResult};
+pub use completed_check::{run_check, run_check_interpolated, CheckResult};
 pub use executor::{execute_step, ExecutionOptions, StepResult, StepStatus};
 pub use resolved::ResolvedStep;
 pub use sensitive::SensitiveStepHandler;

@@ -194,6 +194,12 @@ pub struct StepConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_check: Option<CompletedCheck>,
 
+    /// Precondition that must pass before the step runs.
+    /// Unlike `completed_check` (which skips when passing), a precondition
+    /// *fails* the step when it does not pass. `--force` does not bypass preconditions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precondition: Option<CompletedCheck>,
+
     /// Whether user can skip this step
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub skippable: bool,
@@ -616,6 +622,10 @@ pub struct StepEnvironmentOverride {
     /// Override completed check
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_check: Option<CompletedCheck>,
+
+    /// Override precondition
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precondition: Option<CompletedCheck>,
 
     /// Override skippable
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -1584,6 +1594,75 @@ vars:
         let config: BivvyConfig = serde_yaml::from_str("app_name: test").unwrap();
         let yaml = serde_yaml::to_string(&config).unwrap();
         assert!(!yaml.contains("vars"), "empty vars should be omitted");
+    }
+
+    // --- Precondition parsing tests ---
+
+    #[test]
+    fn parses_precondition_command_succeeds() {
+        let yaml = r#"
+steps:
+  release:
+    command: "git tag v1"
+    precondition:
+      type: command_succeeds
+      command: "test $(git branch --show-current) = main"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let step = &config.steps["release"];
+        assert!(matches!(
+            step.precondition,
+            Some(CompletedCheck::CommandSucceeds { .. })
+        ));
+    }
+
+    #[test]
+    fn parses_precondition_all() {
+        let yaml = r#"
+steps:
+  release:
+    command: "git tag v1"
+    precondition:
+      type: all
+      checks:
+        - type: command_succeeds
+          command: "test $(git branch --show-current) = main"
+        - type: command_succeeds
+          command: "git diff --quiet"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let step = &config.steps["release"];
+        if let Some(CompletedCheck::All { checks }) = &step.precondition {
+            assert_eq!(checks.len(), 2);
+        } else {
+            panic!("Expected All precondition");
+        }
+    }
+
+    #[test]
+    fn precondition_defaults_none() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.precondition.is_none());
+    }
+
+    #[test]
+    fn serialize_omits_none_precondition() {
+        let config: BivvyConfig = serde_yaml::from_str(
+            r#"
+steps:
+  hello:
+    command: "echo hello"
+"#,
+        )
+        .unwrap();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(
+            !yaml.contains("precondition"),
+            "None precondition should be omitted"
+        );
     }
 
     #[test]
