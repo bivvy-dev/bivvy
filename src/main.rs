@@ -3,6 +3,7 @@
 use std::process::ExitCode;
 
 use bivvy::cli::{Cli, CommandDispatcher, Commands};
+use bivvy::shell::is_ci;
 use bivvy::ui::{create_ui, OutputMode};
 use clap::Parser;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -53,10 +54,10 @@ fn main() -> ExitCode {
         .cloned()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
 
-    // Check if non-interactive (CI mode for run command)
+    // Check if non-interactive (CI mode or explicit flag)
     let is_interactive = match &cli.command {
-        Some(Commands::Run(args)) => !args.non_interactive && !args.ci,
-        _ => true,
+        Some(Commands::Run(args)) => !args.non_interactive && !args.ci && !is_ci(),
+        _ => !is_ci(),
     };
 
     // Create UI

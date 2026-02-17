@@ -118,6 +118,11 @@ fn get_reload_command(shell_type: ShellType, executable: &std::path::Path) -> St
 }
 
 /// Check if running in a CI environment.
+///
+/// Used to auto-detect CI and force non-interactive mode in `main()`,
+/// and to suppress noisy progress bars in [`NonInteractiveUI`](crate::ui::NonInteractiveUI).
+/// Checks common CI environment variables: `CI`, `GITHUB_ACTIONS`,
+/// `GITLAB_CI`, `CIRCLECI`, `TRAVIS`, `JENKINS_URL`.
 pub fn is_ci() -> bool {
     std::env::var("CI").is_ok()
         || std::env::var("GITHUB_ACTIONS").is_ok()

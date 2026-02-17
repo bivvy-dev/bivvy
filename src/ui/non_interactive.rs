@@ -13,9 +13,14 @@ use super::{
 };
 
 /// UI implementation for non-interactive mode.
+///
+/// When running in CI (detected via `is_ci()`), the progress bar is
+/// suppressed since it produces noisy output in log-based environments.
+/// All other output (headers, summaries, errors) is preserved.
 pub struct NonInteractiveUI {
     mode: OutputMode,
     env_overrides: HashMap<String, String>,
+    is_ci: bool,
 }
 
 impl NonInteractiveUI {
@@ -29,6 +34,7 @@ impl NonInteractiveUI {
         Self {
             mode,
             env_overrides,
+            is_ci: crate::shell::is_ci(),
         }
     }
 
@@ -37,6 +43,20 @@ impl NonInteractiveUI {
         Self {
             mode,
             env_overrides: overrides,
+            is_ci: false,
+        }
+    }
+
+    /// Create with explicit CI flag (for testing).
+    pub fn with_ci(mode: OutputMode, is_ci: bool) -> Self {
+        let env_overrides: HashMap<String, String> = std::env::vars()
+            .filter(|(k, _)| k.starts_with("BIVVY_PROMPT_"))
+            .collect();
+
+        Self {
+            mode,
+            env_overrides,
+            is_ci,
         }
     }
 }
@@ -137,6 +157,9 @@ impl UserInterface for NonInteractiveUI {
     }
 
     fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
+        if self.is_ci {
+            return;
+        }
         if self.mode.shows_status() {
             let filled = if total > 0 { (current * 16) / total } else { 0 };
             let empty = 16 - filled;
@@ -366,5 +389,17 @@ mod tests {
         let result = ui.prompt(&prompt).unwrap();
         assert!(matches!(result, PromptResult::Strings(_)));
         assert_eq!(result.as_string(), "npm");
+    }
+
+    #[test]
+    fn ci_mode_is_stored() {
+        let ui = NonInteractiveUI::with_ci(OutputMode::Normal, true);
+        assert!(ui.is_ci);
+    }
+
+    #[test]
+    fn non_ci_mode_default_for_with_overrides() {
+        let ui = NonInteractiveUI::with_overrides(OutputMode::Normal, HashMap::new());
+        assert!(!ui.is_ci);
     }
 }
