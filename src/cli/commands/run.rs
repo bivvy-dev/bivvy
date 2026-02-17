@@ -640,6 +640,40 @@ workflows:
     }
 
     #[test]
+    fn execute_skipped_step_summary_shows_check_description() {
+        let config = r#"
+app_name: Test Project
+steps:
+  hello:
+    command: echo hello
+    completed_check:
+      type: command_succeeds
+      command: "exit 0"
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        let summaries = ui.summaries();
+        assert!(!summaries.is_empty());
+        let step = &summaries[0].step_results[0];
+        assert_eq!(step.status, StatusKind::Skipped);
+        // Should show the check command, not "already complete"
+        let detail = step.detail.as_deref().unwrap();
+        assert!(
+            detail.contains("exit 0"),
+            "expected check description in summary detail, got: {}",
+            detail
+        );
+    }
+
+    #[test]
     fn resolve_steps_uses_template_for_brew() {
         let config_yaml = r#"
 app_name: test

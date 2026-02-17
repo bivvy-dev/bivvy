@@ -408,4 +408,16 @@ mod tests {
         let ui = NonInteractiveUI::with_overrides(OutputMode::Normal, HashMap::new());
         assert!(!ui.is_ci);
     }
+
+    #[test]
+    fn ci_mode_suppresses_workflow_progress() {
+        // In CI mode, show_workflow_progress should return early.
+        // We verify this doesn't panic and the method is callable.
+        // (stdout output is suppressed by the early return, which we
+        // can't easily capture, but the is_ci flag test above confirms
+        // the flag is set correctly for the early return path.)
+        let mut ui = NonInteractiveUI::with_ci(OutputMode::Normal, true);
+        ui.show_workflow_progress(1, 5, Duration::from_secs(1));
+        // No panic = success. In CI mode this is a no-op.
+    }
 }
