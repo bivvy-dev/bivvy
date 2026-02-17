@@ -40,9 +40,6 @@ steps:
     command: "cargo fetch"
     depends_on: [rust]
     watches: [Cargo.toml, Cargo.lock]
-    completed_check:
-      type: file_exists
-      path: "target"
 
   build:
     title: "Build"
