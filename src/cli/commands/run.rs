@@ -179,7 +179,7 @@ impl Command for RunCommand {
             env_name, resolved_env.source
         ));
 
-        if self.args.dry_run || ui.output_mode() == OutputMode::Verbose {
+        if self.args.dry_run {
             let paths = ConfigPaths::discover(&self.project_root);
             if let Some(project_path) = &paths.project {
                 ui.message(&format!("Config: {}", project_path.display()));
@@ -605,6 +605,33 @@ workflows:
             .messages()
             .iter()
             .any(|m| m.contains("Config:") && m.contains("config.yml")));
+    }
+
+    #[test]
+    fn execute_verbose_does_not_show_config_path() {
+        let config = r#"
+app_name: Test Project
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs {
+            dry_run: false,
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::with_mode(OutputMode::Verbose);
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(
+            !ui.messages().iter().any(|m| m.contains("Config:")),
+            "Verbose mode should not show Config: line"
+        );
     }
 
     #[test]
