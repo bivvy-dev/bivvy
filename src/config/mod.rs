@@ -43,13 +43,18 @@ pub mod merger;
 pub mod remote;
 pub mod schema;
 pub mod validator;
+pub mod vars;
 
 // Schema re-exports
 pub use schema::{
     BivvyConfig, CompletedCheck, CustomRequirement, CustomRequirementCheck, OutputMode,
     PromptConfig, PromptType, SecretConfig, Settings, StepConfig, StepEnvironmentOverride,
-    StepOutputConfig, StepOverride, TemplateSource, WorkflowConfig, WorkflowSettings,
+    StepOutputConfig, StepOverride, TemplateSource, VarDefinition, WorkflowConfig,
+    WorkflowSettings,
 };
+
+// Vars re-exports
+pub use vars::evaluate_vars;
 
 // Loader re-exports
 pub use loader::{

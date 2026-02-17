@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::RunArgs;
-use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
+use crate::config::{evaluate_vars, load_merged_config, ConfigPaths, InterpolationContext};
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;
@@ -239,8 +239,11 @@ impl Command for RunCommand {
         let req_registry = RequirementRegistry::new().with_custom(&config.requirements);
         let mut gap_checker = GapChecker::new(&req_registry, &probe, &self.project_root);
 
+        // Evaluate user-defined vars
+        let resolved_vars = evaluate_vars(&config.vars, &self.project_root)?;
+
         // Create interpolation context
-        let ctx = InterpolationContext::new();
+        let ctx = InterpolationContext::new().with_vars(resolved_vars);
         let global_env: HashMap<String, String> = std::env::vars().collect();
 
         // Start history recording
@@ -1143,6 +1146,53 @@ workflows:
 
         // Should show the aborted hint
         assert!(ui.has_hint("Workflow aborted by user"));
+    }
+
+    #[test]
+    fn vars_available_in_step_commands() {
+        let config = r#"
+app_name: Test
+vars:
+  greeting: "hello-from-vars"
+steps:
+  greet:
+    command: "echo ${greeting}"
+workflows:
+  default:
+    steps: [greet]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+    }
+
+    #[test]
+    fn computed_vars_available_in_step_commands() {
+        let config = r#"
+app_name: Test
+vars:
+  computed_val:
+    command: "echo computed-output"
+steps:
+  use_var:
+    command: "echo ${computed_val}"
+workflows:
+  default:
+    steps: [use_var]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
     }
 
     #[test]

@@ -41,6 +41,10 @@ pub struct BivvyConfig {
     /// Custom requirement definitions
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub requirements: HashMap<String, CustomRequirement>,
+
+    /// User-defined variables for interpolation.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub vars: HashMap<String, VarDefinition>,
 }
 
 /// Global settings that apply to all workflows and steps
@@ -493,6 +497,29 @@ pub struct ExtendsConfig {
 pub struct SecretConfig {
     /// Command to fetch the secret
     pub command: String,
+}
+
+/// A variable definition: either a static value or a shell-computed value.
+///
+/// In YAML, static values are plain strings and computed values use
+/// `{ command: "..." }` syntax:
+///
+/// ```yaml
+/// vars:
+///   app_name: "bivvy"                       # static
+///   version:
+///     command: "cat VERSION"                 # computed
+/// ```
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum VarDefinition {
+    /// Computed from a shell command's stdout (trimmed).
+    Computed {
+        /// Shell command to run
+        command: String,
+    },
+    /// A static string value.
+    Static(String),
 }
 
 /// A project-specific requirement definition.
@@ -1495,6 +1522,68 @@ steps:
         "#;
         let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(o.title, Some("CI Title".to_string()));
+    }
+
+    // --- Vars parsing tests ---
+
+    #[test]
+    fn parses_static_var() {
+        let yaml = r#"
+vars:
+  name: "bivvy"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(
+            config.vars.get("name"),
+            Some(VarDefinition::Static(v)) if v == "bivvy"
+        ));
+    }
+
+    #[test]
+    fn parses_computed_var() {
+        let yaml = r#"
+vars:
+  v:
+    command: "echo 1"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(
+            config.vars.get("v"),
+            Some(VarDefinition::Computed { command }) if command == "echo 1"
+        ));
+    }
+
+    #[test]
+    fn parses_mixed_vars() {
+        let yaml = r#"
+vars:
+  app_name: "bivvy"
+  version:
+    command: "echo 1.0.0"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.vars.len(), 2);
+        assert!(matches!(
+            config.vars.get("app_name"),
+            Some(VarDefinition::Static(_))
+        ));
+        assert!(matches!(
+            config.vars.get("version"),
+            Some(VarDefinition::Computed { .. })
+        ));
+    }
+
+    #[test]
+    fn empty_vars_defaults() {
+        let config: BivvyConfig = serde_yaml::from_str("").unwrap();
+        assert!(config.vars.is_empty());
+    }
+
+    #[test]
+    fn serialize_omits_empty_vars() {
+        let config: BivvyConfig = serde_yaml::from_str("app_name: test").unwrap();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(!yaml.contains("vars"), "empty vars should be omitted");
     }
 
     #[test]

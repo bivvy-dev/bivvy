@@ -126,8 +126,9 @@ pub fn has_interpolation(input: &str) -> bool {
 /// Variables are resolved in priority order:
 /// 1. Prompt values from current run (highest priority)
 /// 2. Saved preferences from previous runs
-/// 3. Environment variables
-/// 4. Built-in variables (lowest priority)
+/// 3. User-defined variables from `vars:` config
+/// 4. Environment variables
+/// 5. Built-in variables (lowest priority)
 #[derive(Debug, Default)]
 pub struct InterpolationContext {
     /// Prompt values from current run
@@ -135,6 +136,9 @@ pub struct InterpolationContext {
 
     /// Saved preferences from previous runs
     pub preferences: HashMap<String, String>,
+
+    /// User-defined variables from `vars:` config
+    pub vars: HashMap<String, String>,
 
     /// Environment variables
     pub env: HashMap<String, String>,
@@ -167,6 +171,12 @@ impl InterpolationContext {
         self
     }
 
+    /// Add user-defined variables.
+    pub fn with_vars(mut self, vars: HashMap<String, String>) -> Self {
+        self.vars = vars;
+        self
+    }
+
     /// Add environment variables from a HashMap.
     pub fn with_env(mut self, env: HashMap<String, String>) -> Self {
         self.env = env;
@@ -175,11 +185,12 @@ impl InterpolationContext {
 
     /// Resolve a variable name to its value.
     ///
-    /// Resolution order: prompts > preferences > env > builtins
+    /// Resolution order: prompts > preferences > vars > env > builtins
     pub fn resolve(&self, name: &str) -> Option<String> {
         self.prompts
             .get(name)
             .or_else(|| self.preferences.get(name))
+            .or_else(|| self.vars.get(name))
             .or_else(|| self.env.get(name))
             .or_else(|| self.builtins.get(name))
             .cloned()
@@ -379,6 +390,7 @@ mod tests {
             .insert("var".to_string(), "from_prompt".to_string());
         ctx.preferences
             .insert("var".to_string(), "from_prefs".to_string());
+        ctx.vars.insert("var".to_string(), "from_vars".to_string());
         ctx.env.insert("var".to_string(), "from_env".to_string());
 
         // Prompts have highest priority
@@ -390,10 +402,36 @@ mod tests {
         let result = resolve_string("${var}", &ctx).unwrap();
         assert_eq!(result, "from_prefs");
 
-        // Remove preferences, should use env
+        // Remove preferences, should use vars
         ctx.preferences.clear();
         let result = resolve_string("${var}", &ctx).unwrap();
+        assert_eq!(result, "from_vars");
+
+        // Remove vars, should use env
+        ctx.vars.clear();
+        let result = resolve_string("${var}", &ctx).unwrap();
         assert_eq!(result, "from_env");
+    }
+
+    #[test]
+    fn vars_resolve_between_preferences_and_env() {
+        let mut ctx = InterpolationContext::new();
+        ctx.vars
+            .insert("my_var".to_string(), "from_vars".to_string());
+        ctx.env.insert("my_var".to_string(), "from_env".to_string());
+
+        // vars should win over env
+        let result = resolve_string("${my_var}", &ctx).unwrap();
+        assert_eq!(result, "from_vars");
+    }
+
+    #[test]
+    fn with_vars_builder() {
+        let mut vars = HashMap::new();
+        vars.insert("key".to_string(), "value".to_string());
+
+        let ctx = InterpolationContext::new().with_vars(vars);
+        assert_eq!(ctx.vars.get("key"), Some(&"value".to_string()));
     }
 
     #[test]
