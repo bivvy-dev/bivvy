@@ -347,28 +347,31 @@ mod tests {
 
         std::fs::write(work_dir.join("new-file.txt"), "new content").unwrap();
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["add", "."])
             .current_dir(&work_dir)
             .output()
             .unwrap();
+        assert!(output.status.success(), "git add failed");
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["commit", "-m", "Second commit"])
             .current_dir(&work_dir)
             .output()
             .unwrap();
+        assert!(output.status.success(), "git commit failed");
 
-        std::process::Command::new("git")
-            .args(["push"])
+        let output = std::process::Command::new("git")
+            .args(["push", "origin", "HEAD:main"])
             .current_dir(&work_dir)
             .output()
             .unwrap();
+        assert!(output.status.success(), "git push failed");
     }
 
     #[test]
     fn clone_from_local_bare_repo() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let bare_path = create_bare_repo(temp.path());
 
@@ -387,7 +390,7 @@ mod tests {
 
     #[test]
     fn has_updates_false_when_no_new_commits() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let bare_path = create_bare_repo(temp.path());
 
@@ -413,7 +416,7 @@ mod tests {
 
     #[test]
     fn has_updates_true_after_push() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let bare_path = create_bare_repo(temp.path());
 
@@ -439,7 +442,7 @@ mod tests {
 
     #[test]
     fn ref_resolution_branch() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let bare_path = create_bare_repo(temp.path());
 
@@ -457,7 +460,7 @@ mod tests {
 
     #[test]
     fn ref_resolution_tag() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let bare_path = create_bare_repo(temp.path());
 
@@ -506,7 +509,7 @@ mod tests {
 
     #[test]
     fn invalid_repo_url_returns_error() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let fetcher = GitFetcher::new(temp.path().join("clones"));
 
@@ -517,7 +520,7 @@ mod tests {
 
     #[test]
     fn fetch_specific_subdirectory() {
-        let _lock = GIT_LOCK.lock().unwrap();
+        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let bare_path = create_bare_repo(temp.path());
 
