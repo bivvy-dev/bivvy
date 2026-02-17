@@ -75,6 +75,6 @@ workflows:
 
   ci:
     description: "CI pipeline"
-    steps: [rust, clippy, rustfmt, llvm-cov, deps, build, lint, test, coverage]
+    steps: [rust, clippy, rustfmt, llvm-cov, deps, build, lint, coverage]
     settings:
       non_interactive: true

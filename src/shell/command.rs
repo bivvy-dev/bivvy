@@ -285,9 +285,15 @@ fn detect_shell() -> String {
 /// and rbenv are typically activated in `.zshrc`/`.bashrc` (interactive)
 /// or `.zprofile`/`.bash_profile` (login). Without `-lic`, these tools
 /// aren't in PATH and step commands fail with "command not found".
+///
+/// In CI environments, uses `-lc` (login, non-interactive) to avoid
+/// `bash: cannot set terminal process group` errors caused by `-i`
+/// trying to set up job control without a TTY.
 fn shell_flag(_shell: &str) -> &'static str {
     if cfg!(target_os = "windows") {
         "/C"
+    } else if super::is_ci() {
+        "-lc"
     } else {
         "-lic"
     }
@@ -436,5 +442,38 @@ mod tests {
         let result = execute_quiet("echo hello", None).unwrap();
         assert!(result.success);
         assert!(result.stdout.contains("hello"));
+    }
+
+    #[test]
+    fn shell_flag_uses_non_interactive_in_ci() {
+        // When CI env var is set, shell_flag should use -lc (non-interactive)
+        // to avoid "cannot set terminal process group" errors
+        std::env::set_var("CI", "true");
+        let flag = shell_flag("/bin/bash");
+        std::env::remove_var("CI");
+        assert_eq!(flag, "-lc");
+    }
+
+    #[test]
+    fn shell_flag_uses_interactive_outside_ci() {
+        // Ensure no CI env vars are set for this test
+        let ci_vars = ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "TRAVIS"];
+        let saved: Vec<_> = ci_vars
+            .iter()
+            .map(|k| (*k, std::env::var(k).ok()))
+            .collect();
+        for k in &ci_vars {
+            std::env::remove_var(k);
+        }
+
+        let flag = shell_flag("/bin/bash");
+
+        // Restore env vars
+        for (k, v) in &saved {
+            if let Some(val) = v {
+                std::env::set_var(k, val);
+            }
+        }
+        assert_eq!(flag, "-lic");
     }
 }

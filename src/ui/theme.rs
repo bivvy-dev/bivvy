@@ -92,24 +92,24 @@ impl BivvyTheme {
         }
     }
 
-    /// Format a success message.
+    /// Format a success message (icon + text in green).
     pub fn format_success(&self, msg: &str) -> String {
-        format!("{} {}", self.success.apply_to("✓"), msg)
+        format!("{}", self.success.apply_to(format!("✓ {}", msg)))
     }
 
-    /// Format a warning message.
+    /// Format a warning message (icon + text in orange).
     pub fn format_warning(&self, msg: &str) -> String {
-        format!("{} {}", self.warning.apply_to("⚠"), msg)
+        format!("{}", self.warning.apply_to(format!("⚠ {}", msg)))
     }
 
-    /// Format an error message.
+    /// Format an error message (icon + text in red bold).
     pub fn format_error(&self, msg: &str) -> String {
-        format!("{} {}", self.error.apply_to("✗"), msg)
+        format!("{}", self.error.apply_to(format!("✗ {}", msg)))
     }
 
-    /// Format a skipped message.
+    /// Format a skipped message (icon + text in dim).
     pub fn format_skipped(&self, msg: &str) -> String {
-        format!("{} {}", self.dim.apply_to("○"), msg)
+        format!("{}", self.dim.apply_to(format!("○ {}", msg)))
     }
 
     /// Format a step title.

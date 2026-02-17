@@ -12,6 +12,7 @@ use crate::config::BivvyConfig;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
+use crate::shell::OutputLine;
 use crate::steps::{
     execute_step, run_check, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
 };
@@ -594,21 +595,42 @@ impl<'a> WorkflowRunner<'a> {
                 };
                 let mut spinner = ui.start_spinner_indented(&attempt_label, 4);
 
-                // Create live output callback if the spinner has a progress bar
+                // Create live output callback:
+                // - Interactive mode: spinner-based ring buffer (3 lines verbose, 2 normal)
+                // - Non-interactive verbose: print all output directly to stdout
                 let output_mode = ui.output_mode();
-                let output_callback = spinner.progress_bar().and_then(|bar| {
-                    let max_lines = match output_mode {
-                        OutputMode::Verbose => 3,
-                        OutputMode::Normal => 2,
-                        _ => return None,
-                    };
-                    Some(live_output_callback(
-                        bar,
-                        attempt_label.clone(),
-                        6,
-                        max_lines,
-                    ))
-                });
+                let output_callback = spinner
+                    .progress_bar()
+                    .and_then(|bar| {
+                        let max_lines = match output_mode {
+                            OutputMode::Verbose => 3,
+                            OutputMode::Normal => 2,
+                            _ => return None,
+                        };
+                        Some(live_output_callback(
+                            bar,
+                            attempt_label.clone(),
+                            6,
+                            max_lines,
+                        ))
+                    })
+                    .or_else(|| {
+                        // Non-interactive verbose: stream output directly
+                        if output_mode == OutputMode::Verbose {
+                            let cb: crate::shell::OutputCallback = Box::new(|line: OutputLine| {
+                                let text = match &line {
+                                    OutputLine::Stdout(s) => s.trim_end(),
+                                    OutputLine::Stderr(s) => s.trim_end(),
+                                };
+                                if !text.is_empty() {
+                                    println!("      {text}");
+                                }
+                            });
+                            Some(cb)
+                        } else {
+                            None
+                        }
+                    });
 
                 let exec_options = ExecutionOptions {
                     force: needs_force,

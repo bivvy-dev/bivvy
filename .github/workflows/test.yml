@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  CLICOLOR_FORCE: 1
   RUSTFLAGS: "-D warnings"
 
 jobs:
@@ -37,10 +38,10 @@ jobs:
       - name: Run CI workflow
         run: target/debug/bivvy run --workflow ci --non-interactive --verbose
 
-      - name: Generate coverage report
+      - name: Generate coverage badge
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
         run: |
-          echo "COVERAGE=$(cargo llvm-cov --all-features --json | jq '.data[0].totals.lines.percent' | xargs printf '%.0f')" >> "$GITHUB_ENV"
+          echo "COVERAGE=$(cargo llvm-cov report --json | jq '.data[0].totals.lines.percent' | xargs printf '%.0f')" >> "$GITHUB_ENV"
 
       - name: Update coverage badge
         if: github.ref == 'refs/heads/main' && github.event_name == 'push'
