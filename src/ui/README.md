@@ -11,7 +11,7 @@ Colors are **semantic** — each color maps to a specific meaning across the ent
 | Success / completed | Green | normal | `✓ install_deps (1.2s)` |
 | Error / failure | Red | **bold** | `✗ build failed` |
 | Warning / caution / blocked | Orange (256: 208) | normal | `⚠ Node version mismatch`, `⊘ blocked` |
-| Info / running / hints | Fuchsia/Magenta | normal | Spinners, `Run bivvy status to verify` |
+| Info / running / hints / progress / divider | Fuchsia/Magenta | normal | Spinners, `Run bivvy status to verify` |
 | Secondary / metadata | — | dim | Timestamps, durations, borders |
 | Primary emphasis | — | **bold** | Step names in headings, app name |
 
@@ -22,12 +22,28 @@ The `console` crate supports these via:
 
 ## Typography Norms
 
+### Text separation
+
+Use ` · ` for text separation between distinct elements in things like headers. Never use `:`, `;`, `,`, or `-`.
+Color: teal
+Text: dim
+
+- `bivvy · default workflow · 7 steps`
+
+Use ` | ` to notate optionality in things like configuration options.
+
+- `--foo | -f`
+
+Use `: ` to separate labels from values in key-value displays.
+
+- `Workflow: default`
+
 ### Bold
 
 Use bold for elements the user's eye should land on first:
 
-- Step names in headings: `[2/7] **install_deps** — Install dependencies`
-- App name in headers: `⛺ **MyApp** · default workflow · 7 steps`
+- App name in header: `⛺ **bivvy** · default workflow · 7 steps`
+- Step names in step headings: `[2/7] **install_deps** · Install dependencies`
 - Key labels in key-value displays: `**Workflow:** default`
 - Error icon `✗` is red bold (the only bold icon)
 
@@ -35,7 +51,7 @@ Use bold for elements the user's eye should land on first:
 
 Use dim for supporting context the user can skip:
 
-- Descriptions after step names: `— Install dependencies`
+- Descriptions after step names: ` Install dependencies`
 - Timestamps and durations: `1.2s`, `2 minutes ago`
 - Box-drawing borders: `┌ │ └ ├`
 - Progress counters: `[2/7]`
@@ -53,9 +69,9 @@ One canonical set of status icons used everywhere:
 |-----------|------|-------|---------|
 | Success | `✓` | green | `[ok]` |
 | Failed | `✗` | red bold | `[FAIL]` |
-| Skipped | `○` | dim | `[skip]` |
+| Skipped | `` | dim | `[skip]` |
 | Pending | `◌` | dim | `[pending]` |
-| Running | `◆` | fuchsia | `[run]` |
+| Running | `⠋` | fuchsia | `[run]` |
 | Blocked | `⊘` | orange | `[blocked]` |
 | Warning | `⚠` | orange | `[warn]` |
 
@@ -99,7 +115,7 @@ During step execution, the last 2-3 lines of command output appear below the spi
 ```
     ⠋ Running install_deps...
       yarn install v1.22.19
-      [1/4] Resolving packages...
+        Resolving packages...
 ```
 
 On finish, the live output lines are cleared and replaced with the final status:
@@ -110,7 +126,16 @@ On finish, the live output lines are cleared and replaced with the final status:
 
 ## Prompts
 
-All interactive prompts use selectable options with arrow keys + keyboard shortcuts. No inline `[Y/n]` style prompts.
+All interactive prompts use selectable options with arrow keys + keyboard shortcuts.
+Can be configured to support keyboard shortcuts.
+Can be configured to be single or multi-select.
+No inline `[Y/n]` style prompts.
+
+```
+  Run setup now?
+  › Yes (y)
+    No  (n)
+```
 
 ```
   Run setup now?
@@ -146,10 +171,13 @@ When `is_ci()` detects a CI environment (via `CI`, `GITHUB_ACTIONS`, etc.):
 
 ## Box Drawing
 
-Use for bordered blocks (error details, summaries):
+Use for bordered blocks.
+Can be configured to optionally omit the title, header, and/or footer.
 
 ```
 ┌─ Title ──────────────────────────
+│ Header content
+├──────────────────────────────────
 │ Content line 1
 │ Content line 2
 ├──────────────────────────────────
