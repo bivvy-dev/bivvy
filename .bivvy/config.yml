@@ -1,5 +1,9 @@
 app_name: bivvy
 
+vars:
+  version:
+    command: "grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/'"
+
 settings:
   default_output: verbose
 
@@ -61,6 +65,32 @@ steps:
     command: "cargo llvm-cov --all-features --fail-under-lines 90"
     depends_on: [llvm-cov, build]
 
+  version-commit:
+    title: "Commit version bump"
+    completed_check:
+      type: command_succeeds
+      command: "git diff --quiet Cargo.toml && git diff --quiet Cargo.lock"
+    command: "git add Cargo.toml Cargo.lock && git commit -m 'Bump version to ${version}'"
+
+  release-preflight:
+    title: "Release preflight"
+    depends_on: [version-commit]
+    precondition:
+      type: all
+      checks:
+        - type: command_succeeds
+          command: "test $(git branch --show-current) = main"
+        - type: command_succeeds
+          command: "git diff --quiet && git diff --cached --quiet"
+        - type: command_succeeds
+          command: "! git rev-parse ${version} >/dev/null 2>&1"
+    command: "echo 'Ready to release ${version}'"
+
+  release-tag:
+    title: "Tag and push ${version}"
+    command: "git tag ${version} && git push origin main && git push origin ${version}"
+    depends_on: [release-preflight, lint, test, build]
+
 workflows:
   default:
     steps: [rust, clippy, rustfmt, deps, build, test, lint]
@@ -72,6 +102,10 @@ workflows:
   check:
     description: "Pre-commit verification"
     steps: [lint, test, build]
+
+  release:
+    description: "Tag and push a release (replaces bin/release)"
+    steps: [version-commit, release-preflight, rust, clippy, rustfmt, deps, build, lint, test, release-tag]
 
   ci:
     description: "CI pipeline"

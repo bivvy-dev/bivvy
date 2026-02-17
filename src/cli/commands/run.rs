@@ -310,6 +310,8 @@ impl Command for RunCommand {
                             .map(|c| c.short_description().to_string())
                             .unwrap_or_else(|| "already complete".to_string()),
                     )
+                } else if !s.success && !s.skipped {
+                    s.error.clone()
                 } else {
                     None
                 },
