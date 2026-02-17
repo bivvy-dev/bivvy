@@ -296,7 +296,12 @@ impl Command for RunCommand {
                 detail: if let Some(ref rd) = s.recovery_detail {
                     Some(rd.clone())
                 } else if s.skipped {
-                    Some("already complete".to_string())
+                    Some(
+                        s.check_result
+                            .as_ref()
+                            .map(|c| c.short_description().to_string())
+                            .unwrap_or_else(|| "already complete".to_string()),
+                    )
                 } else {
                     None
                 },

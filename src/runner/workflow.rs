@@ -446,9 +446,10 @@ impl<'a> WorkflowRunner<'a> {
 
                                 let answer = ui.prompt(&prompt)?;
                                 if answer.as_string() != "yes" {
+                                    let reason = check_result.short_description();
                                     ui.message(&format!(
                                         "    {}",
-                                        theme.format_skipped("Skipped (already complete)")
+                                        theme.format_skipped(&format!("Skipped ({})", reason))
                                     ));
                                     results.push(StepResult::skipped(&step.name, check_result));
                                     continue;
@@ -466,9 +467,10 @@ impl<'a> WorkflowRunner<'a> {
                         } else {
                             // Not interactive or prompt_if_complete is false: silently skip
                             ui.message(&step_display);
+                            let reason = check_result.short_description();
                             ui.message(&format!(
                                 "    {}",
-                                theme.format_skipped("Skipped (already complete)")
+                                theme.format_skipped(&format!("Skipped ({})", reason))
                             ));
                             results.push(StepResult::skipped(&step.name, check_result));
                             continue;

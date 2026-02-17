@@ -8,6 +8,11 @@ use crate::shell::execute_check;
 use std::path::Path;
 
 /// Result of running a completed check.
+///
+/// The `description` field is user-visible: it appears in skip messages
+/// (e.g., "Skipped (rustc --version)") and in the run summary table.
+/// Use [`short_description`](CheckResult::short_description) to get a
+/// display-friendly form with prefixes like "Command succeeded:" stripped.
 #[derive(Debug, Clone)]
 pub struct CheckResult {
     /// Whether the check passed (step is complete).
@@ -28,6 +33,26 @@ impl CheckResult {
             description: description.into(),
             details: None,
         }
+    }
+
+    /// Get a short, display-friendly description with common prefixes stripped.
+    ///
+    /// Strips prefixes like "Command succeeded: ", "File exists: " etc.
+    /// Returns the original description if no prefix is found.
+    pub fn short_description(&self) -> &str {
+        const PREFIXES: &[&str] = &[
+            "Command succeeded: ",
+            "Command failed: ",
+            "File exists: ",
+            "File missing: ",
+            "Check passed: ",
+        ];
+        for prefix in PREFIXES {
+            if let Some(rest) = self.description.strip_prefix(prefix) {
+                return rest;
+            }
+        }
+        &self.description
     }
 
     /// Create an incomplete result.
@@ -406,5 +431,29 @@ mod tests {
         let result = run_check(&check, temp.path());
         assert!(!result.complete);
         assert!(result.description.contains("2/3"));
+    }
+
+    #[test]
+    fn short_description_strips_command_succeeded_prefix() {
+        let result = CheckResult::complete("Command succeeded: rustc --version");
+        assert_eq!(result.short_description(), "rustc --version");
+    }
+
+    #[test]
+    fn short_description_strips_file_exists_prefix() {
+        let result = CheckResult::complete("File exists: target");
+        assert_eq!(result.short_description(), "target");
+    }
+
+    #[test]
+    fn short_description_passes_through_unknown_prefix() {
+        let result = CheckResult::complete("All 3 checks passed");
+        assert_eq!(result.short_description(), "All 3 checks passed");
+    }
+
+    #[test]
+    fn short_description_strips_command_failed_prefix() {
+        let result = CheckResult::incomplete("Command failed: cargo test", "nonzero");
+        assert_eq!(result.short_description(), "cargo test");
     }
 }

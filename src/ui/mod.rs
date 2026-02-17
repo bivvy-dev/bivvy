@@ -163,7 +163,7 @@ pub struct StepSummary {
     pub status: StatusKind,
     /// How long the step took.
     pub duration: Option<Duration>,
-    /// Additional context (e.g., "already complete").
+    /// Additional context (e.g., check description like "rustc --version").
     pub detail: Option<String>,
 }
 

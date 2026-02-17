@@ -168,7 +168,12 @@ impl StepResult {
                 format!("{} {} ({})", status.display_char(), self.name, duration_str)
             }
             StepStatus::Skipped => {
-                format!("{} {} (already complete)", status.display_char(), self.name)
+                let reason = self
+                    .check_result
+                    .as_ref()
+                    .map(|c| c.short_description())
+                    .unwrap_or("already complete");
+                format!("{} {} ({})", status.display_char(), self.name, reason)
             }
             StepStatus::Failed => {
                 let error = self.error.as_deref().unwrap_or("unknown error");
@@ -643,6 +648,25 @@ mod tests {
         let line = result.summary_line();
         assert!(line.contains('✓'));
         assert!(line.contains("test"));
+    }
+
+    #[test]
+    fn step_result_summary_line_skipped_shows_check_description() {
+        let check_result =
+            crate::steps::CheckResult::complete("Command succeeded: rustc --version");
+        let result = StepResult::skipped("rust", check_result);
+        let line = result.summary_line();
+        assert!(line.contains("rustc --version"), "got: {}", line);
+        assert!(!line.contains("already complete"), "got: {}", line);
+    }
+
+    #[test]
+    fn step_result_summary_line_skipped_without_check_result() {
+        let mut result =
+            StepResult::skipped("test", crate::steps::CheckResult::complete("User declined"));
+        result.check_result = None;
+        let line = result.summary_line();
+        assert!(line.contains("already complete"), "got: {}", line);
     }
 
     #[test]
