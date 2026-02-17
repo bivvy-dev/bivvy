@@ -266,9 +266,14 @@ mod tests {
         let work_dir = parent.join("work");
         std::fs::create_dir_all(&work_dir).unwrap();
 
-        // Initialize bare repo
+        // Initialize bare repo with explicit default branch
         let output = std::process::Command::new("git")
-            .args(["init", "--bare", &bare_path.to_string_lossy()])
+            .args([
+                "init",
+                "--bare",
+                "--initial-branch=main",
+                bare_path.to_string_lossy().as_ref(),
+            ])
             .output()
             .unwrap();
         assert!(output.status.success(), "bare init failed");
@@ -277,8 +282,8 @@ mod tests {
         let output = std::process::Command::new("git")
             .args([
                 "clone",
-                &bare_path.to_string_lossy(),
-                &work_dir.to_string_lossy(),
+                bare_path.to_string_lossy().as_ref(),
+                work_dir.to_string_lossy().as_ref(),
             ])
             .output()
             .unwrap();
@@ -286,11 +291,12 @@ mod tests {
 
         // Configure git user for commits
         for (key, val) in [("user.name", "Test"), ("user.email", "test@test.com")] {
-            std::process::Command::new("git")
+            let output = std::process::Command::new("git")
                 .args(["config", key, val])
                 .current_dir(&work_dir)
                 .output()
                 .unwrap();
+            assert!(output.status.success(), "git config {key} failed");
         }
 
         // Create a template file and commit
@@ -302,23 +308,37 @@ mod tests {
         )
         .unwrap();
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["add", "."])
             .current_dir(&work_dir)
             .output()
             .unwrap();
+        assert!(
+            output.status.success(),
+            "git add failed in create_bare_repo"
+        );
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["commit", "-m", "Initial commit"])
             .current_dir(&work_dir)
             .output()
             .unwrap();
+        assert!(
+            output.status.success(),
+            "git commit failed in create_bare_repo: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
-        std::process::Command::new("git")
+        let output = std::process::Command::new("git")
             .args(["push", "origin", "HEAD:main"])
             .current_dir(&work_dir)
             .output()
             .unwrap();
+        assert!(
+            output.status.success(),
+            "git push failed in create_bare_repo: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
 
         bare_path
     }
