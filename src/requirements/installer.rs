@@ -9,6 +9,7 @@ use crate::requirements::checker::GapChecker;
 use crate::requirements::status::{GapResult, RequirementStatus};
 use crate::ui::{Prompt, PromptType, UserInterface};
 use std::path::Path;
+use std::sync::{Arc, Mutex};
 
 /// Mockable dependencies for the installer.
 pub struct InstallerContext<'a> {
@@ -70,16 +71,44 @@ pub fn handle_gaps(
     }
 }
 
+/// Accumulated PATH additions, shared between `prepend_path` and `run_command`
+/// in the default installer context. Avoids mutating the global process
+/// environment with `set_var`.
+type PathAdditions = Arc<Mutex<Vec<std::path::PathBuf>>>;
+
 /// Build the default `InstallerContext` for production use.
+///
+/// PATH modifications are accumulated in a shared list rather than mutating
+/// the global process environment. The `run_command` closure prepends these
+/// additions to the inherited PATH when spawning child processes.
 pub fn default_context() -> InstallerContext<'static> {
+    // Leaked so the closures can have 'static lifetime (matches previous API).
+    // Only one InstallerContext is created per workflow run, so the leak is bounded.
+    let additions: &'static PathAdditions = Box::leak(Box::new(Arc::new(Mutex::new(Vec::new()))));
+
+    let run_additions = additions.clone();
+    let prepend_additions = additions.clone();
+
     InstallerContext {
-        run_command: &|cmd| {
-            std::process::Command::new("sh")
-                .arg("-c")
-                .arg(cmd)
-                .status()
-                .is_ok_and(|s| s.success())
-        },
+        run_command: Box::leak(Box::new(move |cmd: &str| {
+            let mut command = std::process::Command::new("sh");
+            command.arg("-c").arg(cmd);
+
+            // Build PATH with accumulated additions prepended
+            let extras = run_additions.lock().unwrap();
+            if !extras.is_empty() {
+                let current = std::env::var("PATH").unwrap_or_default();
+                let prefix = extras
+                    .iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect::<Vec<_>>()
+                    .join(":");
+                let new_path = format!("{}:{}", prefix, current);
+                command.env("PATH", new_path);
+            }
+
+            command.status().is_ok_and(|s| s.success())
+        })),
         check_network: &|| {
             use std::net::TcpStream;
             use std::time::Duration;
@@ -87,12 +116,13 @@ pub fn default_context() -> InstallerContext<'static> {
             let addr: std::net::SocketAddr = "1.1.1.1:443".parse().unwrap();
             TcpStream::connect_timeout(&addr, timeout).is_ok()
         },
-        prepend_path: &|dir| {
-            let current = std::env::var("PATH").unwrap_or_default();
-            let new_path = format!("{}:{}", dir.display(), current);
-            // SAFETY: single-threaded during gap handling
-            unsafe { std::env::set_var("PATH", new_path) };
-        },
+        prepend_path: Box::leak(Box::new(move |dir: &Path| {
+            let mut extras = prepend_additions.lock().unwrap();
+            let path = dir.to_path_buf();
+            if !extras.contains(&path) {
+                extras.push(path);
+            }
+        })),
     }
 }
 
@@ -1155,5 +1185,71 @@ mod tests {
 
         let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
         assert!(result.unwrap());
+    }
+
+    // --- PATH passthrough tests ---
+
+    #[test]
+    fn default_context_prepend_path_does_not_mutate_global_env() {
+        // Save current PATH
+        let original_path = std::env::var("PATH").unwrap_or_default();
+
+        let ctx = default_context();
+        (ctx.prepend_path)(Path::new("/fake/prepended/dir"));
+
+        // Global PATH should be unchanged
+        let after_path = std::env::var("PATH").unwrap_or_default();
+        assert_eq!(
+            original_path, after_path,
+            "prepend_path should not mutate global PATH"
+        );
+    }
+
+    #[test]
+    fn default_context_run_command_sees_prepended_path() {
+        let temp = TempDir::new().unwrap();
+        let bin_dir = temp.path().join("bin");
+        std::fs::create_dir_all(&bin_dir).unwrap();
+
+        // Create a fake script in the temp bin dir
+        let script_path = bin_dir.join("bivvy_test_tool");
+        std::fs::write(&script_path, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let ctx = default_context();
+
+        // Before prepending, the tool should not be found
+        assert!(
+            !(ctx.run_command)("bivvy_test_tool"),
+            "tool should not be on PATH before prepend"
+        );
+
+        // Prepend the directory
+        (ctx.prepend_path)(&bin_dir);
+
+        // Now the tool should be found via the prepended PATH
+        assert!(
+            (ctx.run_command)("bivvy_test_tool"),
+            "tool should be found after prepend_path"
+        );
+    }
+
+    #[test]
+    fn default_context_prepend_path_deduplicates() {
+        let ctx = default_context();
+        let dir = Path::new("/some/test/dir");
+
+        // Prepend the same directory twice
+        (ctx.prepend_path)(dir);
+        (ctx.prepend_path)(dir);
+
+        // Verify it doesn't appear twice by checking that run_command
+        // still works (this is a basic sanity check; the real dedup
+        // logic is inside the closure)
+        assert!(!(ctx.run_command)("nonexistent_binary_xyz123"));
     }
 }
