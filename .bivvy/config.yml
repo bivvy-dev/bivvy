@@ -65,6 +65,14 @@ steps:
       type: command_succeeds
       command: "cargo llvm-cov --version"
 
+  cargo-edit:
+    title: "cargo-edit"
+    command: "cargo install cargo-edit"
+    depends_on: [rust]
+    completed_check:
+      type: command_succeeds
+      command: "cargo set-version --version"
+
   deps:
     title: "Cargo dependencies"
     command: "cargo fetch"
@@ -93,6 +101,7 @@ steps:
   version-bump:
     title: "Bump version"
     template: version-bump
+    depends_on: [cargo-edit]
     prompts:
       - key: bump
         question: "Version bump type"
@@ -144,7 +153,7 @@ workflows:
 
   setup:
     description: "First-time setup (includes cargo-llvm-cov)"
-    steps: [rust, clippy, rustfmt, llvm-cov, deps, build, test, lint]
+    steps: [rust, clippy, rustfmt, llvm-cov, cargo-edit, deps, build, test, lint]
 
   check:
     description: "Pre-commit verification"
@@ -152,7 +161,7 @@ workflows:
 
   release:
     description: "Tag and push a release (replaces bin/release)"
-    steps: [version-bump, version-commit, release-preflight, rust, clippy, rustfmt, deps, build, lint, test, release-tag]
+    steps: [cargo-edit, version-bump, version-commit, release-preflight, rust, clippy, rustfmt, deps, build, lint, test, release-tag]
 
   ci:
     description: "CI pipeline"
