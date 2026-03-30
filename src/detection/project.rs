@@ -124,6 +124,58 @@ impl ProjectDetector {
             );
         }
 
+        // Docker Compose (detected alongside other project types)
+        if any_file_exists(
+            project_root,
+            &[
+                "docker-compose.yml",
+                "docker-compose.yaml",
+                "compose.yml",
+                "compose.yaml",
+            ],
+        )
+        .is_some()
+        {
+            details.push(
+                DetectionResult::found("Docker Compose")
+                    .with_detail("Docker Compose file found")
+                    .with_template("docker-compose"),
+            );
+        }
+
+        // Kubernetes/Helm (detected alongside other project types)
+        if file_exists(project_root, "Chart.yaml") {
+            details.push(
+                DetectionResult::found("Helm")
+                    .with_detail("Chart.yaml found")
+                    .with_template("helm"),
+            );
+        }
+
+        // Pulumi (detected alongside other project types)
+        if file_exists(project_root, "Pulumi.yaml") {
+            details.push(
+                DetectionResult::found("Pulumi")
+                    .with_detail("Pulumi.yaml found")
+                    .with_template("pulumi"),
+            );
+        }
+
+        // Ansible (detected alongside other project types)
+        if file_exists(project_root, "ansible.cfg")
+            || any_file_exists(
+                project_root,
+                &["playbook.yml", "playbook.yaml", "site.yml", "site.yaml"],
+            )
+            .is_some()
+        {
+            details.push(
+                DetectionResult::found("Ansible")
+                    .with_detail("Ansible configuration found")
+                    .with_template("ansible"),
+            );
+        }
+
         let primary_type = all_types.first().cloned().unwrap_or(ProjectType::Unknown);
 
         ProjectDetection {
@@ -215,5 +267,83 @@ mod tests {
 
         assert!(ProjectDetector::has_type(temp.path(), ProjectType::Rust));
         assert!(!ProjectDetector::has_type(temp.path(), ProjectType::Ruby));
+    }
+
+    #[test]
+    fn detect_docker_compose_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("docker-compose.yml"), "version: '3'").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("docker-compose".to_string())));
+    }
+
+    #[test]
+    fn detect_docker_compose_new_format() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("compose.yml"), "services:").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("docker-compose".to_string())));
+    }
+
+    #[test]
+    fn detect_helm_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Chart.yaml"), "apiVersion: v2").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("helm".to_string())));
+    }
+
+    #[test]
+    fn detect_pulumi_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Pulumi.yaml"), "name: my-project").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("pulumi".to_string())));
+    }
+
+    #[test]
+    fn detect_ansible_project_with_cfg() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("ansible.cfg"), "[defaults]").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("ansible".to_string())));
+    }
+
+    #[test]
+    fn detect_ansible_project_with_playbook() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("playbook.yml"), "---").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("ansible".to_string())));
     }
 }

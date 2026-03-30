@@ -246,6 +246,12 @@ mod tests {
             "cargo",
             "go",
             "swift",
+            // Container/orchestration templates
+            "docker-compose",
+            "helm",
+            // IaC templates
+            "pulumi",
+            "ansible",
             // Install templates
             "mise-install",
             "mise-ruby",

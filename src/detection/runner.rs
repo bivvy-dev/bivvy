@@ -174,6 +174,45 @@ mod tests {
     }
 
     #[test]
+    fn full_detection_docker_compose_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("compose.yml"), "services:").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "docker-compose"));
+    }
+
+    #[test]
+    fn full_detection_helm_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Chart.yaml"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "helm"));
+    }
+
+    #[test]
+    fn full_detection_pulumi_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Pulumi.yaml"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "pulumi"));
+    }
+
+    #[test]
     fn full_detection_multi_language() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile"), "").unwrap();
