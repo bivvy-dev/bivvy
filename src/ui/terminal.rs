@@ -24,8 +24,7 @@ use super::{
 #[cfg(unix)]
 fn claim_foreground() {
     unsafe {
-        let tty_path = b"/dev/tty\0".as_ptr() as *const libc::c_char;
-        let tty_fd = libc::open(tty_path, libc::O_RDWR);
+        let tty_fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR);
         if tty_fd >= 0 {
             libc::tcsetpgrp(tty_fd, libc::getpgrp());
             libc::close(tty_fd);
