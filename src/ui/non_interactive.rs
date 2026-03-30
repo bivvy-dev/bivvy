@@ -383,8 +383,8 @@ mod tests {
     }
 
     #[test]
-    fn non_ci_mode_default() {
-        let ui = NonInteractiveUI::new(OutputMode::Normal);
+    fn non_ci_mode_when_explicit() {
+        let ui = NonInteractiveUI::with_ci(OutputMode::Normal, false);
         assert!(!ui.is_ci);
     }
 
