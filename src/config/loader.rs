@@ -6,7 +6,9 @@
 use crate::config::extends::ExtendsResolver;
 use crate::config::merger::merge_configs;
 use crate::config::schema::BivvyConfig;
+use crate::config::trust::{TrustPolicy, TrustStore};
 use crate::error::{BivvyError, Result};
+use crate::ui::{Prompt, PromptResult, PromptType, UserInterface};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -239,6 +241,105 @@ pub fn load_merged_config_with_resolver(
     // Resolve extends if present
     if config.extends.is_some() {
         let resolved = resolver.resolve(&config)?;
+        Ok(resolved)
+    } else {
+        Ok(config)
+    }
+}
+
+/// Load and merge configs with trust verification for remote extends URLs.
+///
+/// This is the full-featured config loader that verifies trust for remote
+/// extends URLs. The `trust_policy` determines behavior for untrusted URLs:
+/// - `TrustAll`: auto-trusts (--trust flag)
+/// - `Prompt`: asks the user via UI (interactive mode)
+/// - `Reject`: errors on untrusted URLs (non-interactive mode)
+///
+/// Trusted URLs are persisted so they don't need to be re-approved.
+pub fn load_merged_config_with_trust(
+    project_root: &Path,
+    resolver: &ExtendsResolver,
+    trust_policy: TrustPolicy,
+    trust_store_path: &Path,
+    ui: &mut dyn UserInterface,
+) -> Result<BivvyConfig> {
+    let paths = ConfigPaths::discover(project_root);
+
+    if !paths.has_project_config() {
+        return Err(BivvyError::ConfigNotFound {
+            path: project_root.join(".bivvy").join("config.yml"),
+        });
+    }
+
+    let mut configs = Vec::new();
+
+    for path in paths.all_existing() {
+        let value = load_config_value(path)?;
+        configs.push(value);
+    }
+
+    let merged = merge_configs(&configs);
+
+    let config: BivvyConfig =
+        serde_yaml::from_value(merged).map_err(|e| BivvyError::ConfigParseError {
+            path: project_root.join(".bivvy").join("config.yml"),
+            message: format!("Failed to parse merged config: {}", e),
+        })?;
+
+    if config.extends.is_some() {
+        let mut trust_store =
+            TrustStore::load(trust_store_path).map_err(BivvyError::Other)?;
+        let mut store_modified = false;
+
+        let resolved = resolver
+            .resolve_with_trust(&config, &mut |url: &str| {
+                if trust_store.is_trusted(url) {
+                    return Ok(());
+                }
+
+                match trust_policy {
+                    TrustPolicy::TrustAll => {
+                        trust_store.trust(url);
+                        store_modified = true;
+                        Ok(())
+                    }
+                    TrustPolicy::Reject => Err(anyhow::anyhow!(
+                        "Untrusted remote config URL: {}. Use --trust to auto-approve or run interactively to confirm.",
+                        url
+                    )),
+                    TrustPolicy::Prompt => {
+                        let prompt = Prompt {
+                            key: format!("trust_url_{}", url),
+                            question: format!(
+                                "Trust remote config from {}? (y/N)",
+                                url
+                            ),
+                            prompt_type: PromptType::Confirm,
+                            default: Some("false".to_string()),
+                        };
+
+                        match ui.prompt(&prompt) {
+                            Ok(PromptResult::Bool(true)) => {
+                                trust_store.trust(url);
+                                store_modified = true;
+                                Ok(())
+                            }
+                            _ => Err(anyhow::anyhow!(
+                                "Untrusted remote config URL rejected by user: {}",
+                                url
+                            )),
+                        }
+                    }
+                }
+            })
+            .map_err(BivvyError::Other)?;
+
+        if store_modified {
+            trust_store
+                .save(trust_store_path)
+                .map_err(BivvyError::Other)?;
+        }
+
         Ok(resolved)
     } else {
         Ok(config)
@@ -699,6 +800,261 @@ app_name: ProjectApp
 
         // Using default resolver — won't make any HTTP calls
         let config = load_merged_config(temp.path()).unwrap();
+        assert_eq!(config.app_name, Some("NoExtends".to_string()));
+    }
+
+    // --- Trust verification tests ---
+
+    #[test]
+    fn trust_all_policy_auto_approves_urls() {
+        let server = MockServer::start();
+        let base_yaml = "app_name: BaseApp\n";
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!(
+                "extends:\n  - url: {}\napp_name: MyApp\n",
+                server.url("/base.yml")
+            ),
+        )
+        .unwrap();
+
+        let trust_dir = TempDir::new().unwrap();
+        let trust_path = trust_dir.path().join("trusted_urls.yml");
+
+        let resolver = resolver_for_mock(&server);
+        let mut ui = crate::ui::MockUI::new();
+
+        let config = load_merged_config_with_trust(
+            temp.path(),
+            &resolver,
+            TrustPolicy::TrustAll,
+            &trust_path,
+            &mut ui,
+        )
+        .unwrap();
+
+        assert_eq!(config.app_name, Some("MyApp".to_string()));
+
+        // Trust should have been persisted
+        let store = TrustStore::load(&trust_path).unwrap();
+        assert!(store.is_trusted(&server.url("/base.yml")));
+    }
+
+    #[test]
+    fn reject_policy_errors_on_untrusted_url() {
+        let server = MockServer::start();
+        let base_yaml = "app_name: BaseApp\n";
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!(
+                "extends:\n  - url: {}\napp_name: MyApp\n",
+                server.url("/base.yml")
+            ),
+        )
+        .unwrap();
+
+        let trust_dir = TempDir::new().unwrap();
+        let trust_path = trust_dir.path().join("trusted_urls.yml");
+
+        let resolver = resolver_for_mock(&server);
+        let mut ui = crate::ui::MockUI::new();
+
+        let result = load_merged_config_with_trust(
+            temp.path(),
+            &resolver,
+            TrustPolicy::Reject,
+            &trust_path,
+            &mut ui,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Untrusted") || err.contains("--trust"),
+            "Error should mention untrusted or --trust: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn already_trusted_url_is_fetched_without_prompt() {
+        let server = MockServer::start();
+        let base_yaml = "app_name: BaseApp\n";
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        let url = server.url("/base.yml");
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!("extends:\n  - url: {}\napp_name: MyApp\n", url),
+        )
+        .unwrap();
+
+        // Pre-trust the URL
+        let trust_dir = TempDir::new().unwrap();
+        let trust_path = trust_dir.path().join("trusted_urls.yml");
+        let mut store = TrustStore::default();
+        store.trust(&url);
+        store.save(&trust_path).unwrap();
+
+        let resolver = resolver_for_mock(&server);
+        let mut ui = crate::ui::MockUI::new();
+
+        // Even with Reject policy, it should succeed because URL is already trusted
+        let config = load_merged_config_with_trust(
+            temp.path(),
+            &resolver,
+            TrustPolicy::Reject,
+            &trust_path,
+            &mut ui,
+        )
+        .unwrap();
+
+        assert_eq!(config.app_name, Some("MyApp".to_string()));
+        // No prompts should have been shown
+        assert!(ui.prompts_shown().is_empty());
+    }
+
+    #[test]
+    fn prompt_policy_trusts_on_user_confirmation() {
+        let server = MockServer::start();
+        let base_yaml = "app_name: BaseApp\n";
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        let url = server.url("/base.yml");
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!("extends:\n  - url: {}\napp_name: MyApp\n", url),
+        )
+        .unwrap();
+
+        let trust_dir = TempDir::new().unwrap();
+        let trust_path = trust_dir.path().join("trusted_urls.yml");
+
+        let resolver = resolver_for_mock(&server);
+        let mut ui = crate::ui::MockUI::new();
+        // Pre-configure the mock to answer "yes" to the trust prompt
+        ui.set_prompt_response(&format!("trust_url_{}", url), "yes");
+
+        let config = load_merged_config_with_trust(
+            temp.path(),
+            &resolver,
+            TrustPolicy::Prompt,
+            &trust_path,
+            &mut ui,
+        )
+        .unwrap();
+
+        assert_eq!(config.app_name, Some("MyApp".to_string()));
+
+        // URL should have been persisted
+        let store = TrustStore::load(&trust_path).unwrap();
+        assert!(store.is_trusted(&url));
+    }
+
+    #[test]
+    fn prompt_policy_rejects_on_user_denial() {
+        let server = MockServer::start();
+        let base_yaml = "app_name: BaseApp\n";
+
+        server.mock(|when, then| {
+            when.method(GET).path("/base.yml");
+            then.status(200).body(base_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        let url = server.url("/base.yml");
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            format!("extends:\n  - url: {}\napp_name: MyApp\n", url),
+        )
+        .unwrap();
+
+        let trust_dir = TempDir::new().unwrap();
+        let trust_path = trust_dir.path().join("trusted_urls.yml");
+
+        let resolver = resolver_for_mock(&server);
+        let mut ui = crate::ui::MockUI::new();
+        // Pre-configure the mock to answer "no" to the trust prompt
+        ui.set_prompt_response(&format!("trust_url_{}", url), "no");
+
+        let result = load_merged_config_with_trust(
+            temp.path(),
+            &resolver,
+            TrustPolicy::Prompt,
+            &trust_path,
+            &mut ui,
+        );
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("rejected"),
+            "Error should mention rejection: {}",
+            err
+        );
+
+        // URL should NOT have been persisted
+        let store = TrustStore::load(&trust_path).unwrap();
+        assert!(!store.is_trusted(&url));
+    }
+
+    #[test]
+    fn config_without_extends_skips_trust_check() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: NoExtends").unwrap();
+
+        let trust_dir = TempDir::new().unwrap();
+        let trust_path = trust_dir.path().join("trusted_urls.yml");
+
+        let resolver = ExtendsResolver::default();
+        let mut ui = crate::ui::MockUI::new();
+
+        // Even with Reject policy, no-extends configs should work fine
+        let config = load_merged_config_with_trust(
+            temp.path(),
+            &resolver,
+            TrustPolicy::Reject,
+            &trust_path,
+            &mut ui,
+        )
+        .unwrap();
+
         assert_eq!(config.app_name, Some("NoExtends".to_string()));
     }
 }

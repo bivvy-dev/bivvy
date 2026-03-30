@@ -6,7 +6,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::RunArgs;
-use crate::config::{load_merged_config, ConfigPaths, InterpolationContext};
+#[cfg(test)]
+use crate::config::load_merged_config;
+use crate::config::{
+    load_merged_config_with_trust, ConfigPaths, ExtendsResolver, InterpolationContext, TrustPolicy,
+    TrustStore,
+};
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;
@@ -24,6 +29,7 @@ use super::dispatcher::{Command, CommandResult};
 pub struct RunCommand {
     project_root: PathBuf,
     args: RunArgs,
+    trust_policy: TrustPolicy,
 }
 
 impl RunCommand {
@@ -32,7 +38,14 @@ impl RunCommand {
         Self {
             project_root: project_root.to_path_buf(),
             args,
+            trust_policy: TrustPolicy::Prompt,
         }
+    }
+
+    /// Create a new run command with a specific trust policy.
+    pub fn with_trust_policy(mut self, policy: TrustPolicy) -> Self {
+        self.trust_policy = policy;
+        self
     }
 
     /// Get the project root path.
@@ -108,8 +121,16 @@ impl RunCommand {
 
 impl Command for RunCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        // Load configuration
-        let config = match load_merged_config(&self.project_root) {
+        // Load configuration with trust verification for remote extends
+        let trust_store_path = TrustStore::default_path();
+        let resolver = ExtendsResolver::default();
+        let config = match load_merged_config_with_trust(
+            &self.project_root,
+            &resolver,
+            self.trust_policy,
+            &trust_store_path,
+            ui,
+        ) {
             Ok(c) => c,
             Err(BivvyError::ConfigNotFound { .. }) => {
                 ui.error("No configuration found. Run 'bivvy init' first.");
