@@ -19,7 +19,7 @@ step:
     path: "alembic.ini"
   completed_check:
     type: command_succeeds
-    command: "alembic current 2>&1 | grep -q 'head'"
+    command: "alembic current 2>&1 | grep -q '(head)'"
   watches:
     - alembic.ini
     - alembic/versions

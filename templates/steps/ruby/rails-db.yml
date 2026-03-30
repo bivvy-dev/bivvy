@@ -20,7 +20,7 @@ step:
     path: "config/database.yml"
   completed_check:
     type: command_succeeds
-    command: "bin/rails db:version 2>&1 | grep -q 'Current version'"
+    command: "bin/rails db:migrate:status 2>&1 | grep -v '\\bdown\\b'"
   watches:
     - db/migrate
     - db/seeds.rb
