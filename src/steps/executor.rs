@@ -224,6 +224,9 @@ pub fn execute_step(
     options: &ExecutionOptions,
     output_callback: Option<OutputCallback>,
 ) -> Result<StepResult> {
+    // Create step-scoped context with template inputs
+    let context = &context.with_step_inputs(&step.inputs);
+
     // Check if already complete (unless forced)
     if !options.force {
         if let Some(ref check) = step.completed_check {
@@ -371,6 +374,8 @@ mod tests {
             requires_sudo: false,
             requires: vec![],
             only_environments: vec![],
+            inputs: HashMap::new(),
+            prompts: vec![],
         }
     }
 
@@ -817,5 +822,46 @@ mod tests {
         assert_eq!(format_duration(Duration::from_millis(500)), "500ms");
         assert_eq!(format_duration(Duration::from_secs(5)), "5.0s");
         assert_eq!(format_duration(Duration::from_secs(65)), "1m 5s");
+    }
+
+    #[test]
+    fn execute_step_resolves_template_inputs() {
+        let temp = TempDir::new().unwrap();
+        let mut step = make_step("echo ${bump}");
+        step.inputs.insert("bump".to_string(), "minor".to_string());
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            capture_output: true,
+            ..Default::default()
+        };
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        assert!(result.success);
+        assert!(result.output.unwrap().contains("minor"));
+    }
+
+    #[test]
+    fn execute_step_inputs_available_in_dry_run() {
+        let temp = TempDir::new().unwrap();
+        let mut step = make_step("cargo set-version --bump ${bump}");
+        step.inputs.insert("bump".to_string(), "patch".to_string());
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            dry_run: true,
+            ..Default::default()
+        };
+
+        let result =
+            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+
+        assert!(result.success);
+        assert!(result
+            .output
+            .unwrap()
+            .contains("cargo set-version --bump patch"),);
     }
 }

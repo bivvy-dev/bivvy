@@ -54,6 +54,36 @@ Bivvy includes 20 built-in templates for common development tools. When you run 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
 | `cargo` | macOS, Linux, Windows | `Cargo.toml` | `cargo build` |
+| `version-bump` | macOS, Linux, Windows | — | `cargo set-version` |
+
+### version-bump
+
+Bumps the version in `Cargo.toml` and updates `Cargo.lock`. Requires [cargo-edit](https://github.com/killercup/cargo-edit) (`cargo install cargo-edit`).
+
+**Input:** `bump` (required) — `patch`, `minor`, `major`, or an explicit semver string like `1.5.0`.
+
+Three ways to provide the `bump` value:
+
+1. **Interactive prompt** — add a `prompts:` section to your step config
+2. **Template input** — `inputs: { bump: "minor" }` in your step config
+3. **Environment variable** — `BUMP=minor bivvy run --workflow release`
+
+```yaml
+steps:
+  version-bump:
+    template: version-bump
+    prompts:
+      - key: bump
+        question: "Version bump type"
+        type: select
+        options:
+          - label: "Patch (x.y.Z)"
+            value: patch
+          - label: "Minor (x.Y.0)"
+            value: minor
+          - label: "Major (X.0.0)"
+            value: major
+```
 
 ## Go
 

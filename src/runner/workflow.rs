@@ -281,6 +281,7 @@ impl<'a> WorkflowRunner<'a> {
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
         let workflow_name = options.workflow.as_deref().unwrap_or("default");
+        let mut context = context.clone();
 
         // Build dependency graph
         let graph = self.build_graph(workflow_name)?;
@@ -567,6 +568,48 @@ impl<'a> WorkflowRunner<'a> {
                 ui.message("");
             }
 
+            // Execute step-level prompts (template inputs / interactive params)
+            if !step.prompts.is_empty() {
+                for prompt_config in &step.prompts {
+                    // Skip if the value is already available in the context
+                    if context.resolve(&prompt_config.key).is_some() {
+                        continue;
+                    }
+
+                    if !interactive {
+                        // Non-interactive: check for default, otherwise error
+                        if let Some(default) = &prompt_config.default {
+                            let default_str = match default {
+                                serde_yaml::Value::String(s) => s.clone(),
+                                serde_yaml::Value::Bool(b) => b.to_string(),
+                                serde_yaml::Value::Number(n) => n.to_string(),
+                                _ => format!("{:?}", default),
+                            };
+                            context
+                                .prompts
+                                .insert(prompt_config.key.clone(), default_str);
+                        } else {
+                            return Err(BivvyError::StepExecutionError {
+                                step: step_name.to_string(),
+                                message: format!(
+                                    "Prompt '{}' requires a value in non-interactive mode. \
+                                     Set via env var, template input, or provide a default.",
+                                    prompt_config.key
+                                ),
+                            });
+                        }
+                        continue;
+                    }
+
+                    // Build UI prompt from config prompt
+                    let ui_prompt = config_prompt_to_ui_prompt(prompt_config);
+                    let result = ui.prompt(&ui_prompt)?;
+                    context
+                        .prompts
+                        .insert(prompt_config.key.clone(), result.as_string());
+                }
+            }
+
             // Build step context for pattern matching
             let step_ctx = StepContext {
                 name: step_name,
@@ -643,7 +686,7 @@ impl<'a> WorkflowRunner<'a> {
                 let result = match execute_step(
                     step,
                     project_root,
-                    context,
+                    &context,
                     global_env,
                     &exec_options,
                     output_callback,
@@ -868,6 +911,50 @@ impl<'a> WorkflowRunner<'a> {
     }
 }
 
+/// Convert a config-level PromptConfig into a UI Prompt.
+fn config_prompt_to_ui_prompt(config: &crate::config::schema::PromptConfig) -> Prompt {
+    use crate::config::schema::PromptType as ConfigPromptType;
+
+    let default = config.default.as_ref().and_then(|v| match v {
+        serde_yaml::Value::String(s) => Some(s.clone()),
+        serde_yaml::Value::Bool(b) => Some(b.to_string()),
+        serde_yaml::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    });
+
+    let prompt_type = match &config.prompt_type {
+        ConfigPromptType::Select => PromptType::Select {
+            options: config
+                .options
+                .iter()
+                .map(|o| PromptOption {
+                    label: o.label.clone(),
+                    value: o.value.clone(),
+                })
+                .collect(),
+        },
+        ConfigPromptType::Multiselect => PromptType::MultiSelect {
+            options: config
+                .options
+                .iter()
+                .map(|o| PromptOption {
+                    label: o.label.clone(),
+                    value: o.value.clone(),
+                })
+                .collect(),
+        },
+        ConfigPromptType::Confirm => PromptType::Confirm,
+        ConfigPromptType::Input => PromptType::Input,
+    };
+
+    Prompt {
+        key: config.key.clone(),
+        question: config.question.clone(),
+        prompt_type,
+        default,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -898,6 +985,8 @@ mod tests {
             requires_sudo: false,
             requires: vec![],
             only_environments: vec![],
+            inputs: HashMap::new(),
+            prompts: vec![],
         }
     }
 
@@ -1189,6 +1278,8 @@ mod tests {
             requires_sudo: false,
             requires: vec![],
             only_environments: vec![],
+            inputs: HashMap::new(),
+            prompts: vec![],
         }
     }
 

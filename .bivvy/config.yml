@@ -65,12 +65,30 @@ steps:
     command: "cargo llvm-cov --all-features --fail-under-lines 90"
     depends_on: [llvm-cov, build]
 
+  version-bump:
+    title: "Bump version"
+    template: version-bump
+    prompts:
+      - key: bump
+        question: "Version bump type"
+        type: select
+        options:
+          - label: "Patch (x.y.Z)"
+            value: patch
+          - label: "Minor (x.Y.0)"
+            value: minor
+          - label: "Major (X.0.0)"
+            value: major
+
   version-commit:
     title: "Commit version bump"
+    depends_on: [version-bump]
     completed_check:
       type: command_succeeds
       command: "git diff --quiet Cargo.toml && git diff --quiet Cargo.lock"
-    command: "git add Cargo.toml Cargo.lock && git commit -m 'Bump version to ${version}'"
+    command: |
+      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+      git add Cargo.toml Cargo.lock && git commit -m "Bump version to $${VERSION}"
 
   release-preflight:
     title: "Release preflight"
@@ -83,12 +101,16 @@ steps:
         - type: command_succeeds
           command: "git diff --quiet && git diff --cached --quiet"
         - type: command_succeeds
-          command: "! git rev-parse ${version} >/dev/null 2>&1"
-    command: "echo 'Ready to release ${version}'"
+          command: "! git rev-parse $(grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/') >/dev/null 2>&1"
+    command: |
+      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+      echo "Ready to release $${VERSION}"
 
   release-tag:
-    title: "Tag and push ${version}"
-    command: "git tag ${version} && git push origin main && git push origin ${version}"
+    title: "Tag and push release"
+    command: |
+      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+      git tag "$${VERSION}" && git push origin main && git push origin "$${VERSION}"
     depends_on: [release-preflight, lint, test, build]
 
 workflows:
@@ -105,7 +127,7 @@ workflows:
 
   release:
     description: "Tag and push a release (replaces bin/release)"
-    steps: [version-commit, release-preflight, rust, clippy, rustfmt, deps, build, lint, test, release-tag]
+    steps: [version-bump, version-commit, release-preflight, rust, clippy, rustfmt, deps, build, lint, test, release-tag]
 
   ci:
     description: "CI pipeline"

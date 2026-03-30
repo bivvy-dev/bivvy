@@ -127,9 +127,10 @@ pub fn has_interpolation(input: &str) -> bool {
 /// 1. Prompt values from current run (highest priority)
 /// 2. Saved preferences from previous runs
 /// 3. User-defined variables from `vars:` config
-/// 4. Environment variables
-/// 5. Built-in variables (lowest priority)
-#[derive(Debug, Default)]
+/// 4. Template input values for the current step
+/// 5. Environment variables
+/// 6. Built-in variables (lowest priority)
+#[derive(Debug, Default, Clone)]
 pub struct InterpolationContext {
     /// Prompt values from current run
     pub prompts: HashMap<String, String>,
@@ -139,6 +140,9 @@ pub struct InterpolationContext {
 
     /// User-defined variables from `vars:` config
     pub vars: HashMap<String, String>,
+
+    /// Template input values for the current step
+    pub inputs: HashMap<String, String>,
 
     /// Environment variables
     pub env: HashMap<String, String>,
@@ -183,14 +187,31 @@ impl InterpolationContext {
         self
     }
 
+    /// Add template input values.
+    pub fn with_inputs(mut self, inputs: HashMap<String, String>) -> Self {
+        self.inputs = inputs;
+        self
+    }
+
+    /// Create a step-scoped context with template inputs overlaid.
+    ///
+    /// Returns a clone of this context with the `inputs` layer populated
+    /// from the step's resolved template inputs.
+    pub fn with_step_inputs(&self, inputs: &HashMap<String, String>) -> InterpolationContext {
+        let mut ctx = self.clone();
+        ctx.inputs = inputs.clone();
+        ctx
+    }
+
     /// Resolve a variable name to its value.
     ///
-    /// Resolution order: prompts > preferences > vars > env > builtins
+    /// Resolution order: prompts > preferences > vars > inputs > env > builtins
     pub fn resolve(&self, name: &str) -> Option<String> {
         self.prompts
             .get(name)
             .or_else(|| self.preferences.get(name))
             .or_else(|| self.vars.get(name))
+            .or_else(|| self.inputs.get(name))
             .or_else(|| self.env.get(name))
             .or_else(|| self.builtins.get(name))
             .cloned()
@@ -499,5 +520,61 @@ mod tests {
         let ctx = InterpolationContext::new();
         let result = resolve_string("$${NOT_RESOLVED}", &ctx).unwrap();
         assert_eq!(result, "${NOT_RESOLVED}");
+    }
+
+    #[test]
+    fn inputs_resolve_between_vars_and_env() {
+        let mut ctx = InterpolationContext::new();
+        ctx.inputs
+            .insert("my_input".to_string(), "from_inputs".to_string());
+        ctx.env
+            .insert("my_input".to_string(), "from_env".to_string());
+
+        let result = resolve_string("${my_input}", &ctx).unwrap();
+        assert_eq!(result, "from_inputs");
+    }
+
+    #[test]
+    fn vars_override_inputs() {
+        let mut ctx = InterpolationContext::new();
+        ctx.vars
+            .insert("my_var".to_string(), "from_vars".to_string());
+        ctx.inputs
+            .insert("my_var".to_string(), "from_inputs".to_string());
+
+        let result = resolve_string("${my_var}", &ctx).unwrap();
+        assert_eq!(result, "from_vars");
+    }
+
+    #[test]
+    fn inputs_override_env() {
+        let mut ctx = InterpolationContext::new();
+        ctx.inputs
+            .insert("val".to_string(), "from_inputs".to_string());
+        ctx.env.insert("val".to_string(), "from_env".to_string());
+
+        let result = resolve_string("${val}", &ctx).unwrap();
+        assert_eq!(result, "from_inputs");
+    }
+
+    #[test]
+    fn with_inputs_builder() {
+        let mut inputs = HashMap::new();
+        inputs.insert("bump".to_string(), "minor".to_string());
+
+        let ctx = InterpolationContext::new().with_inputs(inputs);
+        assert_eq!(ctx.inputs.get("bump"), Some(&"minor".to_string()));
+    }
+
+    #[test]
+    fn with_step_inputs_creates_scoped_context() {
+        let ctx = InterpolationContext::new();
+        let mut inputs = HashMap::new();
+        inputs.insert("bump".to_string(), "patch".to_string());
+
+        let scoped = ctx.with_step_inputs(&inputs);
+        assert_eq!(scoped.inputs.get("bump"), Some(&"patch".to_string()));
+        // Original context is unchanged
+        assert!(ctx.inputs.is_empty());
     }
 }

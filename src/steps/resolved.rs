@@ -3,7 +3,7 @@
 //! A ResolvedStep combines template defaults with config overrides,
 //! producing a fully-specified step that can be executed.
 
-use crate::config::schema::StepEnvironmentOverride;
+use crate::config::schema::{PromptConfig, StepEnvironmentOverride};
 use crate::config::{CompletedCheck, StepConfig};
 use crate::registry::template::Template;
 use std::collections::HashMap;
@@ -71,6 +71,12 @@ pub struct ResolvedStep {
     /// Restrict this step to specific environments.
     /// Empty means "run in all environments".
     pub only_environments: Vec<String>,
+
+    /// Resolved template input values for interpolation.
+    pub inputs: HashMap<String, String>,
+
+    /// Interactive prompts to execute before this step runs.
+    pub prompts: Vec<PromptConfig>,
 }
 
 impl ResolvedStep {
@@ -82,10 +88,13 @@ impl ResolvedStep {
         name: &str,
         template: &Template,
         config: &StepConfig,
-        _inputs: &HashMap<String, serde_yaml::Value>,
+        inputs: &HashMap<String, serde_yaml::Value>,
         environment: Option<&str>,
     ) -> Self {
         let step = &template.step;
+
+        // Resolve effective input values: provided value > template default
+        let resolved_inputs = resolve_template_inputs(&template.inputs, inputs);
 
         let mut resolved = Self {
             name: name.to_string(),
@@ -129,6 +138,8 @@ impl ResolvedStep {
             requires_sudo: config.requires_sudo,
             requires: merge_requires(&step.requires, &config.requires),
             only_environments: config.only_environments.clone(),
+            inputs: resolved_inputs,
+            prompts: config.prompts.clone(),
         };
 
         if let Some(env_name) = environment {
@@ -166,6 +177,8 @@ impl ResolvedStep {
             requires_sudo: config.requires_sudo,
             requires: config.requires.clone(),
             only_environments: config.only_environments.clone(),
+            inputs: HashMap::new(),
+            prompts: config.prompts.clone(),
         };
 
         if let Some(env_name) = environment {
@@ -238,6 +251,32 @@ impl ResolvedStep {
             self.retry = r;
         }
     }
+}
+
+/// Convert a serde_yaml::Value to a String for interpolation.
+fn yaml_value_to_string(value: &serde_yaml::Value) -> String {
+    match value {
+        serde_yaml::Value::String(s) => s.clone(),
+        serde_yaml::Value::Bool(b) => b.to_string(),
+        serde_yaml::Value::Number(n) => n.to_string(),
+        other => format!("{:?}", other),
+    }
+}
+
+/// Resolve template inputs: for each input defined in the template,
+/// use the provided value from config or fall back to the template default.
+fn resolve_template_inputs(
+    template_inputs: &HashMap<String, crate::registry::template::TemplateInput>,
+    provided: &HashMap<String, serde_yaml::Value>,
+) -> HashMap<String, String> {
+    let mut resolved = HashMap::new();
+    for (name, input_def) in template_inputs {
+        let provided_val = provided.get(name);
+        if let Some(effective) = input_def.effective_value(provided_val) {
+            resolved.insert(name.clone(), yaml_value_to_string(effective));
+        }
+    }
+    resolved
 }
 
 fn merge_requires(template_requires: &[String], config_requires: &[String]) -> Vec<String> {
@@ -998,5 +1037,131 @@ mod tests {
         resolved.apply_environment_overrides(&overrides);
 
         assert_eq!(resolved.env.get("RAILS_ENV"), Some(&"test".to_string()));
+    }
+
+    // --- Template input resolution tests ---
+
+    #[test]
+    fn from_template_resolves_provided_inputs() {
+        use crate::registry::template::{InputType, TemplateInput};
+
+        let mut template = make_template();
+        template.inputs.insert(
+            "bump".to_string(),
+            TemplateInput {
+                description: "Bump type".to_string(),
+                input_type: InputType::String,
+                required: true,
+                default: None,
+                values: vec![],
+            },
+        );
+
+        let mut inputs = HashMap::new();
+        inputs.insert(
+            "bump".to_string(),
+            serde_yaml::Value::String("minor".to_string()),
+        );
+
+        let config = StepConfig::default();
+        let resolved = ResolvedStep::from_template("test", &template, &config, &inputs, None);
+
+        assert_eq!(resolved.inputs.get("bump"), Some(&"minor".to_string()));
+    }
+
+    #[test]
+    fn from_template_uses_default_when_input_not_provided() {
+        use crate::registry::template::{InputType, TemplateInput};
+
+        let mut template = make_template();
+        template.inputs.insert(
+            "bump".to_string(),
+            TemplateInput {
+                description: "Bump type".to_string(),
+                input_type: InputType::String,
+                required: false,
+                default: Some(serde_yaml::Value::String("patch".to_string())),
+                values: vec![],
+            },
+        );
+
+        let config = StepConfig::default();
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+
+        assert_eq!(resolved.inputs.get("bump"), Some(&"patch".to_string()));
+    }
+
+    #[test]
+    fn from_template_no_input_when_not_provided_and_no_default() {
+        use crate::registry::template::{InputType, TemplateInput};
+
+        let mut template = make_template();
+        template.inputs.insert(
+            "opt".to_string(),
+            TemplateInput {
+                description: "Optional".to_string(),
+                input_type: InputType::String,
+                required: false,
+                default: None,
+                values: vec![],
+            },
+        );
+
+        let config = StepConfig::default();
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+
+        assert!(!resolved.inputs.contains_key("opt"));
+    }
+
+    #[test]
+    fn from_config_has_empty_inputs() {
+        let config = StepConfig::default();
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.inputs.is_empty());
+    }
+
+    #[test]
+    fn from_template_carries_prompts() {
+        use crate::config::schema::PromptType;
+
+        let template = make_template();
+        let config = StepConfig {
+            prompts: vec![PromptConfig {
+                key: "bump".to_string(),
+                question: "Bump type?".to_string(),
+                prompt_type: PromptType::Input,
+                options: vec![],
+                default: None,
+            }],
+            ..Default::default()
+        };
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+        assert_eq!(resolved.prompts.len(), 1);
+        assert_eq!(resolved.prompts[0].key, "bump");
+    }
+
+    #[test]
+    fn from_config_carries_prompts() {
+        use crate::config::schema::PromptType;
+
+        let config = StepConfig {
+            command: Some("echo test".to_string()),
+            prompts: vec![PromptConfig {
+                key: "name".to_string(),
+                question: "Name?".to_string(),
+                prompt_type: PromptType::Input,
+                options: vec![],
+                default: None,
+            }],
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert_eq!(resolved.prompts.len(), 1);
+        assert_eq!(resolved.prompts[0].key, "name");
     }
 }

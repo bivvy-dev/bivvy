@@ -27,7 +27,7 @@ categories:
 
   - name: rust
     description: "Rust ecosystem tools"
-    templates: [cargo]
+    templates: [cargo, version-bump]
 
   - name: go
     description: "Go ecosystem tools"

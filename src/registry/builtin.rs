@@ -248,6 +248,7 @@ mod tests {
             "gradle",
             "mix",
             "cargo",
+            "version-bump",
             "go",
             "swift",
             "terraform",
