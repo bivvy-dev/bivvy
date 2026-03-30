@@ -15,19 +15,19 @@ categories:
 
   - name: ruby
     description: "Ruby ecosystem tools"
-    templates: [bundler]
+    templates: [bundler, rails-db]
 
   - name: node
     description: "Node.js ecosystem tools"
-    templates: [yarn, npm, pnpm, bun]
+    templates: [yarn, npm, pnpm, bun, prisma-migrate]
 
   - name: python
     description: "Python ecosystem tools"
-    templates: [pip, poetry, uv]
+    templates: [pip, poetry, uv, alembic-migrate]
 
   - name: rust
     description: "Rust ecosystem tools"
-    templates: [cargo]
+    templates: [cargo, diesel-migrate]
 
   - name: go
     description: "Go ecosystem tools"
@@ -62,3 +62,7 @@ detection_order:
   - cargo
   - go
   - swift
+  - rails-db
+  - prisma-migrate
+  - diesel-migrate
+  - alembic-migrate

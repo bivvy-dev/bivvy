@@ -42,6 +42,17 @@ impl ProjectDetector {
                     .with_detail("Gemfile found")
                     .with_template("bundler"),
             );
+
+            // Rails (detected alongside Ruby)
+            if file_exists(project_root, "bin/rails")
+                || file_exists(project_root, "config/routes.rb")
+            {
+                details.push(
+                    DetectionResult::found("Rails")
+                        .with_detail("Rails application detected")
+                        .with_template("rails-db"),
+                );
+            }
         }
 
         // Node
@@ -92,6 +103,17 @@ impl ProjectDetector {
                     .with_detail("Python project detected")
                     .with_template(template),
             );
+
+            // Alembic (detected alongside Python)
+            if file_exists(project_root, "alembic.ini")
+                || file_exists(project_root, "alembic/env.py")
+            {
+                details.push(
+                    DetectionResult::found("Alembic")
+                        .with_detail("Alembic configuration found")
+                        .with_template("alembic-migrate"),
+                );
+            }
         }
 
         // Rust
@@ -102,6 +124,15 @@ impl ProjectDetector {
                     .with_detail("Cargo.toml found")
                     .with_template("cargo"),
             );
+
+            // Diesel (detected alongside Rust)
+            if file_exists(project_root, "diesel.toml") {
+                details.push(
+                    DetectionResult::found("Diesel")
+                        .with_detail("diesel.toml found")
+                        .with_template("diesel-migrate"),
+                );
+            }
         }
 
         // Go
@@ -121,6 +152,15 @@ impl ProjectDetector {
                 DetectionResult::found("Swift")
                     .with_detail("Package.swift found")
                     .with_template("swift"),
+            );
+        }
+
+        // Prisma (detected alongside other project types)
+        if file_exists(project_root, "prisma/schema.prisma") {
+            details.push(
+                DetectionResult::found("Prisma")
+                    .with_detail("Prisma schema found")
+                    .with_template("prisma-migrate"),
             );
         }
 
@@ -206,6 +246,75 @@ mod tests {
 
         assert_eq!(detection.primary_type, ProjectType::Unknown);
         assert!(detection.all_types.is_empty());
+    }
+
+    #[test]
+    fn detect_rails_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Gemfile"), "source 'https://rubygems.org'").unwrap();
+        fs::create_dir_all(temp.path().join("config")).unwrap();
+        fs::write(temp.path().join("config/routes.rb"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Ruby);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("bundler".to_string())));
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("rails-db".to_string())));
+    }
+
+    #[test]
+    fn detect_prisma_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::create_dir_all(temp.path().join("prisma")).unwrap();
+        fs::write(temp.path().join("prisma/schema.prisma"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("prisma-migrate".to_string())));
+    }
+
+    #[test]
+    fn detect_diesel_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Cargo.toml"), "").unwrap();
+        fs::write(temp.path().join("diesel.toml"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Rust);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("cargo".to_string())));
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("diesel-migrate".to_string())));
+    }
+
+    #[test]
+    fn detect_alembic_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pyproject.toml"), "").unwrap();
+        fs::write(temp.path().join("alembic.ini"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Python);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("alembic-migrate".to_string())));
     }
 
     #[test]

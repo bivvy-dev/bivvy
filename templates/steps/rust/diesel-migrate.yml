@@ -1,0 +1,27 @@
+name: diesel-migrate
+description: "Run Diesel database migrations"
+category: rust
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: diesel.toml
+
+step:
+  title: "Run Diesel migrations"
+  description: "Set up database and run pending migrations"
+  command: "diesel setup && diesel migration run"
+  requires:
+    - diesel
+  precondition:
+    type: file_exists
+    path: "diesel.toml"
+  completed_check:
+    type: command_succeeds
+    command: "diesel migration list 2>&1 | grep -v 'Pending'"
+  watches:
+    - diesel.toml
+    - migrations
+
+environment_impact:
+  note: "Creates the database (if needed) and applies pending migrations"
