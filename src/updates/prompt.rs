@@ -101,15 +101,19 @@ pub fn show_update_notification(ui: &mut dyn UserInterface) {
     }
 }
 
+/// Thread-safe flag for suppressing update notifications within the current process.
+static SUPPRESS_UPDATE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 /// Suppress update notification for the current session.
+///
+/// Uses a process-local atomic flag instead of mutating the environment.
 pub fn suppress_notification() {
-    // This could use a session marker file or environment variable
-    std::env::set_var("BIVVY_SUPPRESS_UPDATE", "1");
+    SUPPRESS_UPDATE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Check if update notification is suppressed.
 pub fn is_notification_suppressed() -> bool {
-    std::env::var("BIVVY_SUPPRESS_UPDATE").is_ok()
+    SUPPRESS_UPDATE.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 #[cfg(test)]
