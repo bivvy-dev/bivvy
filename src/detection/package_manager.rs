@@ -62,46 +62,22 @@ impl PackageManagerDetector {
     /// Detect package managers for a project.
     pub fn detect(project_root: &Path) -> PackageManagerDetection {
         PackageManagerDetection {
-            system: Self::detect_system_package_manager(),
+            system: Self::detect_system_package_manager(project_root),
             version_manager: Self::detect_version_manager(project_root),
             language_managers: Self::detect_language_managers(project_root),
         }
     }
 
-    fn detect_system_package_manager() -> Option<PackageManager> {
-        #[cfg(target_os = "macos")]
-        if command_succeeds("brew --version") {
+    fn detect_system_package_manager(project_root: &Path) -> Option<PackageManager> {
+        // Only suggest a system package manager step if the project has a
+        // config file for it (e.g. Brewfile). A tool being installed on the
+        // system alone is not enough — the step would have nothing to do.
+        if file_exists(project_root, "Brewfile") && command_succeeds("brew --version") {
             return Some(PackageManager::Homebrew);
         }
 
-        #[cfg(target_os = "linux")]
-        {
-            if command_succeeds("apt --version") {
-                return Some(PackageManager::Apt);
-            }
-            if command_succeeds("yum --version") {
-                return Some(PackageManager::Yum);
-            }
-            if command_succeeds("pacman --version") {
-                return Some(PackageManager::Pacman);
-            }
-            if command_succeeds("brew --version") {
-                return Some(PackageManager::Homebrew);
-            }
-        }
-
-        #[cfg(target_os = "windows")]
-        {
-            if command_succeeds("choco --version") {
-                return Some(PackageManager::Chocolatey);
-            }
-            if command_succeeds("scoop --version") {
-                return Some(PackageManager::Scoop);
-            }
-            if command_succeeds("winget --version") {
-                return Some(PackageManager::Winget);
-            }
-        }
+        // Windows package managers don't have a standard project-level config
+        // file, so we don't auto-suggest them. Users can add them manually.
 
         None
     }
@@ -138,19 +114,9 @@ impl PackageManagerDetector {
             return Some(PackageManager::Pyenv);
         }
 
-        // Check if tools are installed (expensive — runs commands)
-        if command_succeeds("mise --version") {
-            return Some(PackageManager::Mise);
-        }
-        if command_succeeds("asdf --version") {
-            return Some(PackageManager::Asdf);
-        }
-        if command_succeeds("fnm --version") {
-            return Some(PackageManager::Fnm);
-        }
-        if command_succeeds("volta --version") {
-            return Some(PackageManager::Volta);
-        }
+        // Only suggest version managers when the project has a config file.
+        // A tool being installed globally is not enough — the step would
+        // have nothing to act on.
 
         None
     }
@@ -372,8 +338,8 @@ mod tests {
 
         let detection = PackageManagerDetector::detect(temp.path());
 
-        // version_manager may be set if mise/asdf/volta is installed globally,
-        // so we only check that language_managers is empty for an empty project
+        assert!(detection.system.is_none());
+        assert!(detection.version_manager.is_none());
         assert!(detection.language_managers.is_empty());
     }
 
