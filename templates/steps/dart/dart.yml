@@ -4,8 +4,7 @@ category: dart
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: pubspec.yaml
+detectors: [dart.file]
 
 step:
   title: "Install Dart dependencies"

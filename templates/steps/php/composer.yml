@@ -4,8 +4,7 @@ category: php
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: composer.json
+detectors: [php.file]
 
 step:
   title: "Install PHP dependencies"

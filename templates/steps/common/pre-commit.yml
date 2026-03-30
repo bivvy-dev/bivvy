@@ -4,8 +4,7 @@ category: common
 version: "1.0.0"
 platforms: [macos, linux]
 
-detects:
-  - file: .pre-commit-config.yaml
+detectors: [pre-commit.file]
 
 step:
   title: "Install pre-commit hooks"

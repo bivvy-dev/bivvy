@@ -4,9 +4,7 @@ category: gradle
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: build.gradle.kts
-  - file: build.gradle
+detectors: [gradle.files]
 
 step:
   title: "Download Gradle dependencies"

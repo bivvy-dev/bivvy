@@ -4,9 +4,7 @@ category: version_manager
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: .mise.toml
-  - file: mise.toml
+detectors: [mise]
 
 step:
   title: "Install tool versions"

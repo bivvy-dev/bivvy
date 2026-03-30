@@ -4,10 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: next.config.js
-  - file: next.config.mjs
-  - file: next.config.ts
+detectors: [nextjs.files]
 
 step:
   title: "Build Next.js application"

@@ -4,8 +4,7 @@ category: version_manager
 version: "1.0.0"
 platforms: [macos, linux]
 
-detects:
-  - file: .tool-versions
+detectors: [asdf]
 
 step:
   title: "Install tool versions"

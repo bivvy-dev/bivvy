@@ -4,8 +4,8 @@ category: version_manager
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
+detectors: [fnm.command]
 detects:
-  - command: "fnm --version"
   - file: .nvmrc
   - file: .node-version
 

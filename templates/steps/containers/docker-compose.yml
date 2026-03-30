@@ -4,11 +4,7 @@ category: containers
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: docker-compose.yml
-  - file: docker-compose.yaml
-  - file: compose.yml
-  - file: compose.yaml
+detectors: [docker-compose.files]
 
 step:
   title: "Start Docker Compose services"

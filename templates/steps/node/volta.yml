@@ -4,8 +4,7 @@ category: version_manager
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - command: "volta --version"
+detectors: [volta.command]
 
 step:
   title: "Install Node toolchain"

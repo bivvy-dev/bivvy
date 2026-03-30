@@ -4,8 +4,7 @@ category: swift
 version: "1.0.0"
 platforms: [macos, linux]
 
-detects:
-  - file: Package.swift
+detectors: [swift.file]
 
 step:
   title: "Resolve Swift packages"

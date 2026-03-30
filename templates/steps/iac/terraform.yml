@@ -4,10 +4,7 @@ category: iac
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: main.tf
-  - file: terraform.tf
-  - file: versions.tf
+detectors: [terraform.files]
 
 step:
   title: "Initialize Terraform"

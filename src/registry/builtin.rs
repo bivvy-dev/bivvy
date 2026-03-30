@@ -394,7 +394,8 @@ mod tests {
         assert_eq!(bundler.category, "ruby");
         assert_eq!(bundler.step.command.as_deref(), Some("bundle install"));
         assert!(bundler.step.completed_check.is_some());
-        assert!(!bundler.detects.is_empty());
+        assert!(!bundler.detectors.is_empty());
+        assert!(bundler.detectors.contains(&"ruby.file".to_string()));
         assert!(!bundler.step.watches.is_empty());
     }
 
@@ -411,10 +412,8 @@ mod tests {
         let templates = load_templates().unwrap();
         let cargo = &templates["cargo"];
         assert_eq!(cargo.category, "rust");
-        assert!(cargo
-            .detects
-            .iter()
-            .any(|d| d.file.as_deref() == Some("Cargo.toml")));
+        assert!(!cargo.detectors.is_empty());
+        assert!(cargo.detectors.contains(&"rust.file".to_string()));
     }
 
     #[test]

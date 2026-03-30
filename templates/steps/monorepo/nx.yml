@@ -4,8 +4,7 @@ category: monorepo
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: nx.json
+detectors: [nx.file]
 
 step:
   title: "Set up Nx workspace"

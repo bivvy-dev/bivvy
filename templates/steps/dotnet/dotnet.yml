@@ -4,9 +4,7 @@ category: dotnet
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: "*.sln"
-  - file: "*.csproj"
+detectors: [dotnet.files]
 
 step:
   title: "Restore .NET dependencies"

@@ -4,9 +4,7 @@ category: gradle
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: src/main/resources/application.properties
-  - file: src/main/resources/application.yml
+detectors: [spring-boot.files]
 
 step:
   title: "Build Spring Boot application"

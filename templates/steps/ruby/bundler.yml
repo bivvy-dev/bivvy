@@ -4,8 +4,7 @@ category: ruby
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: Gemfile
+detectors: [ruby.file]
 
 step:
   title: "Install Ruby dependencies"

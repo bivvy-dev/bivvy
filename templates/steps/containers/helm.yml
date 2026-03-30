@@ -4,8 +4,7 @@ category: containers
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: Chart.yaml
+detectors: [helm.file]
 
 step:
   title: "Update Helm dependencies"

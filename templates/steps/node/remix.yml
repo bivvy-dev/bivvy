@@ -4,9 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: remix.config.js
-  - file: remix.config.ts
+detectors: [remix.files]
 
 step:
   title: "Build Remix application"

@@ -4,8 +4,7 @@ category: rust
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: diesel.toml
+detectors: [diesel.file]
 
 step:
   title: "Run Diesel migrations"
