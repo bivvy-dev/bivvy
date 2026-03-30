@@ -296,6 +296,40 @@ mod tests {
     }
 
     #[test]
+    fn full_detection_rails_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("Gemfile"), "").unwrap();
+        fs::create_dir_all(temp.path().join("config")).unwrap();
+        fs::write(temp.path().join("config/routes.rb"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "bundler"));
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "rails-db"));
+    }
+
+    #[test]
+    fn full_detection_prisma_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::create_dir_all(temp.path().join("prisma")).unwrap();
+        fs::write(temp.path().join("prisma/schema.prisma"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "prisma-migrate"));
+    }
+
+    #[test]
     fn full_detection_multi_language() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile"), "").unwrap();

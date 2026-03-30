@@ -1,0 +1,28 @@
+name: alembic-migrate
+description: "Run Alembic database migrations"
+category: python
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: alembic.ini
+  - file: alembic/env.py
+
+step:
+  title: "Run Alembic migrations"
+  description: "Upgrade database to the latest migration revision"
+  command: "alembic upgrade head"
+  requires:
+    - python
+  precondition:
+    type: file_exists
+    path: "alembic.ini"
+  completed_check:
+    type: command_succeeds
+    command: "alembic current 2>&1 | grep -q 'head'"
+  watches:
+    - alembic.ini
+    - alembic/versions
+
+environment_impact:
+  note: "Applies all pending database migrations up to head"
