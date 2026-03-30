@@ -189,11 +189,31 @@ mod tests {
     }
 
     #[test]
-    fn session_wrapper_get_latest_session_id() {
-        // This tests the static method - may or may not have sessions
-        let result = SessionWrapper::get_latest_session_id();
-        // Should not error
-        assert!(result.is_ok());
+    fn session_wrapper_get_latest_session_id_empty_store() {
+        let temp = TempDir::new().unwrap();
+        let store = SessionStore::new(temp.path().join("sessions"));
+
+        let latest = store.get_latest().unwrap();
+        assert!(latest.is_none());
+    }
+
+    #[test]
+    fn session_wrapper_get_latest_session_id_returns_most_recent() {
+        let temp = TempDir::new().unwrap();
+        let store_path = temp.path().join("sessions");
+
+        // Create two sessions with a small delay so timestamps differ
+        let first = create_test_wrapper("first", vec![], store_path.clone());
+        let _first_id = first.finalize(0).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+
+        let second = create_test_wrapper("second", vec![], store_path.clone());
+        let second_id = second.finalize(0).unwrap();
+
+        let store = SessionStore::new(&store_path);
+        let latest = store.get_latest().unwrap().expect("should have a session");
+        assert_eq!(latest.id, second_id);
+        assert_eq!(latest.metadata.command, "second");
     }
 
     #[test]

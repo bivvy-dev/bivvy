@@ -84,39 +84,42 @@ impl InitCommand {
              app_name: \"{project_name}\"\n\
              \n\
              settings:\n\
-             \x20 default_output: verbose  # verbose | quiet | silent\n\
-             \n\
-             steps:\n"
+             \x20 default_output: verbose  # verbose | quiet | silent\n"
         );
 
-        let step_names: Vec<&str> = steps.iter().map(|(name, _)| *name).collect();
+        if !steps.is_empty() {
+            config.push_str("\nsteps:\n");
 
-        for (name, template) in steps {
-            config.push_str(&format!("  {}:\n    template: {}\n", name, name));
+            let step_names: Vec<&str> = steps.iter().map(|(name, _)| *name).collect();
 
-            if let Some(tmpl) = template {
-                // Show command
-                if let Some(ref cmd) = tmpl.step.command {
-                    config.push_str(&format!("    # command: {}\n", cmd));
+            for (name, template) in steps {
+                config.push_str(&format!("  {}:\n    template: {}\n", name, name));
+
+                if let Some(tmpl) = template {
+                    // Show command
+                    if let Some(ref cmd) = tmpl.step.command {
+                        config.push_str(&format!("    # command: {}\n", cmd));
+                    }
+
+                    // Show completed_check
+                    if let Some(ref check) = tmpl.step.completed_check {
+                        Self::format_completed_check(&mut config, check);
+                    }
+
+                    // Show watches
+                    if !tmpl.step.watches.is_empty() {
+                        let watches: Vec<&str> =
+                            tmpl.step.watches.iter().map(|s| s.as_str()).collect();
+                        config.push_str(&format!("    # watches: [{}]\n", watches.join(", ")));
+                    }
                 }
 
-                // Show completed_check
-                if let Some(ref check) = tmpl.step.completed_check {
-                    Self::format_completed_check(&mut config, check);
-                }
-
-                // Show watches
-                if !tmpl.step.watches.is_empty() {
-                    let watches: Vec<&str> = tmpl.step.watches.iter().map(|s| s.as_str()).collect();
-                    config.push_str(&format!("    # watches: [{}]\n", watches.join(", ")));
-                }
+                config.push('\n');
             }
 
-            config.push('\n');
+            config.push_str("workflows:\n  default:\n    steps: ");
+            config.push_str(&format!("[{}]\n", step_names.join(", ")));
         }
-
-        config.push_str("workflows:\n  default:\n    steps: ");
-        config.push_str(&format!("[{}]\n", step_names.join(", ")));
 
         config
     }
@@ -232,11 +235,6 @@ impl Command for InitCommand {
             if let Ok(PromptResult::Strings(selected)) = ui.prompt(&prompt) {
                 steps = selected;
             }
-        }
-
-        // If no steps detected, create a minimal example
-        if steps.is_empty() {
-            steps.push("setup".to_string());
         }
 
         // Load templates to enrich config output
@@ -385,7 +383,7 @@ mod tests {
         let args = InitArgs::default();
         let cmd = InitCommand::new(temp.path(), args);
 
-        let steps: Vec<(&str, Option<&Template>)> = vec![("setup", None)];
+        let steps: Vec<(&str, Option<&Template>)> = vec![("bundler", None)];
         let config = cmd.create_config(&steps);
 
         assert!(config.contains("# Bivvy configuration for"));
@@ -396,6 +394,22 @@ mod tests {
         let guide_pos = config.find("# Override any template field").unwrap();
         let app_name_pos = config.find("app_name:").unwrap();
         assert!(guide_pos < app_name_pos);
+    }
+
+    #[test]
+    fn create_config_no_steps_omits_steps_and_workflows() {
+        let temp = TempDir::new().unwrap();
+        let args = InitArgs::default();
+        let cmd = InitCommand::new(temp.path(), args);
+
+        let steps: Vec<(&str, Option<&Template>)> = vec![];
+        let config = cmd.create_config(&steps);
+
+        assert!(config.contains("app_name:"));
+        assert!(config.contains("settings:"));
+        // Should not have actual steps/workflows sections (only in comments)
+        assert!(!config.contains("\nsteps:\n"));
+        assert!(!config.contains("\nworkflows:\n"));
     }
 
     #[test]
