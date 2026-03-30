@@ -38,12 +38,38 @@ steps:
     command: "echo Setting up ${project_name}"
 ```
 
+### Resolution Priority
+
+Variables are resolved in this order (highest to lowest):
+
+1. Prompt values from current run
+2. Saved preferences from previous runs
+3. User-defined variables (`vars:`)
+4. Environment variables
+5. Built-in variables
+
 ### Built-in Variables
 
 | Variable | Description |
 |----------|-------------|
 | `${project_name}` | Directory name of the project |
 | `${project_root}` | Absolute path to project root |
+| `${bivvy_version}` | Current Bivvy version |
+
+### User-Defined Variables
+
+Define reusable values — static strings or shell commands — under
+the top-level `vars:` key. See [Variables](variables.md) for details.
+
+```yaml
+vars:
+  version:
+    command: "cat VERSION"
+
+steps:
+  tag:
+    command: "git tag v${version}"
+```
 
 ### Environment Variables
 
@@ -92,5 +118,6 @@ steps:
 ## Next Steps
 
 - [Steps Configuration](steps.md)
+- [Variables](variables.md)
 - [Workflows Configuration](workflows.md)
 - [Completed Checks](completed-checks.md)

@@ -12,9 +12,12 @@
 #   4. Local overrides (.bivvy/config.local.yml) — gitignored
 #
 # Variable interpolation: use ${VAR} syntax anywhere.
-#   Built-ins: ${project_name}, ${project_root}, ${bivvy_version}
-#   Environment: ${HOME}, ${RAILS_ENV}, etc.
-#   Prompts: ${prompt_key} from step prompts
+#   Priority (highest to lowest):
+#     1. Prompt values from current run
+#     2. Saved preferences from previous runs
+#     3. User-defined variables (vars:)
+#     4. Environment variables (${HOME}, ${RAILS_ENV}, etc.)
+#     5. Built-in variables (${project_name}, ${project_root}, ${bivvy_version})
 #   Escape: $${NOT_INTERPOLATED} outputs literal ${NOT_INTERPOLATED}
 #
 # ============================================================================
@@ -100,6 +103,25 @@ settings:
   #       - env: REVIEW_APP
   #     provided_requirements:
   #       - docker
+
+
+# --------------------------------------------------------------------------
+# Vars — user-defined variables for interpolation
+# --------------------------------------------------------------------------
+# Define reusable values available via ${var_name} in any command.
+# Static vars are plain strings; computed vars run a shell command at
+# workflow start and use the trimmed stdout.
+# Type: map (optional)
+vars:
+  # Static variable — plain string value
+  app_name: "myapp"
+
+  # Computed variable — shell command whose stdout becomes the value
+  version:
+    command: "grep '^version' Cargo.toml | head -1 | cut -d'\"' -f2"
+
+  git_sha:
+    command: "git rev-parse --short HEAD"
 
 
 # --------------------------------------------------------------------------
@@ -209,6 +231,16 @@ steps:
     completed_check:
       type: file_exists
       path: node_modules
+
+    # --- Precondition ---
+    # Gate that must pass before the step runs.
+    # Uses the same check types as completed_check, but with opposite
+    # semantics: a failing precondition fails the step (hard stop).
+    # --force does NOT bypass preconditions.
+    # Type: CompletedCheck (optional)
+    # precondition:
+    #   type: command_succeeds
+    #   command: "test $(git branch --show-current) = main"
 
     # --- Execution Control ---
     # Whether user can skip this step interactively

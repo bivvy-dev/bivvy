@@ -71,6 +71,52 @@ steps:
 - `all`: All sub-checks must pass
 - `any`: At least one sub-check must pass
 
+## Preconditions
+
+A precondition is a gate that must pass before a step runs. If the
+precondition fails, the step fails immediately with a hard error.
+
+```yaml
+steps:
+  release:
+    command: "git tag v1.0.0 && git push --tags"
+    precondition:
+      type: command_succeeds
+      command: "test $(git branch --show-current) = main"
+```
+
+Preconditions use the same check types as `completed_check`
+(`command_succeeds`, `file_exists`, `all`, `any`, etc.) but with
+opposite semantics:
+
+| | `completed_check` | `precondition` |
+|---|---|---|
+| **When check passes** | Step is skipped (already done) | Step proceeds normally |
+| **When check fails** | Step runs | Step fails (hard stop) |
+| **`--force` behavior** | Bypasses the check | No effect (never bypassed) |
+
+### Combining with Completed Checks
+
+When a step has both `completed_check` and `precondition`, the
+completed check is evaluated first. If the step is already complete,
+it is skipped and the precondition is never evaluated.
+
+```yaml
+steps:
+  release:
+    command: "git tag v1.0.0 && git push --tags"
+    completed_check:
+      type: command_succeeds
+      command: "git tag -l v1.0.0 | grep -q v1.0.0"
+    precondition:
+      type: all
+      checks:
+        - type: command_succeeds
+          command: "test $(git branch --show-current) = main"
+        - type: command_succeeds
+          command: "git diff --quiet"
+```
+
 ## Dependencies
 
 Specify step dependencies:

@@ -23,6 +23,7 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 | `template_sources` | list of [TemplateSource](#template-source) | `[]` | Remote template registries |
 | `secrets` | map of [Secret](#secret) | `{}` | External secret providers |
 | `requirements` | map of [CustomRequirement](#custom-requirement) | `{}` | Custom requirement definitions |
+| `vars` | map of [VarDefinition](#var-definition) | `{}` | User-defined variables for interpolation |
 | `extends` | list of `{url}` | — | Base configs to inherit |
 
 ### Settings
@@ -54,6 +55,7 @@ At minimum, a step needs either `command` or `template`.
 | `description` | string | — | Human-readable description |
 | `depends_on` | list | `[]` | Steps that must run first |
 | `completed_check` | [CompletedCheck](#completed-check) | — | Detect if already done |
+| `precondition` | [CompletedCheck](#completed-check) | — | Gate that must pass before step runs (not bypassed by `--force`) |
 | `skippable` | bool | `true` | User can skip interactively |
 | `required` | bool | `false` | Cannot be skipped |
 | `prompt_if_complete` | bool | `true` | Ask before re-running |
@@ -189,6 +191,7 @@ Used inside `steps.<name>.environments.<env>`. All fields are optional — only 
 | `command` | string | Override shell command |
 | `env` | map of string → string\|null | Override env vars (`null` removes a key) |
 | `completed_check` | [CompletedCheck](#completed-check) | Override completion check |
+| `precondition` | [CompletedCheck](#completed-check) | Override precondition |
 | `skippable` | bool | Override skip permission |
 | `allow_failure` | bool | Override failure behavior |
 | `requires_sudo` | bool | Override sudo requirement |
@@ -199,6 +202,19 @@ Used inside `steps.<name>.environments.<env>`. All fields are optional — only 
 | `requires` | list | Override system requirements |
 | `watches` | list | Override watched files |
 | `retry` | int | Override retry attempts |
+
+### Var Definition
+
+Each entry in the top-level `vars` map is either a static string or a computed value.
+
+| Form | YAML Syntax | Description |
+|------|-------------|-------------|
+| Static | `name: "value"` | Plain string |
+| Computed | `name: { command: "..." }` | Shell command whose trimmed stdout becomes the value |
+
+Computed variables run once at workflow start. If the command exits non-zero, the workflow fails.
+
+Variables are resolved in priority order: prompts > preferences > vars > env > builtins.
 
 ### Custom Requirement
 
