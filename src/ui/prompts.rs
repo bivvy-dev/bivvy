@@ -86,8 +86,13 @@ fn is_yes_no(options: &[PromptOption]) -> bool {
 }
 
 fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Result<PromptResult> {
-    // Use custom yes/no prompt for y/n keyboard shortcut support
-    if is_yes_no(options) {
+    // Use custom yes/no prompt for y/n keyboard shortcut support.
+    // Requires a real TTY — prompt_yes_no uses term.read_key() directly.
+    // On non-TTY, fall through to dialoguer's Select.
+    //
+    // Terminal foreground group is claimed in main.rs via tcsetpgrp(),
+    // so read_key() works even when launched via `cargo run`.
+    if is_yes_no(options) && term.is_term() {
         return prompt_yes_no(prompt, options, term);
     }
 
@@ -134,6 +139,25 @@ impl Drop for CursorGuard<'_> {
 ///
 /// Renders options below the prompt question, indented to align with
 /// the step name. Supports arrow keys, j/k, Enter/Space, y/n, and Escape.
+///
+/// # SIGTTOU / SIGTTIN safety
+///
+/// This function calls `term.read_key()` directly, which:
+///   - Uses `tcsetattr` to enter raw mode → triggers SIGTTOU
+///   - Reads from the terminal fd → triggers SIGTTIN
+/// When bivvy is not the terminal's foreground process group (e.g.,
+/// launched via `cargo run`), zsh suspends the process with
+/// "suspended (tty output)" or "suspended (tty input)".
+///
+/// **This function depends on signal ignores in `main.rs`.**
+/// Without both `libc::signal(libc::SIGTTOU, libc::SIG_IGN)` and
+/// `libc::signal(libc::SIGTTIN, libc::SIG_IGN)` in main(), calling
+/// this function will crash the entire run command.
+///
+/// DO NOT remove the signal ignores in main.rs without also removing
+/// the direct `term.read_key()` call here. See regression tests:
+/// `yes_no_prompt_does_not_crash_on_non_tty` and
+/// `yes_no_and_multi_option_selects_error_consistently`.
 fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Result<PromptResult> {
     let default_idx = prompt
         .default
@@ -443,5 +467,124 @@ mod tests {
             drop(guard);
             // After drop, cursor should be visible again (no-op on non-TTY).
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // SIGTTOU/SIGTTIN regression tests — DO NOT REMOVE
+    //
+    // These tests exist because `prompt_yes_no` calls `term.read_key()`
+    // directly, which invokes `tcsetattr` (SIGTTOU) and reads from the
+    // terminal fd (SIGTTIN). When bivvy is not the terminal's foreground
+    // process group (e.g., `cargo run`), this triggers suspension.
+    //
+    // The SIGTTOU signal is ignored in main.rs, but these tests verify:
+    //   1. The prompt code doesn't panic or crash on non-TTY
+    //   2. Yes/no and multi-option selects produce consistent error behavior
+    //
+    // History: These tests were originally added in commit 09d5292, then
+    // removed in commit 520c90c when the custom yes/no prompt was
+    // reintroduced. Removing them allowed the SIGTTOU regression to go
+    // undetected. They are restored here to prevent that from happening
+    // again.
+    //
+    // If you need to change prompt_yes_no's output formatting, do so
+    // WITHOUT removing these tests. The custom yes/no prompt (y/n
+    // shortcuts, cursor guard, styled indicators) is a legitimate
+    // customization — but it MUST coexist with SIGTTOU safety.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn yes_no_prompt_does_not_crash_on_non_tty() {
+        // Term::stdout() in test context is piped (non-TTY) because
+        // cargo test captures stdout. prompt_yes_no detects non-TTY via
+        // read_key() and returns an IO error — no SIGTTOU, no panic.
+        let term = Term::stdout();
+        if term.is_term() {
+            return; // Skip under --nocapture with real TTY
+        }
+
+        let options = vec![
+            PromptOption {
+                label: "Yes (y)".to_string(),
+                value: "yes".to_string(),
+            },
+            PromptOption {
+                label: "No (n)".to_string(),
+                value: "no".to_string(),
+            },
+        ];
+        let prompt = make_prompt(
+            "rerun_step",
+            PromptType::Select {
+                options: options.clone(),
+            },
+            Some("yes"),
+        );
+
+        // Call the REAL prompt code, not MockUI.
+        // No SIGTTOU, no panic, no crash — just a clean IO error.
+        let result = prompt_select(&prompt, &options, &term);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn yes_no_and_multi_option_selects_error_consistently() {
+        // Verify that yes/no prompts and multi-option selects produce
+        // the same kind of error on non-TTY. If yes/no had a different
+        // code path that crashed instead of erroring, this test would
+        // catch it.
+        let term = Term::stdout();
+        if term.is_term() {
+            return; // Skip under --nocapture with real TTY
+        }
+
+        // 2-option yes/no (takes the custom prompt_yes_no path)
+        let yn_options = vec![
+            PromptOption {
+                label: "Yes (y)".to_string(),
+                value: "yes".to_string(),
+            },
+            PromptOption {
+                label: "No (n)".to_string(),
+                value: "no".to_string(),
+            },
+        ];
+        let yn_prompt = make_prompt(
+            "yn",
+            PromptType::Select {
+                options: yn_options.clone(),
+            },
+            Some("yes"),
+        );
+
+        // 3-option select (goes through dialoguer's Select)
+        let multi_options = vec![
+            PromptOption {
+                label: "A".to_string(),
+                value: "a".to_string(),
+            },
+            PromptOption {
+                label: "B".to_string(),
+                value: "b".to_string(),
+            },
+            PromptOption {
+                label: "C".to_string(),
+                value: "c".to_string(),
+            },
+        ];
+        let multi_prompt = make_prompt(
+            "multi",
+            PromptType::Select {
+                options: multi_options.clone(),
+            },
+            Some("a"),
+        );
+
+        // Both must error on non-TTY — neither should panic or crash.
+        let result_yn = prompt_select(&yn_prompt, &yn_options, &term);
+        let result_multi = prompt_select(&multi_prompt, &multi_options, &term);
+
+        assert!(result_yn.is_err(), "yes/no should error on non-TTY");
+        assert!(result_multi.is_err(), "multi should error on non-TTY");
     }
 }

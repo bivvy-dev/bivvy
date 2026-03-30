@@ -12,6 +12,27 @@ use super::{
     Prompt, PromptResult, RunSummary, SpinnerHandle, UserInterface,
 };
 
+/// Re-claim the terminal foreground process group.
+///
+/// Child processes spawned by step commands or completed_checks may steal
+/// the foreground group. When they exit without restoring it, subsequent
+/// terminal reads (read_key, dialoguer prompts) fail with EIO. This
+/// function re-claims the foreground so prompts work after commands run.
+///
+/// Safe to call multiple times — no-op if already foreground or if
+/// /dev/tty is unavailable (non-TTY, CI, piped environments).
+#[cfg(unix)]
+fn claim_foreground() {
+    unsafe {
+        let tty_path = b"/dev/tty\0".as_ptr() as *const libc::c_char;
+        let tty_fd = libc::open(tty_path, libc::O_RDWR);
+        if tty_fd >= 0 {
+            libc::tcsetpgrp(tty_fd, libc::getpgrp());
+            libc::close(tty_fd);
+        }
+    }
+}
+
 /// Interactive terminal UI implementation.
 pub struct TerminalUI {
     term: Term,
@@ -64,6 +85,13 @@ impl UserInterface for TerminalUI {
     }
 
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
+        // Re-claim the terminal foreground process group before each prompt.
+        // Child processes (completed_check, step commands) may steal the
+        // foreground group when they run. After they exit, nobody restores
+        // it, so our next read_key() call gets EIO. Fix: always re-claim
+        // before prompting.
+        #[cfg(unix)]
+        claim_foreground();
         prompt_user(prompt, &self.term)
     }
 
