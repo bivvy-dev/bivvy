@@ -1,0 +1,46 @@
+name: version-bump
+description: "Bump marketing version in Xcode project"
+category: swift
+version: "1.0.0"
+platforms: [macos]
+
+inputs:
+  bump:
+    description: "Version bump type (patch, minor, major) or explicit semver string (e.g. 1.5.0)"
+    type: string
+    required: true
+    prompt:
+      question: "Version bump type"
+      type: select
+      options:
+        - label: "Patch (x.y.Z)"
+          value: patch
+        - label: "Minor (x.Y.0)"
+          value: minor
+        - label: "Major (X.0.0)"
+          value: major
+
+step:
+  title: "Bump version"
+  description: "Update MARKETING_VERSION in Xcode project using agvtool"
+  precondition:
+    type: command_succeeds
+    command: "agvtool what-marketing-version"
+  command: |
+    case "${bump}" in
+      patch|minor|major)
+        current=$(agvtool what-marketing-version -terse1)
+        major=$(echo "$current" | cut -d. -f1)
+        minor=$(echo "$current" | cut -d. -f2)
+        patch_v=$(echo "$current" | cut -d. -f3)
+        case "${bump}" in
+          patch) patch_v=$((patch_v + 1)) ;;
+          minor) minor=$((minor + 1)); patch_v=0 ;;
+          major) major=$((major + 1)); minor=0; patch_v=0 ;;
+        esac
+        agvtool new-marketing-version "${major}.${minor}.${patch_v}"
+        ;;
+      *)
+        agvtool new-marketing-version "${bump}"
+        ;;
+    esac

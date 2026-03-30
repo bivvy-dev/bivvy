@@ -139,11 +139,7 @@ impl ResolvedStep {
             requires: merge_requires(&step.requires, &config.requires),
             only_environments: config.only_environments.clone(),
             inputs: resolved_inputs.clone(),
-            prompts: merge_template_prompts(
-                &config.prompts,
-                &template.inputs,
-                &resolved_inputs,
-            ),
+            prompts: merge_template_prompts(&config.prompts, &template.inputs, &resolved_inputs),
         };
 
         if let Some(env_name) = environment {

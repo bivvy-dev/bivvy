@@ -1,0 +1,45 @@
+name: version-bump
+description: "Bump version by creating a Git tag following Go module conventions"
+category: go
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+inputs:
+  bump:
+    description: "Version bump type (patch, minor, major) or explicit semver string (e.g. 1.5.0)"
+    type: string
+    required: true
+    prompt:
+      question: "Version bump type"
+      type: select
+      options:
+        - label: "Patch (x.y.Z)"
+          value: patch
+        - label: "Minor (x.Y.0)"
+          value: minor
+        - label: "Major (X.0.0)"
+          value: major
+
+step:
+  title: "Bump version"
+  description: "Create a new semver Git tag for the Go module"
+  requires:
+    - go
+  precondition:
+    type: command_succeeds
+    command: "git --version"
+  command: |
+    latest=$(git tag -l 'v*' --sort=-v:refname | head -1)
+    if [ -z "$latest" ]; then
+      latest="v0.0.0"
+    fi
+    major=$(echo "$latest" | sed 's/^v//' | cut -d. -f1)
+    minor=$(echo "$latest" | sed 's/^v//' | cut -d. -f2)
+    patch=$(echo "$latest" | sed 's/^v//' | cut -d. -f3)
+    case "${bump}" in
+      patch) patch=$((patch + 1)) ;;
+      minor) minor=$((minor + 1)); patch=0 ;;
+      major) major=$((major + 1)); minor=0; patch=0 ;;
+      *) echo "v${bump}"; exit 0 ;;
+    esac
+    echo "v${major}.${minor}.${patch}"

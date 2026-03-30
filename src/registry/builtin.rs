@@ -52,7 +52,12 @@ pub fn load_detectors() -> Result<DetectorFile> {
     })
 }
 
-/// Load all built-in templates.
+/// Build a qualified key for a template (`category/name`).
+fn qualified_key(template: &Template) -> String {
+    format!("{}/{}", template.category, template.name)
+}
+
+/// Load all built-in templates, keyed by `category/name`.
 pub fn load_templates() -> Result<HashMap<String, Template>> {
     let mut templates = HashMap::new();
     load_templates_from_dir(&TEMPLATES_DIR, "steps", &mut templates)?;
@@ -80,7 +85,8 @@ fn load_templates_from_dir(
                                         message: e.to_string(),
                                     }
                                 })?;
-                            templates.insert(template.name.clone(), template);
+                            let key = qualified_key(&template);
+                            templates.insert(key, template);
                         }
                     }
                 }
@@ -94,7 +100,10 @@ fn load_templates_from_dir(
 /// Check if a template exists in built-ins.
 pub fn has_template(name: &str) -> bool {
     load_templates()
-        .map(|t| t.contains_key(name))
+        .map(|t| {
+            // Check qualified key first, then unqualified name
+            t.contains_key(name) || t.values().any(|tmpl| tmpl.name == name)
+        })
         .unwrap_or(false)
 }
 
@@ -114,17 +123,23 @@ impl BuiltinLoader {
         })
     }
 
-    /// Get a template by name.
+    /// Get a template by name (unqualified — returns first match).
     pub fn get(&self, name: &str) -> Option<&Template> {
-        self.templates.get(name)
+        // Try as qualified key first
+        if let Some(t) = self.templates.get(name) {
+            return Some(t);
+        }
+        // Fall back to unqualified name match
+        self.templates.values().find(|t| t.name == name)
     }
 
     /// Get a template by name, filtering by category.
     pub fn get_by_category(&self, name: &str, category: &str) -> Option<&Template> {
-        self.templates.get(name).filter(|t| t.category == category)
+        let key = format!("{}/{}", category, name);
+        self.templates.get(&key)
     }
 
-    /// Get all template names.
+    /// Get all template names (qualified as `category/name`).
     pub fn template_names(&self) -> Vec<&str> {
         self.templates.keys().map(|s| s.as_str()).collect()
     }
@@ -142,7 +157,7 @@ impl BuiltinLoader {
         self.manifest
             .detection_order
             .iter()
-            .filter_map(|name| self.templates.get(name))
+            .filter_map(|name| self.get(name))
             .filter(|t| t.platforms.iter().any(|p| p.is_current()))
             .collect()
     }
@@ -178,13 +193,13 @@ mod tests {
     #[test]
     fn load_templates_includes_brew() {
         let templates = load_templates().unwrap();
-        assert!(templates.contains_key("brew-bundle"));
+        assert!(templates.contains_key("system/brew-bundle"));
     }
 
     #[test]
     fn load_templates_includes_yarn() {
         let templates = load_templates().unwrap();
-        assert!(templates.contains_key("yarn-install"));
+        assert!(templates.contains_key("node/yarn-install"));
     }
 
     #[test]
@@ -201,7 +216,7 @@ mod tests {
     #[test]
     fn brew_template_has_correct_fields() {
         let templates = load_templates().unwrap();
-        let brew = &templates["brew-bundle"];
+        let brew = &templates["system/brew-bundle"];
         assert_eq!(brew.category, "system");
         assert!(brew.step.command.is_some());
         assert!(!brew.detectors.is_empty());
@@ -252,90 +267,118 @@ mod tests {
     #[test]
     fn all_expected_templates_load() {
         let templates = load_templates().unwrap();
+        // Keys are qualified as "category/name" based on each template's
+        // `category` field (not file path).
         let expected = [
-            "brew-bundle",
-            "apt-install",
-            "yum-install",
-            "pacman-install",
-            "choco-install",
-            "scoop-install",
-            "mise-tools",
-            "asdf-tools",
-            "volta-setup",
-            "fnm-setup",
-            "bundle-install",
-            "rails-db",
-            "yarn-install",
-            "npm-install",
-            "pnpm-install",
-            "bun-install",
-            "prisma-migrate",
-            "nextjs-build",
-            "vite-build",
-            "remix-build",
-            "pip-install",
-            "poetry-install",
-            "uv-sync",
-            "alembic-migrate",
-            "django-migrate",
-            "composer-install",
-            "laravel-setup",
-            "gradle-deps",
-            "mix-deps-get",
-            "cargo-build",
-            "version-bump",
-            "diesel-migrate",
-            "go-mod-download",
-            "swift-resolve",
-            "terraform-init",
-            "cdk-synth",
-            "maven-resolve",
-            "dotnet-restore",
-            "dart-pub-get",
-            "flutter-pub-get",
-            "deno-install",
-            "spring-boot-build",
-            // Container/orchestration templates
-            "docker-compose-up",
-            "helm-deps",
-            // IaC templates
-            "pulumi-install",
-            "ansible-install",
-            // Install templates
-            "mise-install",
-            "mise-ruby",
-            "mise-node",
-            "mise-python",
-            "mise-php",
-            "mise-elixir",
-            "asdf-ruby",
-            "asdf-node",
-            "asdf-python",
-            "asdf-php",
-            "asdf-elixir",
-            "nvm-node",
-            "fnm-node",
-            "volta-node",
-            "rbenv-ruby",
-            "pyenv-python",
-            "brew-ruby",
-            "brew-node",
-            "brew-python",
-            "brew-php",
-            "brew-elixir",
-            "brew-go",
-            "brew-install",
-            "rust-install",
-            "postgres-install",
-            "redis-install",
-            "docker-install",
-            // Common templates
-            "env-copy",
-            "pre-commit-install",
-            // Monorepo templates
-            "nx-build",
-            "turbo-build",
-            "lerna-bootstrap",
+            // System
+            "system/brew-bundle",
+            "system/apt-install",
+            "system/yum-install",
+            "system/pacman-install",
+            // Windows
+            "windows/choco-install",
+            "windows/scoop-install",
+            // Version managers
+            "version_manager/mise-tools",
+            "version_manager/asdf-tools",
+            "version_manager/volta-setup",
+            "version_manager/fnm-setup",
+            // Ruby
+            "ruby/bundle-install",
+            "ruby/rails-db",
+            "ruby/version-bump",
+            // Node
+            "node/yarn-install",
+            "node/npm-install",
+            "node/pnpm-install",
+            "node/bun-install",
+            "node/prisma-migrate",
+            "node/nextjs-build",
+            "node/vite-build",
+            "node/remix-build",
+            "node/version-bump",
+            // Python
+            "python/pip-install",
+            "python/poetry-install",
+            "python/uv-sync",
+            "python/alembic-migrate",
+            "python/django-migrate",
+            "python/version-bump",
+            // PHP
+            "php/composer-install",
+            "php/laravel-setup",
+            "php/version-bump",
+            // Gradle/Kotlin
+            "gradle/gradle-deps",
+            "gradle/spring-boot-build",
+            "kotlin/version-bump",
+            // Elixir
+            "elixir/mix-deps-get",
+            "elixir/version-bump",
+            // Rust
+            "rust/cargo-build",
+            "rust/version-bump",
+            "rust/diesel-migrate",
+            // Go
+            "go/go-mod-download",
+            "go/version-bump",
+            // Swift
+            "swift/swift-resolve",
+            "swift/version-bump",
+            // IaC
+            "iac/terraform-init",
+            "iac/cdk-synth",
+            "iac/pulumi-install",
+            "iac/ansible-install",
+            // Java
+            "java/maven-resolve",
+            "java/version-bump",
+            // .NET
+            "dotnet/dotnet-restore",
+            "dotnet/version-bump",
+            // Dart
+            "dart/dart-pub-get",
+            "dart/flutter-pub-get",
+            // Deno
+            "deno/deno-install",
+            // Containers
+            "containers/docker-compose-up",
+            "containers/helm-deps",
+            // Install
+            "install/mise-install",
+            "install/mise-ruby",
+            "install/mise-node",
+            "install/mise-python",
+            "install/mise-php",
+            "install/mise-elixir",
+            "install/asdf-ruby",
+            "install/asdf-node",
+            "install/asdf-python",
+            "install/asdf-php",
+            "install/asdf-elixir",
+            "install/nvm-node",
+            "install/fnm-node",
+            "install/volta-node",
+            "install/rbenv-ruby",
+            "install/pyenv-python",
+            "install/brew-ruby",
+            "install/brew-node",
+            "install/brew-python",
+            "install/brew-php",
+            "install/brew-elixir",
+            "install/brew-go",
+            "install/brew-install",
+            "install/rust-install",
+            "install/postgres-install",
+            "install/redis-install",
+            "install/docker-install",
+            // Common
+            "common/env-copy",
+            "common/pre-commit-install",
+            // Monorepo
+            "monorepo/nx-build",
+            "monorepo/turbo-build",
+            "monorepo/lerna-bootstrap",
         ];
         for name in &expected {
             assert!(
@@ -369,11 +412,12 @@ mod tests {
         let template_names = manifest.all_template_names();
         let templates = load_templates().unwrap();
 
-        for name in templates.keys() {
+        for template in templates.values() {
             assert!(
-                template_names.contains(&name.as_str()),
-                "Template '{}' missing from manifest categories",
-                name
+                template_names.contains(&template.name.as_str()),
+                "Template '{}' (category '{}') missing from manifest categories",
+                template.name,
+                template.category
             );
         }
     }
@@ -385,7 +429,7 @@ mod tests {
 
         for name in &manifest.detection_order {
             assert!(
-                templates.contains_key(name),
+                templates.values().any(|t| t.name == *name),
                 "Detection order references unknown template '{}'",
                 name
             );
@@ -395,7 +439,7 @@ mod tests {
     #[test]
     fn bundler_template_has_correct_fields() {
         let templates = load_templates().unwrap();
-        let bundler = &templates["bundle-install"];
+        let bundler = &templates["ruby/bundle-install"];
         assert_eq!(bundler.category, "ruby");
         assert_eq!(bundler.step.command.as_deref(), Some("bundle install"));
         assert!(bundler.step.completed_check.is_some());
@@ -409,7 +453,7 @@ mod tests {
     #[test]
     fn npm_template_has_file_exists_check() {
         let templates = load_templates().unwrap();
-        let npm = &templates["npm-install"];
+        let npm = &templates["node/npm-install"];
         assert_eq!(npm.category, "node");
         assert!(npm.step.completed_check.is_some());
     }
@@ -417,7 +461,7 @@ mod tests {
     #[test]
     fn cargo_template_detects_cargo_toml() {
         let templates = load_templates().unwrap();
-        let cargo = &templates["cargo-build"];
+        let cargo = &templates["rust/cargo-build"];
         assert_eq!(cargo.category, "rust");
         assert!(!cargo.detectors.is_empty());
         assert!(cargo

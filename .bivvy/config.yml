@@ -99,7 +99,7 @@ steps:
     depends_on: [llvm-cov, build]
 
   version-bump:
-    template: version-bump
+    template: rust/version-bump
     depends_on: [cargo-edit]
 
   version-commit:

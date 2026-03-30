@@ -84,8 +84,9 @@ impl LocalLoader {
                 })?;
 
                 // Project templates override user templates
-                if source == TemplateSource::Project || !templates.contains_key(&template.name) {
-                    templates.insert(template.name.clone(), (template, source));
+                let key = format!("{}/{}", template.category, template.name);
+                if source == TemplateSource::Project || !templates.contains_key(&key) {
+                    templates.insert(key, (template, source));
                 }
             }
         }
@@ -93,14 +94,30 @@ impl LocalLoader {
         Ok(())
     }
 
-    /// Get a template by name.
+    /// Get a template by name (unqualified — returns first match).
     pub fn get(&self, name: &str) -> Option<&Template> {
-        self.templates.get(name).map(|(t, _)| t)
+        // Try as qualified key first
+        if let Some((t, _)) = self.templates.get(name) {
+            return Some(t);
+        }
+        // Fall back to unqualified name match
+        self.templates
+            .values()
+            .find(|(t, _)| t.name == name)
+            .map(|(t, _)| t)
     }
 
-    /// Get a template with its source.
+    /// Get a template with its source (unqualified — returns first match).
     pub fn get_with_source(&self, name: &str) -> Option<(&Template, TemplateSource)> {
-        self.templates.get(name).map(|(t, s)| (t, *s))
+        // Try as qualified key first
+        if let Some((t, s)) = self.templates.get(name) {
+            return Some((t, *s));
+        }
+        // Fall back to unqualified name match
+        self.templates
+            .values()
+            .find(|(t, _)| t.name == name)
+            .map(|(t, s)| (t, *s))
     }
 
     /// Get a template with its source, filtering by category.
@@ -109,20 +126,18 @@ impl LocalLoader {
         name: &str,
         category: &str,
     ) -> Option<(&Template, TemplateSource)> {
-        self.templates
-            .get(name)
-            .filter(|(t, _)| t.category == category)
-            .map(|(t, s)| (t, *s))
+        let key = format!("{}/{}", category, name);
+        self.templates.get(&key).map(|(t, s)| (t, *s))
     }
 
-    /// Get all template names.
+    /// Get all template names (qualified as `category/name`).
     pub fn template_names(&self) -> Vec<&str> {
         self.templates.keys().map(|s| s.as_str()).collect()
     }
 
-    /// Check if a template exists.
+    /// Check if a template exists (by unqualified name).
     pub fn has(&self, name: &str) -> bool {
-        self.templates.contains_key(name)
+        self.templates.contains_key(name) || self.templates.values().any(|(t, _)| t.name == name)
     }
 }
 

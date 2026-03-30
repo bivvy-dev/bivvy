@@ -95,12 +95,17 @@ impl Command for TemplatesCommand {
             ui.message("");
         }
 
-        // Show local/remote templates that aren't in the manifest
+        // Show local/remote templates that aren't in the manifest.
+        // Registry keys are qualified (category/name), manifest uses unqualified names,
+        // so extract the unqualified name for comparison.
         let all_names = registry.all_template_names();
         let manifest_names: Vec<&str> = manifest.all_template_names().into_iter().collect();
         let extra: Vec<_> = all_names
             .iter()
-            .filter(|n| !manifest_names.contains(&n.as_str()))
+            .filter(|n| {
+                let unqualified = n.rsplit_once('/').map_or(n.as_str(), |(_, name)| name);
+                !manifest_names.contains(&unqualified)
+            })
             .collect();
 
         if !extra.is_empty() && self.args.category.is_none() {

@@ -327,7 +327,7 @@ step:
     fn registry_all_names_includes_builtin() {
         let registry = Registry::new(None).unwrap();
         let names = registry.all_template_names();
-        assert!(names.contains(&"brew-bundle".to_string()));
+        assert!(names.contains(&"system/brew-bundle".to_string()));
     }
 
     #[test]
@@ -717,7 +717,7 @@ step:
 
         let names = registry.all_template_names();
         assert!(
-            names.contains(&"unique-remote-tool".to_string()),
+            names.contains(&"tools/unique-remote-tool".to_string()),
             "Remote template should appear in all_template_names: {:?}",
             names
         );
@@ -774,7 +774,7 @@ step:
     #[test]
     fn resolve_builtin_with_wrong_category_fails() {
         let registry = Registry::new(None).unwrap();
-        let result = registry.resolve("node/version-bump");
+        let result = registry.resolve("iac/version-bump");
         assert!(matches!(result, Err(BivvyError::UnknownTemplate { .. })));
     }
 
@@ -789,7 +789,7 @@ step:
     fn has_with_wrong_category() {
         let registry = Registry::new(None).unwrap();
         assert!(!registry.has("ruby/brew-bundle"));
-        assert!(!registry.has("node/version-bump"));
+        assert!(!registry.has("iac/version-bump"));
     }
 
     #[test]

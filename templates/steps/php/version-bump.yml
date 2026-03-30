@@ -1,0 +1,43 @@
+name: version-bump
+description: "Bump version in composer.json"
+category: php
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+inputs:
+  bump:
+    description: "Version bump type (patch, minor, major) or explicit semver string (e.g. 1.5.0)"
+    type: string
+    required: true
+    prompt:
+      question: "Version bump type"
+      type: select
+      options:
+        - label: "Patch (x.y.Z)"
+          value: patch
+        - label: "Minor (x.Y.0)"
+          value: minor
+        - label: "Major (X.0.0)"
+          value: major
+
+step:
+  title: "Bump version"
+  description: "Update version in composer.json"
+  requires:
+    - php
+  precondition:
+    type: file_exists
+    path: "composer.json"
+  command: |
+    current=$(grep -oP '"version":\s*"\K[^"]+' composer.json)
+    major=$(echo "$current" | cut -d. -f1)
+    minor=$(echo "$current" | cut -d. -f2)
+    patch=$(echo "$current" | cut -d. -f3)
+    case "${bump}" in
+      patch) patch=$((patch + 1)) ;;
+      minor) minor=$((minor + 1)); patch=0 ;;
+      major) major=$((major + 1)); minor=0; patch=0 ;;
+      *) major=$(echo "${bump}" | cut -d. -f1); minor=$(echo "${bump}" | cut -d. -f2); patch=$(echo "${bump}" | cut -d. -f3) ;;
+    esac
+    new_version="${major}.${minor}.${patch}"
+    sed -i.bak "s/\"version\": \"${current}\"/\"version\": \"${new_version}\"/" composer.json && rm -f composer.json.bak

@@ -1,0 +1,22 @@
+name: version-bump
+description: "Bump version in pom.xml using Maven versions plugin"
+category: java
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+inputs:
+  bump:
+    description: "New version string (e.g. 1.5.0)"
+    type: string
+    required: true
+    prompt:
+      question: "New version"
+      type: input
+
+step:
+  title: "Bump version"
+  description: "Update version in pom.xml using Maven versions plugin"
+  precondition:
+    type: file_exists
+    path: "pom.xml"
+  command: "mvn versions:set -DnewVersion=\"${bump}\" -DgenerateBackupPoms=false"

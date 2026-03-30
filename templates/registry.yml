@@ -15,15 +15,15 @@ categories:
 
   - name: ruby
     description: "Ruby ecosystem tools"
-    templates: [bundle-install, rails-db]
+    templates: [bundle-install, rails-db, version-bump]
 
   - name: node
     description: "Node.js ecosystem tools"
-    templates: [yarn-install, npm-install, pnpm-install, bun-install, prisma-migrate, nextjs-build, vite-build, remix-build]
+    templates: [yarn-install, npm-install, pnpm-install, bun-install, prisma-migrate, nextjs-build, vite-build, remix-build, version-bump]
 
   - name: python
     description: "Python ecosystem tools"
-    templates: [pip-install, poetry-install, uv-sync, alembic-migrate, django-migrate]
+    templates: [pip-install, poetry-install, uv-sync, alembic-migrate, django-migrate, version-bump]
 
   - name: rust
     description: "Rust ecosystem tools"
@@ -31,15 +31,15 @@ categories:
 
   - name: go
     description: "Go ecosystem tools"
-    templates: [go-mod-download]
+    templates: [go-mod-download, version-bump]
 
   - name: php
     description: "PHP ecosystem tools"
-    templates: [composer-install, laravel-setup]
+    templates: [composer-install, laravel-setup, version-bump]
 
   - name: swift
     description: "Swift ecosystem tools"
-    templates: [swift-resolve]
+    templates: [swift-resolve, version-bump]
 
   - name: gradle
     description: "Gradle/JVM ecosystem tools"
@@ -47,7 +47,7 @@ categories:
 
   - name: elixir
     description: "Elixir ecosystem tools"
-    templates: [mix-deps-get]
+    templates: [mix-deps-get, version-bump]
 
   - name: iac
     description: "Infrastructure as Code tools"
@@ -55,11 +55,15 @@ categories:
 
   - name: java
     description: "Java ecosystem tools"
-    templates: [maven-resolve]
+    templates: [maven-resolve, version-bump]
 
   - name: dotnet
     description: ".NET ecosystem tools"
-    templates: [dotnet-restore]
+    templates: [dotnet-restore, version-bump]
+
+  - name: kotlin
+    description: "Kotlin ecosystem tools"
+    templates: [version-bump]
 
   - name: dart
     description: "Dart/Flutter ecosystem tools"

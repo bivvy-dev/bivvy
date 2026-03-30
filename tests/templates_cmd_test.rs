@@ -28,11 +28,11 @@ fn registry_lists_all_builtin_templates() -> Result<(), Box<dyn std::error::Erro
     let registry = Registry::new(None)?;
     let names = registry.all_template_names();
 
-    // Should include well-known builtins
-    assert!(names.contains(&"brew-bundle".to_string()));
-    assert!(names.contains(&"bundle-install".to_string()));
-    assert!(names.contains(&"npm-install".to_string()));
-    assert!(names.contains(&"cargo-build".to_string()));
+    // Should include well-known builtins (qualified as category/name)
+    assert!(names.contains(&"system/brew-bundle".to_string()));
+    assert!(names.contains(&"ruby/bundle-install".to_string()));
+    assert!(names.contains(&"node/npm-install".to_string()));
+    assert!(names.contains(&"rust/cargo-build".to_string()));
 
     // Names should be sorted
     let mut sorted = names.clone();
@@ -224,9 +224,9 @@ step:
     assert_eq!(template.name, "my-custom-tool");
     assert_eq!(source, TemplateSource::Project);
 
-    // Should appear in all template names
+    // Should appear in all template names (qualified as category/name)
     let names = registry.all_template_names();
-    assert!(names.contains(&"my-custom-tool".to_string()));
+    assert!(names.contains(&"project/my-custom-tool".to_string()));
 
     Ok(())
 }
@@ -249,9 +249,9 @@ step:
     let registry = Registry::new(Some(temp.path()))?;
     let names = registry.all_template_names();
 
-    assert!(names.contains(&"unique-project-template".to_string()));
+    assert!(names.contains(&"project/unique-project-template".to_string()));
     // Builtins should still be present
-    assert!(names.contains(&"brew-bundle".to_string()));
+    assert!(names.contains(&"system/brew-bundle".to_string()));
 
     Ok(())
 }
@@ -430,8 +430,8 @@ step:
     let registry = Registry::new(Some(temp.path()))?;
     let names = registry.all_template_names();
 
-    assert!(names.contains(&"tool-a".to_string()));
-    assert!(names.contains(&"tool-b".to_string()));
+    assert!(names.contains(&"tools/tool-a".to_string()));
+    assert!(names.contains(&"tools/tool-b".to_string()));
 
     // Both resolve as Project source
     let (_, source_a) = registry.resolve("tool-a")?;
@@ -510,7 +510,7 @@ fn registry_empty_project_templates_dir() -> Result<(), Box<dyn std::error::Erro
     let registry = Registry::new(Some(temp.path()))?;
     let names = registry.all_template_names();
     assert!(!names.is_empty());
-    assert!(names.contains(&"brew-bundle".to_string()));
+    assert!(names.contains(&"system/brew-bundle".to_string()));
 
     Ok(())
 }

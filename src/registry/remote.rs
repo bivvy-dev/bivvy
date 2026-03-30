@@ -32,9 +32,8 @@ impl RemoteLoader {
                 Ok(loaded) => {
                     for template in loaded {
                         // Only insert if not already present (higher priority wins)
-                        templates
-                            .entry(template.name.clone())
-                            .or_insert((template, source.priority));
+                        let key = format!("{}/{}", template.category, template.name);
+                        templates.entry(key).or_insert((template, source.priority));
                     }
                 }
                 Err(e) => {
@@ -107,14 +106,26 @@ impl RemoteLoader {
         )
     }
 
-    /// Get a template by name.
+    /// Get a template by name (unqualified — returns first match).
     pub fn get(&self, name: &str) -> Option<&Template> {
-        self.templates.get(name).map(|(t, _)| t)
+        if let Some((t, _)) = self.templates.get(name) {
+            return Some(t);
+        }
+        self.templates
+            .values()
+            .find(|(t, _)| t.name == name)
+            .map(|(t, _)| t)
     }
 
-    /// Get a template with its priority.
+    /// Get a template with its priority (unqualified — returns first match).
     pub fn get_with_priority(&self, name: &str) -> Option<(&Template, u32)> {
-        self.templates.get(name).map(|(t, p)| (t, *p))
+        if let Some((t, p)) = self.templates.get(name) {
+            return Some((t, *p));
+        }
+        self.templates
+            .values()
+            .find(|(t, _)| t.name == name)
+            .map(|(t, p)| (t, *p))
     }
 
     /// Get a template with its priority, filtering by category.
@@ -123,18 +134,16 @@ impl RemoteLoader {
         name: &str,
         category: &str,
     ) -> Option<(&Template, u32)> {
-        self.templates
-            .get(name)
-            .filter(|(t, _)| t.category == category)
-            .map(|(t, p)| (t, *p))
+        let key = format!("{}/{}", category, name);
+        self.templates.get(&key).map(|(t, p)| (t, *p))
     }
 
-    /// Check if a template exists.
+    /// Check if a template exists (by unqualified name).
     pub fn has(&self, name: &str) -> bool {
-        self.templates.contains_key(name)
+        self.templates.contains_key(name) || self.templates.values().any(|(t, _)| t.name == name)
     }
 
-    /// Get all template names.
+    /// Get all template names (qualified as `category/name`).
     pub fn template_names(&self) -> Vec<&str> {
         self.templates.keys().map(|s| s.as_str()).collect()
     }
