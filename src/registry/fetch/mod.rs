@@ -5,5 +5,5 @@
 pub mod git;
 pub mod http;
 
-pub use git::{GitFetchResult, GitFetcher};
+pub use git::{validate_git_url, GitFetchResult, GitFetcher};
 pub use http::{FetchResponse, HttpFetcher};

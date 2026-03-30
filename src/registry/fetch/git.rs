@@ -7,6 +7,36 @@ use anyhow::{bail, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 
+/// Allowed URL schemes for git clone operations.
+///
+/// Only secure transport protocols are permitted as defense-in-depth:
+/// - `https://` -- encrypted HTTP transport
+/// - `ssh://` -- SSH transport
+/// - `git://` -- native git protocol
+/// - `git@` -- SCP-style SSH shorthand (e.g. `git@github.com:org/repo.git`)
+///
+/// Rejected schemes include `file://` (local filesystem access), `ftp://`,
+/// and plain `http://` (unencrypted, vulnerable to MITM).
+pub fn validate_git_url(url: &str) -> Result<()> {
+    // SCP-style shorthand: git@host:path
+    if url.starts_with("git@") {
+        return Ok(());
+    }
+
+    const ALLOWED_SCHEMES: &[&str] = &["https://", "ssh://", "git://"];
+
+    for scheme in ALLOWED_SCHEMES {
+        if url.starts_with(scheme) {
+            return Ok(());
+        }
+    }
+
+    bail!(
+        "Unsupported git URL scheme: {url}\n\
+         Allowed schemes: https://, ssh://, git://, and git@ (SCP-style shorthand)"
+    );
+}
+
 /// Fetches templates from git repositories.
 pub struct GitFetcher {
     /// Directory for cloned repositories.
@@ -36,7 +66,16 @@ impl GitFetcher {
     }
 
     /// Clone or update a repository.
+    ///
+    /// Validates the URL scheme before proceeding. Only `https://`, `ssh://`,
+    /// `git://`, and `git@` SCP-style URLs are allowed.
     pub fn fetch(&self, url: &str, git_ref: Option<&str>) -> Result<GitFetchResult> {
+        validate_git_url(url)?;
+        self.fetch_unchecked(url, git_ref)
+    }
+
+    /// Internal fetch without URL validation (used by tests with local bare repos).
+    fn fetch_unchecked(&self, url: &str, git_ref: Option<&str>) -> Result<GitFetchResult> {
         let repo_path = self.repo_path(url);
 
         if repo_path.exists() {
@@ -54,13 +93,34 @@ impl GitFetcher {
     }
 
     /// Check if a repository has new commits.
+    ///
+    /// Validates the URL scheme before proceeding.
     pub fn has_updates(&self, url: &str, git_ref: Option<&str>, current_sha: &str) -> Result<bool> {
-        let remote_sha = self.resolve_ref(url, git_ref)?;
+        validate_git_url(url)?;
+        self.has_updates_unchecked(url, git_ref, current_sha)
+    }
+
+    /// Internal has_updates without URL validation.
+    fn has_updates_unchecked(
+        &self,
+        url: &str,
+        git_ref: Option<&str>,
+        current_sha: &str,
+    ) -> Result<bool> {
+        let remote_sha = self.resolve_ref_unchecked(url, git_ref)?;
         Ok(remote_sha != current_sha)
     }
 
     /// Get the current commit SHA for a ref using ls-remote.
+    ///
+    /// Validates the URL scheme before proceeding.
     pub fn resolve_ref(&self, url: &str, git_ref: Option<&str>) -> Result<String> {
+        validate_git_url(url)?;
+        self.resolve_ref_unchecked(url, git_ref)
+    }
+
+    /// Internal resolve_ref without URL validation.
+    fn resolve_ref_unchecked(&self, url: &str, git_ref: Option<&str>) -> Result<String> {
         let refspec = git_ref.unwrap_or("HEAD");
 
         // Try the refspec directly, then with refs/heads/ and refs/tags/ prefixes.
@@ -389,6 +449,107 @@ mod tests {
         assert!(output.status.success(), "git push failed");
     }
 
+    // --- URL validation tests ---
+
+    #[test]
+    fn validate_accepts_https_url() {
+        assert!(validate_git_url("https://github.com/org/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_ssh_url() {
+        assert!(validate_git_url("ssh://git@github.com/org/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_git_protocol_url() {
+        assert!(validate_git_url("git://github.com/org/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_accepts_scp_style_url() {
+        assert!(validate_git_url("git@github.com:org/repo.git").is_ok());
+    }
+
+    #[test]
+    fn validate_rejects_file_url() {
+        let result = validate_git_url("file:///etc/passwd");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Unsupported git URL scheme"));
+        assert!(err.contains("file:///etc/passwd"));
+        assert!(err.contains("Allowed schemes"));
+    }
+
+    #[test]
+    fn validate_rejects_ftp_url() {
+        let result = validate_git_url("ftp://example.com/repo.git");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Unsupported git URL scheme"));
+    }
+
+    #[test]
+    fn validate_rejects_http_url() {
+        let result = validate_git_url("http://example.com/repo.git");
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("Unsupported git URL scheme"));
+    }
+
+    #[test]
+    fn validate_rejects_bare_path() {
+        let result = validate_git_url("/some/local/path/repo.git");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_rejects_relative_path() {
+        let result = validate_git_url("../relative/repo.git");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn fetch_rejects_invalid_url_scheme() {
+        let temp = TempDir::new().unwrap();
+        let fetcher = GitFetcher::new(temp.path().join("clones"));
+
+        let result = fetcher.fetch("file:///tmp/repo.git", Some("main"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported git URL scheme"));
+    }
+
+    #[test]
+    fn has_updates_rejects_invalid_url_scheme() {
+        let temp = TempDir::new().unwrap();
+        let fetcher = GitFetcher::new(temp.path().join("clones"));
+
+        let result = fetcher.has_updates("http://example.com/repo.git", Some("main"), "abc123");
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported git URL scheme"));
+    }
+
+    #[test]
+    fn resolve_ref_rejects_invalid_url_scheme() {
+        let temp = TempDir::new().unwrap();
+        let fetcher = GitFetcher::new(temp.path().join("clones"));
+
+        let result = fetcher.resolve_ref("ftp://example.com/repo.git", Some("main"));
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported git URL scheme"));
+    }
+
+    // --- Local bare repo git tests (use unchecked methods for local paths) ---
+
     #[test]
     fn clone_from_local_bare_repo() {
         let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
@@ -399,7 +560,7 @@ mod tests {
         let fetcher = GitFetcher::new(&clone_dir);
 
         let result = fetcher
-            .fetch(&bare_path.to_string_lossy(), Some("main"))
+            .fetch_unchecked(&bare_path.to_string_lossy(), Some("main"))
             .unwrap();
 
         assert!(!result.commit_sha.is_empty());
@@ -419,12 +580,12 @@ mod tests {
 
         // Clone first
         let result = fetcher
-            .fetch(&bare_path.to_string_lossy(), Some("main"))
+            .fetch_unchecked(&bare_path.to_string_lossy(), Some("main"))
             .unwrap();
 
         // No changes have been made
         let has_updates = fetcher
-            .has_updates(
+            .has_updates_unchecked(
                 &bare_path.to_string_lossy(),
                 Some("main"),
                 &result.commit_sha,
@@ -445,7 +606,7 @@ mod tests {
 
         // Clone and get initial SHA
         let result = fetcher
-            .fetch(&bare_path.to_string_lossy(), Some("main"))
+            .fetch_unchecked(&bare_path.to_string_lossy(), Some("main"))
             .unwrap();
         let initial_sha = result.commit_sha;
 
@@ -454,7 +615,7 @@ mod tests {
 
         // Now should detect updates
         let has_updates = fetcher
-            .has_updates(&bare_path.to_string_lossy(), Some("main"), &initial_sha)
+            .has_updates_unchecked(&bare_path.to_string_lossy(), Some("main"), &initial_sha)
             .unwrap();
 
         assert!(has_updates);
@@ -469,7 +630,7 @@ mod tests {
         let fetcher = GitFetcher::new(temp.path().join("clones"));
 
         let sha = fetcher
-            .resolve_ref(&bare_path.to_string_lossy(), Some("main"))
+            .resolve_ref_unchecked(&bare_path.to_string_lossy(), Some("main"))
             .unwrap();
 
         assert!(!sha.is_empty());
@@ -520,7 +681,7 @@ mod tests {
         let fetcher = GitFetcher::new(temp.path().join("clones"));
 
         let sha = fetcher
-            .resolve_ref(&bare_path.to_string_lossy(), Some("v1.0"))
+            .resolve_ref_unchecked(&bare_path.to_string_lossy(), Some("v1.0"))
             .unwrap();
 
         assert!(!sha.is_empty());
@@ -529,13 +690,16 @@ mod tests {
 
     #[test]
     fn invalid_repo_url_returns_error() {
-        let _lock = GIT_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let temp = TempDir::new().unwrap();
         let fetcher = GitFetcher::new(temp.path().join("clones"));
 
+        // Bare paths are now rejected by URL validation
         let result = fetcher.fetch("/nonexistent/path/repo.git", Some("main"));
-
         assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Unsupported git URL scheme"));
     }
 
     #[test]
@@ -548,7 +712,7 @@ mod tests {
         let fetcher = GitFetcher::new(&clone_dir);
 
         let result = fetcher
-            .fetch(&bare_path.to_string_lossy(), Some("main"))
+            .fetch_unchecked(&bare_path.to_string_lossy(), Some("main"))
             .unwrap();
 
         // The "templates" subdirectory should contain our template
