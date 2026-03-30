@@ -13,8 +13,10 @@ use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
 use crate::shell::OutputLine;
+use crate::state::StateStore;
 use crate::steps::{
-    execute_step, run_check, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
+    execute_step, run_check, run_check_with_state, ExecutionOptions, ResolvedStep, StepResult,
+    StepStatus,
 };
 use crate::ui::spinner::live_output_callback;
 use crate::ui::theme::BivvyTheme;
@@ -107,10 +109,19 @@ impl<'a> WorkflowRunner<'a> {
         global_env: &HashMap<String, String>,
         project_root: &Path,
     ) -> Result<WorkflowResult> {
-        self.run_with_progress(options, context, global_env, project_root, None, |_| {})
+        self.run_with_progress(
+            options,
+            context,
+            global_env,
+            project_root,
+            None,
+            None,
+            |_| {},
+        )
     }
 
     /// Run the specified workflow with a progress callback.
+    #[allow(clippy::too_many_arguments)]
     pub fn run_with_progress(
         &self,
         options: &RunOptions,
@@ -118,6 +129,7 @@ impl<'a> WorkflowRunner<'a> {
         global_env: &HashMap<String, String>,
         project_root: &Path,
         mut gap_checker: Option<&mut GapChecker<'_>>,
+        mut state: Option<&mut StateStore>,
         mut on_progress: impl FnMut(RunProgress<'_>),
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
@@ -209,6 +221,34 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
+            // State-aware completed check for Marker type
+            if !options.force.contains(step_name) {
+                if let Some(crate::config::CompletedCheck::Marker) = &step.completed_check {
+                    if let Some(ref state_store) = state {
+                        let state_ctx = crate::steps::StateCheckContext {
+                            step_name,
+                            watches: &step.watches,
+                            state: state_store,
+                            project_root,
+                        };
+                        let check_result = run_check_with_state(
+                            step.completed_check.as_ref().unwrap(),
+                            project_root,
+                            Some(&state_ctx),
+                        );
+                        if check_result.complete {
+                            let skip_result = StepResult::skipped(step_name, check_result);
+                            on_progress(RunProgress::StepFinished {
+                                name: step_name,
+                                result: &skip_result,
+                            });
+                            results.push(skip_result);
+                            continue;
+                        }
+                    }
+                }
+            }
+
             on_progress(RunProgress::StepStarting {
                 name: step_name,
                 index,
@@ -236,6 +276,28 @@ impl<'a> WorkflowRunner<'a> {
                 name: step_name,
                 result: &result,
             });
+
+            // Record step state if state tracking is available
+            if let Some(ref mut state_store) = state {
+                let state_status = match result.status() {
+                    StepStatus::Completed => crate::state::StepStatus::Success,
+                    StepStatus::Failed => crate::state::StepStatus::Failed,
+                    StepStatus::Skipped => crate::state::StepStatus::Skipped,
+                    _ => crate::state::StepStatus::NeverRun,
+                };
+                let watches_hash = if !step.watches.is_empty() {
+                    let detector = crate::state::ChangeDetector::new(state_store, project_root);
+                    detector.compute_watches_hash(&step.watches)
+                } else {
+                    None
+                };
+                state_store.record_step_result(
+                    step_name,
+                    state_status,
+                    result.duration,
+                    watches_hash,
+                );
+            }
 
             let status = result.status();
 
@@ -267,6 +329,7 @@ impl<'a> WorkflowRunner<'a> {
     /// Unlike `run_with_progress`, this method takes a `UserInterface` directly
     /// and handles interactive prompts for completed steps and sensitive steps.
     /// An optional `GapChecker` enables requirement gap detection before step execution.
+    /// An optional `StateStore` enables state-aware marker checks and step recording.
     #[allow(clippy::too_many_arguments)]
     pub fn run_with_ui(
         &self,
@@ -277,6 +340,7 @@ impl<'a> WorkflowRunner<'a> {
         workflow_non_interactive: bool,
         step_overrides: &HashMap<String, StepOverride>,
         mut gap_checker: Option<&mut GapChecker<'_>>,
+        mut state: Option<&mut StateStore>,
         ui: &mut dyn UserInterface,
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
@@ -423,7 +487,17 @@ impl<'a> WorkflowRunner<'a> {
             // Check if already complete (unless forced)
             if !needs_force && !options.dry_run {
                 if let Some(ref check) = step.completed_check {
-                    let check_result = run_check(check, project_root);
+                    let check_result = if let Some(ref state_store) = state {
+                        let state_ctx = crate::steps::StateCheckContext {
+                            step_name,
+                            watches: &step.watches,
+                            state: state_store,
+                            project_root,
+                        };
+                        run_check_with_state(check, project_root, Some(&state_ctx))
+                    } else {
+                        run_check(check, project_root)
+                    };
                     if check_result.complete {
                         if interactive && effective_prompt_if_complete {
                             if step.skippable {
@@ -848,6 +922,28 @@ impl<'a> WorkflowRunner<'a> {
 
             // Push the final result exactly once
             if let Some(result) = final_result {
+                // Record step state if state tracking is available
+                if let Some(ref mut state_store) = state {
+                    let state_status = match result.status() {
+                        StepStatus::Completed => crate::state::StepStatus::Success,
+                        StepStatus::Failed => crate::state::StepStatus::Failed,
+                        StepStatus::Skipped => crate::state::StepStatus::Skipped,
+                        _ => crate::state::StepStatus::NeverRun,
+                    };
+                    let watches_hash = if !step.watches.is_empty() {
+                        let detector = crate::state::ChangeDetector::new(state_store, project_root);
+                        detector.compute_watches_hash(&step.watches)
+                    } else {
+                        None
+                    };
+                    state_store.record_step_result(
+                        step_name,
+                        state_status,
+                        result.duration,
+                        watches_hash,
+                    );
+                }
+
                 let status = result.status();
                 results.push(result);
 
@@ -1161,6 +1257,7 @@ mod tests {
                 &HashMap::new(),
                 temp.path(),
                 None,
+                None,
                 |progress| match &progress {
                     RunProgress::StepStarting { name, .. } => {
                         events.push(format!("start:{}", name));
@@ -1221,6 +1318,7 @@ mod tests {
                 &ctx,
                 &HashMap::new(),
                 temp.path(),
+                None,
                 None,
                 |progress| {
                     if let RunProgress::StepSkipped { name } = progress {
@@ -1319,6 +1417,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1367,6 +1466,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -1419,6 +1519,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -1480,6 +1581,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1536,6 +1638,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1588,6 +1691,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -1643,6 +1747,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1690,6 +1795,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -1736,6 +1842,7 @@ mod tests {
             temp.path(),
             false,
             &HashMap::new(),
+            None,
             None,
             &mut ui,
         );
@@ -1785,6 +1892,7 @@ mod tests {
                 temp.path(),
                 true, // workflow_non_interactive
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -1846,6 +1954,7 @@ mod tests {
                 temp.path(),
                 false,
                 &overrides,
+                None,
                 None,
                 &mut ui,
             )
@@ -2096,6 +2205,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2143,6 +2253,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -2357,6 +2468,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2404,6 +2516,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2449,6 +2562,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2492,6 +2606,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -2545,6 +2660,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2593,6 +2709,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -2658,6 +2775,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 Some(&mut checker),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2712,6 +2830,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 Some(&mut checker),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2764,6 +2883,7 @@ mod tests {
             false,
             &HashMap::new(),
             Some(&mut checker),
+            None,
             &mut ui,
         );
 
@@ -2820,6 +2940,7 @@ mod tests {
             false,
             &HashMap::new(),
             Some(&mut checker),
+            None,
             &mut ui,
         );
 
@@ -2874,6 +2995,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 Some(&mut checker),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -2920,6 +3042,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 Some(&mut checker),
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3111,11 +3234,19 @@ mod tests {
 
         let mut skipped_names = Vec::new();
         let result = runner
-            .run_with_progress(&options, &ctx, &global_env, temp.path(), None, |progress| {
-                if let RunProgress::StepSkipped { name } = progress {
-                    skipped_names.push(name.to_string());
-                }
-            })
+            .run_with_progress(
+                &options,
+                &ctx,
+                &global_env,
+                temp.path(),
+                None,
+                None,
+                |progress| {
+                    if let RunProgress::StepSkipped { name } = progress {
+                        skipped_names.push(name.to_string());
+                    }
+                },
+            )
             .unwrap();
 
         assert_eq!(result.steps.len(), 1);
@@ -3209,6 +3340,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3268,6 +3400,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3326,6 +3459,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3382,6 +3516,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3431,6 +3566,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -3485,6 +3621,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -3542,6 +3679,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3588,6 +3726,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -3641,6 +3780,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3686,6 +3826,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -3737,6 +3878,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3787,6 +3929,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )
@@ -3862,6 +4005,7 @@ mod tests {
                 false,
                 &HashMap::new(),
                 None,
+                None,
                 &mut ui,
             )
             .unwrap();
@@ -3907,6 +4051,7 @@ mod tests {
                 temp.path(),
                 false,
                 &HashMap::new(),
+                None,
                 None,
                 &mut ui,
             )

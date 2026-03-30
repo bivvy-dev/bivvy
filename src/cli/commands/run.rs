@@ -279,6 +279,7 @@ impl Command for RunCommand {
             workflow_non_interactive,
             &step_overrides,
             Some(&mut gap_checker),
+            Some(&mut state),
             ui,
         )?;
 

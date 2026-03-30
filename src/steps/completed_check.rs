@@ -7,6 +7,7 @@ use crate::config::interpolation::{resolve_string, InterpolationContext};
 use crate::config::CompletedCheck;
 use crate::error::Result;
 use crate::shell::execute_check;
+use crate::state::{ChangeDetector, StateStore, StepStatus as StateStepStatus};
 use std::path::Path;
 
 /// Result of running a completed check.
@@ -140,6 +141,79 @@ pub fn run_check_interpolated(
                 ))
             }
         }
+    }
+}
+
+/// Context for state-aware completed checks.
+pub struct StateCheckContext<'a> {
+    /// Name of the step being checked.
+    pub step_name: &'a str,
+    /// Watched file paths for this step.
+    pub watches: &'a [String],
+    /// The state store to query.
+    pub state: &'a StateStore,
+    /// Project root directory.
+    pub project_root: &'a Path,
+}
+
+/// Run a completed check with state awareness.
+///
+/// For Marker checks, this queries the state store and change detector
+/// to determine if the step needs to re-run. For all other check types,
+/// this delegates to the standard `run_check()`.
+pub fn run_check_with_state(
+    check: &CompletedCheck,
+    project_root: &Path,
+    state_ctx: Option<&StateCheckContext>,
+) -> CheckResult {
+    match check {
+        CompletedCheck::Marker => {
+            if let Some(ctx) = state_ctx {
+                check_marker_with_state(ctx)
+            } else {
+                check_marker(project_root)
+            }
+        }
+        _ => run_check(check, project_root),
+    }
+}
+
+/// Check marker with state tracking.
+///
+/// Queries the state store for previous execution results and uses the
+/// change detector to check if watched files have changed since the last run.
+fn check_marker_with_state(ctx: &StateCheckContext) -> CheckResult {
+    let step_state = match ctx.state.get_step(ctx.step_name) {
+        Some(s) => s,
+        None => {
+            return CheckResult::incomplete("Marker check", "Step has never been run".to_string())
+        }
+    };
+
+    match step_state.status {
+        StateStepStatus::Success => {
+            // Step previously succeeded — check if watches changed
+            if ctx.watches.is_empty() {
+                CheckResult::complete("Previously succeeded")
+            } else {
+                let detector = ChangeDetector::new(ctx.state, ctx.project_root);
+                if detector.has_watches_changed(ctx.step_name, ctx.watches) {
+                    CheckResult::incomplete(
+                        "Marker check",
+                        "Watched files changed since last run".to_string(),
+                    )
+                } else {
+                    CheckResult::complete("Previously succeeded, no changes detected")
+                }
+            }
+        }
+        StateStepStatus::Failed => {
+            CheckResult::incomplete("Marker check", "Previous run failed".to_string())
+        }
+        StateStepStatus::Skipped | StateStepStatus::NeverRun => CheckResult::incomplete(
+            "Marker check",
+            "Step has not completed successfully".to_string(),
+        ),
     }
 }
 
@@ -550,5 +624,170 @@ mod tests {
     fn short_description_strips_command_failed_prefix() {
         let result = CheckResult::incomplete("Command failed: cargo test", "nonzero");
         assert_eq!(result.short_description(), "cargo test");
+    }
+
+    // --- State-aware marker check tests ---
+
+    use crate::state::{ProjectId, StateStore, StepStatus as StateStepStatus};
+
+    #[test]
+    fn marker_check_returns_incomplete_when_never_run_with_state() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+        let state = StateStore::new(&project);
+
+        let ctx = StateCheckContext {
+            step_name: "test",
+            watches: &[],
+            state: &state,
+            project_root: temp.path(),
+        };
+
+        let result = run_check_with_state(&CompletedCheck::Marker, temp.path(), Some(&ctx));
+        assert!(!result.complete);
+        assert!(result.details.as_ref().unwrap().contains("never been run"));
+    }
+
+    #[test]
+    fn marker_check_returns_complete_when_previously_succeeded_no_watches() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::new(&project);
+        state.record_step_result(
+            "test",
+            StateStepStatus::Success,
+            std::time::Duration::from_secs(1),
+            None,
+        );
+
+        let ctx = StateCheckContext {
+            step_name: "test",
+            watches: &[],
+            state: &state,
+            project_root: temp.path(),
+        };
+
+        let result = run_check_with_state(&CompletedCheck::Marker, temp.path(), Some(&ctx));
+        assert!(result.complete);
+        assert!(result.description.contains("Previously succeeded"));
+    }
+
+    #[test]
+    fn marker_check_returns_incomplete_when_previously_failed() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::new(&project);
+        state.record_step_result(
+            "test",
+            StateStepStatus::Failed,
+            std::time::Duration::from_secs(1),
+            None,
+        );
+
+        let ctx = StateCheckContext {
+            step_name: "test",
+            watches: &[],
+            state: &state,
+            project_root: temp.path(),
+        };
+
+        let result = run_check_with_state(&CompletedCheck::Marker, temp.path(), Some(&ctx));
+        assert!(!result.complete);
+        assert!(result.details.as_ref().unwrap().contains("failed"));
+    }
+
+    #[test]
+    fn marker_check_returns_complete_when_watches_unchanged() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::new(&project);
+
+        // Create a watched file
+        fs::write(temp.path().join("lock.txt"), "content").unwrap();
+
+        // Compute and store the watches hash
+        let watches = vec!["lock.txt".to_string()];
+        let hash = {
+            let detector = crate::state::ChangeDetector::new(&state, temp.path());
+            detector.compute_watches_hash(&watches)
+        };
+        state.record_step_result(
+            "test",
+            StateStepStatus::Success,
+            std::time::Duration::from_secs(1),
+            hash,
+        );
+
+        let ctx = StateCheckContext {
+            step_name: "test",
+            watches: &watches,
+            state: &state,
+            project_root: temp.path(),
+        };
+
+        let result = run_check_with_state(&CompletedCheck::Marker, temp.path(), Some(&ctx));
+        assert!(
+            result.complete,
+            "should be complete when watches unchanged, got: {:?}",
+            result
+        );
+    }
+
+    #[test]
+    fn marker_check_returns_incomplete_when_watches_changed() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+        let mut state = StateStore::new(&project);
+
+        // Create a watched file and record state with its hash
+        fs::write(temp.path().join("lock.txt"), "original").unwrap();
+        let watches = vec!["lock.txt".to_string()];
+        let hash = {
+            let detector = crate::state::ChangeDetector::new(&state, temp.path());
+            detector.compute_watches_hash(&watches)
+        };
+        state.record_step_result(
+            "test",
+            StateStepStatus::Success,
+            std::time::Duration::from_secs(1),
+            hash,
+        );
+
+        // Now modify the watched file
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        fs::write(temp.path().join("lock.txt"), "changed").unwrap();
+
+        let ctx = StateCheckContext {
+            step_name: "test",
+            watches: &watches,
+            state: &state,
+            project_root: temp.path(),
+        };
+
+        let result = run_check_with_state(&CompletedCheck::Marker, temp.path(), Some(&ctx));
+        assert!(
+            !result.complete,
+            "should be incomplete when watches changed"
+        );
+        assert!(result.details.as_ref().unwrap().contains("changed"));
+    }
+
+    #[test]
+    fn run_check_with_state_delegates_non_marker_checks() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("exists.txt"), "").unwrap();
+
+        let check = CompletedCheck::FileExists {
+            path: "exists.txt".to_string(),
+        };
+        let result = run_check_with_state(&check, temp.path(), None);
+        assert!(result.complete);
+    }
+
+    #[test]
+    fn run_check_with_state_without_context_falls_back_to_stub() {
+        let temp = TempDir::new().unwrap();
+        let result = run_check_with_state(&CompletedCheck::Marker, temp.path(), None);
+        assert!(!result.complete); // Falls back to stub
     }
 }
