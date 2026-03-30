@@ -26,7 +26,6 @@ pub struct FeedbackArgs {
     pub command: Option<FeedbackSubcommand>,
 
     /// Feedback message (when not using a subcommand).
-    #[arg(trailing_var_arg = true)]
     pub message: Vec<String>,
 
     /// Tags for categorization.
