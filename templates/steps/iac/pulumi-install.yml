@@ -1,0 +1,23 @@
+name: pulumi-install
+description: "Install Pulumi project dependencies"
+category: iac
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [pulumi-project.file]
+
+step:
+  title: "Install Pulumi dependencies"
+  description: "Install Pulumi plugins and project dependencies"
+  command: "pulumi install"
+  requires:
+    - pulumi
+  completed_check:
+    type: command_succeeds
+    command: "pulumi plugin ls 2>&1 | grep -q ."
+  watches:
+    - Pulumi.yaml
+    - Pulumi.lock
+
+environment_impact:
+  note: "Pulumi plugins are installed to ~/.pulumi/plugins"

@@ -1,0 +1,25 @@
+name: spring-boot-build
+description: "Set up a Spring Boot application"
+category: gradle
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [spring-boot-project.files]
+
+step:
+  title: "Build Spring Boot application"
+  description: "Build the Spring Boot application and run tests"
+  command: "./gradlew build -x test"
+  requires:
+    - java
+  completed_check:
+    type: file_exists
+    path: "build/libs"
+  watches:
+    - build.gradle.kts
+    - build.gradle
+    - src/main/resources/application.properties
+    - src/main/resources/application.yml
+
+environment_impact:
+  note: "Builds application JARs in build/libs directory"

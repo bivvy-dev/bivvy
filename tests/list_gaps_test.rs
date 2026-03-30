@@ -186,7 +186,7 @@ fn list_shows_template_reference() -> Result<(), Box<dyn std::error::Error>> {
 app_name: Test
 steps:
   deps:
-    template: yarn
+    template: yarn-install
 workflows:
   default:
     steps: [deps]
@@ -197,7 +197,7 @@ workflows:
     cmd.arg("list");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("template: yarn"));
+        .stdout(predicate::str::contains("template: yarn-install"));
     Ok(())
 }
 

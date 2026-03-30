@@ -16,9 +16,9 @@ fn public_api_accessible() {
 #[test]
 fn resolve_builtin_template() {
     let registry = Registry::new(None).unwrap();
-    let (template, source) = registry.resolve("brew").unwrap();
+    let (template, source) = registry.resolve("brew-bundle").unwrap();
 
-    assert_eq!(template.name, "brew");
+    assert_eq!(template.name, "brew-bundle");
     assert_eq!(source, TemplateSource::Builtin);
 }
 
@@ -34,7 +34,7 @@ fn full_template_workflow() {
         r#"
 steps:
   deps:
-    template: brew
+    template: brew-bundle
 "#,
     )
     .unwrap();
@@ -43,12 +43,12 @@ steps:
     let registry = Registry::new(Some(temp.path())).unwrap();
 
     // Resolve template
-    let (template, source) = registry.resolve("brew").unwrap();
+    let (template, source) = registry.resolve("brew-bundle").unwrap();
     assert_eq!(source, TemplateSource::Builtin);
 
     // Create resolved step
     let step_config = StepConfig {
-        template: Some("brew".to_string()),
+        template: Some("brew-bundle".to_string()),
         ..Default::default()
     };
 
@@ -65,19 +65,19 @@ fn local_template_override() {
     let templates_dir = temp.path().join(".bivvy").join("templates").join("steps");
     fs::create_dir_all(&templates_dir).unwrap();
 
-    // Create local template that shadows brew
+    // Create local template that shadows brew-bundle
     let local_brew = r#"
-name: brew
+name: brew-bundle
 description: "Local brew override"
 category: local
 step:
   title: "Local Brew"
   command: "echo local brew"
 "#;
-    fs::write(templates_dir.join("brew.yml"), local_brew).unwrap();
+    fs::write(templates_dir.join("brew-bundle.yml"), local_brew).unwrap();
 
     let registry = Registry::new(Some(temp.path())).unwrap();
-    let (template, source) = registry.resolve("brew").unwrap();
+    let (template, source) = registry.resolve("brew-bundle").unwrap();
 
     assert_eq!(template.description, "Local brew override");
     assert_eq!(source, TemplateSource::Project);

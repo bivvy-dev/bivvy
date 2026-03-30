@@ -1,0 +1,16 @@
+name: choco-install
+description: "Install Windows packages using Chocolatey"
+category: windows
+version: "1.0.0"
+platforms: [windows]
+
+detectors: [chocolatey-installed.command]
+
+step:
+  title: "Install Chocolatey packages"
+  description: "Install packages using the Chocolatey package manager"
+  command: "choco install -y"
+
+environment_impact:
+  modifies_path: true
+  note: "Chocolatey packages may add executables to PATH"

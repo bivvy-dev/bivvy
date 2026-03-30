@@ -1,0 +1,23 @@
+name: dart-pub-get
+description: "Install Dart dependencies"
+category: dart
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [pubspec-present.file]
+
+step:
+  title: "Install Dart dependencies"
+  description: "Install packages using dart pub"
+  command: "dart pub get"
+  requires:
+    - dart
+  completed_check:
+    type: file_exists
+    path: ".dart_tool"
+  watches:
+    - pubspec.yaml
+    - pubspec.lock
+
+environment_impact:
+  note: "Packages are cached in ~/.pub-cache"

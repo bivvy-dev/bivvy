@@ -774,13 +774,13 @@ secrets:
         let yaml = r#"
 steps:
   node_deps:
-    template: yarn
+    template: yarn-install
     inputs:
       frozen: true
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["node_deps"];
-        assert_eq!(step.template, Some("yarn".to_string()));
+        assert_eq!(step.template, Some("yarn-install".to_string()));
     }
 
     #[test]

@@ -26,12 +26,12 @@ fn init_detects_ruby_project_and_includes_bundler() -> Result<(), Box<dyn std::e
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
     assert!(
-        config.contains("bundler"),
-        "Config should reference bundler template for Ruby project"
+        config.contains("bundle-install"),
+        "Config should reference bundle-install template for Ruby project"
     );
     assert!(
-        config.contains("template: bundler"),
-        "Config should use template: bundler"
+        config.contains("template: bundle-install"),
+        "Config should use template: bundle-install"
     );
     Ok(())
 }
@@ -53,7 +53,9 @@ fn init_detects_node_project_and_includes_package_manager() -> Result<(), Box<dy
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
     // Should detect npm/yarn/pnpm depending on lockfiles; at minimum should have a step
     assert!(
-        config.contains("npm") || config.contains("yarn") || config.contains("pnpm"),
+        config.contains("npm-install")
+            || config.contains("yarn-install")
+            || config.contains("pnpm"),
         "Config should include a Node.js package manager step, got:\n{}",
         config
     );
@@ -75,8 +77,8 @@ fn init_detects_rust_project_and_includes_cargo() -> Result<(), Box<dyn std::err
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
     assert!(
-        config.contains("cargo"),
-        "Config should reference cargo template for Rust project"
+        config.contains("cargo-build"),
+        "Config should reference cargo-build template for Rust project"
     );
     Ok(())
 }
@@ -127,12 +129,14 @@ fn init_multi_language_project_detects_all() -> Result<(), Box<dyn std::error::E
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
     assert!(
-        config.contains("bundler"),
-        "Should detect Ruby/bundler in multi-lang project"
+        config.contains("bundle-install"),
+        "Should detect Ruby/bundle-install in multi-lang project"
     );
     // Should also detect a JS package manager
     assert!(
-        config.contains("npm") || config.contains("yarn") || config.contains("pnpm"),
+        config.contains("npm-install")
+            || config.contains("yarn-install")
+            || config.contains("pnpm"),
         "Should detect Node.js package manager in multi-lang project, got:\n{}",
         config
     );
@@ -253,7 +257,7 @@ fn init_no_gitignore_does_not_create_one() -> Result<(), Box<dyn std::error::Err
 }
 
 #[test]
-fn init_scanning_output_shown() -> Result<(), Box<dyn std::error::Error>> {
+fn init_header_output_shown() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
 
     let mut cmd = Command::new(cargo_bin("bivvy"));
@@ -261,6 +265,6 @@ fn init_scanning_output_shown() -> Result<(), Box<dyn std::error::Error>> {
     cmd.args(["init", "--minimal"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Scanning project"));
+        .stdout(predicate::str::contains("· init"));
     Ok(())
 }

@@ -701,12 +701,12 @@ workflows:
     }
 
     #[test]
-    fn resolve_steps_uses_template_for_brew() {
+    fn resolve_steps_uses_template_for_brew_bundle() {
         let config_yaml = r#"
 app_name: test
 steps:
   brew:
-    template: brew
+    template: brew-bundle
 workflows:
   default:
     steps: [brew]
@@ -721,11 +721,11 @@ workflows:
         let brew_step = steps.get("brew").unwrap();
         assert!(
             !brew_step.command.is_empty(),
-            "template step should have a command from the brew template"
+            "template step should have a command from the brew-bundle template"
         );
         assert!(
             brew_step.command.contains("brew"),
-            "brew template command should mention brew, got: {}",
+            "brew-bundle template command should mention brew, got: {}",
             brew_step.command
         );
     }
@@ -785,7 +785,7 @@ workflows:
 app_name: test
 steps:
   brew:
-    template: brew
+    template: brew-bundle
 workflows:
   default:
     steps: [brew]

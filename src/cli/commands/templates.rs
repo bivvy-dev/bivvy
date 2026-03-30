@@ -172,9 +172,9 @@ mod tests {
         cmd.execute(&mut ui).unwrap();
 
         // Should show well-known template names
-        assert!(ui.messages().iter().any(|m| m.contains("bundler")));
-        assert!(ui.messages().iter().any(|m| m.contains("yarn")));
-        assert!(ui.messages().iter().any(|m| m.contains("cargo")));
+        assert!(ui.messages().iter().any(|m| m.contains("bundle-install")));
+        assert!(ui.messages().iter().any(|m| m.contains("yarn-install")));
+        assert!(ui.messages().iter().any(|m| m.contains("cargo-build")));
     }
 
     #[test]
@@ -190,10 +190,10 @@ mod tests {
 
         assert!(result.success);
         // Should show ruby category
-        assert!(ui.messages().iter().any(|m| m.contains("bundler")));
+        assert!(ui.messages().iter().any(|m| m.contains("bundle-install")));
         // Should NOT show non-ruby templates
-        assert!(!ui.messages().iter().any(|m| m.contains("yarn")));
-        assert!(!ui.messages().iter().any(|m| m.contains("cargo")));
+        assert!(!ui.messages().iter().any(|m| m.contains("yarn-install")));
+        assert!(!ui.messages().iter().any(|m| m.contains("cargo-build")));
     }
 
     #[test]

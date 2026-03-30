@@ -1,0 +1,25 @@
+name: composer-install
+description: "Install PHP dependencies using Composer"
+category: php
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [composer-json-present.file]
+
+step:
+  title: "Install PHP dependencies"
+  description: "Install packages from composer.json using Composer"
+  command: "composer install"
+  requires:
+    - php
+  completed_check:
+    type: file_exists
+    path: "vendor"
+  watches:
+    - composer.json
+    - composer.lock
+
+environment_impact:
+  path_additions:
+    - "./vendor/bin"
+  note: "PHP packages are installed to the vendor directory"

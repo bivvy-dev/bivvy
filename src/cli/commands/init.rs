@@ -61,7 +61,7 @@ impl InitCommand {
              # Override any template field per-step:\n\
              #   steps:\n\
              #     example:\n\
-             #       template: bundler\n\
+             #       template: bundle-install\n\
              #       env:\n\
              #         BUNDLE_WITHOUT: \"production\"\n\
              #\n\
@@ -77,7 +77,7 @@ impl InitCommand {
              # Create named workflows:\n\
              #   workflows:\n\
              #     ci:\n\
-             #       steps: [bundler, yarn]\n\
+             #       steps: [bundle-install, yarn-install]\n\
              #       settings:\n\
              #         default_output: quiet\n\
              \n\
@@ -171,8 +171,14 @@ impl Command for InitCommand {
             return Ok(CommandResult::failure(1));
         }
 
-        ui.show_header("Project Setup");
-        ui.message("Scanning project...\n");
+        // Show init header with version
+        let version = crate::updates::version::VERSION;
+        ui.message(&format!(
+            "\n{} {} {}\n",
+            console::style("⛺").bold().magenta(),
+            console::style(format!("bivvy v{}", version)).dim(),
+            console::style("· init").dim(),
+        ));
 
         // Run detection
         let detection = DetectionRunner::run(&self.project_root);
@@ -181,11 +187,7 @@ impl Command for InitCommand {
         if !detection.project.details.is_empty() {
             ui.message("Detected technologies:");
             for detail in &detection.project.details {
-                ui.success(&format!(
-                    "  {} - {}",
-                    detail.name,
-                    detail.details.join(", ")
-                ));
+                ui.success(&format!("{} - {}", detail.name, detail.details.join(", ")));
             }
             ui.message("");
         }
@@ -207,8 +209,6 @@ impl Command for InitCommand {
             }
         } else if !detection.suggested_templates.is_empty() {
             // Interactive multi-select checklist
-            ui.message("Use [space] to toggle, [a] to toggle all, [enter] to confirm\n");
-
             let options: Vec<PromptOption> = detection
                 .suggested_templates
                 .iter()
@@ -260,6 +260,16 @@ impl Command for InitCommand {
 
         ui.success("Created .bivvy/config.yml");
 
+        // Show init summary
+        let step_names: Vec<&str> = steps.iter().map(|s| s.as_str()).collect();
+        ui.message("Workflow: default");
+        ui.message(&format!(
+            "Steps: {} ({})",
+            steps.len(),
+            step_names.join(", ")
+        ));
+        ui.message("");
+
         // Offer to run setup immediately (interactive only)
         if ui.is_interactive() {
             let prompt = Prompt {
@@ -268,16 +278,16 @@ impl Command for InitCommand {
                 prompt_type: PromptType::Select {
                     options: vec![
                         PromptOption {
-                            label: "Yes".to_string(),
-                            value: "yes".to_string(),
+                            label: "No (n)".to_string(),
+                            value: "no".to_string(),
                         },
                         PromptOption {
-                            label: "No".to_string(),
-                            value: "no".to_string(),
+                            label: "Yes (y)".to_string(),
+                            value: "yes".to_string(),
                         },
                     ],
                 },
-                default: Some("yes".to_string()),
+                default: Some("no".to_string()),
             };
 
             if let Ok(PromptResult::String(answer)) = ui.prompt(&prompt) {
@@ -317,16 +327,17 @@ mod tests {
         let args = InitArgs::default();
         let cmd = InitCommand::new(temp.path(), args);
 
-        let steps: Vec<(&str, Option<&Template>)> = vec![("bundler", None), ("yarn", None)];
+        let steps: Vec<(&str, Option<&Template>)> =
+            vec![("bundle-install", None), ("yarn-install", None)];
         let config = cmd.create_config(&steps);
 
-        assert!(config.contains("bundler"));
-        assert!(config.contains("yarn"));
-        assert!(config.contains("template: bundler"));
-        assert!(config.contains("template: yarn"));
+        assert!(config.contains("bundle-install"));
+        assert!(config.contains("yarn-install"));
+        assert!(config.contains("template: bundle-install"));
+        assert!(config.contains("template: yarn-install"));
         assert!(config.contains("workflows:"));
         assert!(config.contains("default:"));
-        assert!(config.contains("steps: [bundler, yarn]"));
+        assert!(config.contains("steps: [bundle-install, yarn-install]"));
     }
 
     #[test]
@@ -336,15 +347,16 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
 
         let loader = BuiltinLoader::new().unwrap();
-        let bundler = loader.get("bundler");
-        let yarn = loader.get("yarn");
+        let bundler = loader.get("bundle-install");
+        let yarn = loader.get("yarn-install");
 
-        let steps: Vec<(&str, Option<&Template>)> = vec![("bundler", bundler), ("yarn", yarn)];
+        let steps: Vec<(&str, Option<&Template>)> =
+            vec![("bundle-install", bundler), ("yarn-install", yarn)];
         let config = cmd.create_config(&steps);
 
         // Should contain template references
-        assert!(config.contains("template: bundler"));
-        assert!(config.contains("template: yarn"));
+        assert!(config.contains("template: bundle-install"));
+        assert!(config.contains("template: yarn-install"));
 
         // Should contain commented-out command info from templates
         assert!(config.contains("# command: bundle install"));
@@ -368,9 +380,9 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
 
         let loader = BuiltinLoader::new().unwrap();
-        let npm = loader.get("npm");
+        let npm = loader.get("npm-install");
 
-        let steps: Vec<(&str, Option<&Template>)> = vec![("npm", npm)];
+        let steps: Vec<(&str, Option<&Template>)> = vec![("npm-install", npm)];
         let config = cmd.create_config(&steps);
 
         assert!(config.contains("#   type: file_exists"));
@@ -383,7 +395,7 @@ mod tests {
         let args = InitArgs::default();
         let cmd = InitCommand::new(temp.path(), args);
 
-        let steps: Vec<(&str, Option<&Template>)> = vec![("bundler", None)];
+        let steps: Vec<(&str, Option<&Template>)> = vec![("bundle-install", None)];
         let config = cmd.create_config(&steps);
 
         assert!(config.contains("# Bivvy configuration for"));
@@ -501,7 +513,7 @@ mod tests {
         assert!(result.success);
 
         let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(config.contains("bundler"));
+        assert!(config.contains("bundle-install"));
         // Enriched output should include template info
         assert!(config.contains("# command: bundle install"));
     }
@@ -583,12 +595,12 @@ mod tests {
 
         assert!(result.success);
         let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(config.contains("bundler"));
-        assert!(config.contains("cargo"));
+        assert!(config.contains("bundle-install"));
+        assert!(config.contains("cargo-build"));
     }
 
     #[test]
-    fn init_interactive_shows_hints() {
+    fn init_interactive_shows_summary() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile"), "source 'https://rubygems.org'").unwrap();
 
@@ -600,7 +612,7 @@ mod tests {
 
         cmd.execute(&mut ui).unwrap();
 
-        assert!(ui.has_message("[space] to toggle"));
+        assert!(ui.has_message("Workflow: default"));
     }
 
     #[test]
@@ -613,20 +625,20 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
         let mut ui = MockUI::new();
         ui.set_interactive(true);
-        // Only select cargo, not bundler
-        ui.set_prompt_response("init_steps", "cargo");
+        // Only select cargo-build, not bundle-install
+        ui.set_prompt_response("init_steps", "cargo-build");
         ui.set_prompt_response("run_after_init", "no");
 
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
         let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        // Should have cargo as a step definition
-        assert!(config.contains("  cargo:\n    template: cargo\n"));
-        // Should NOT have bundler as a step definition
-        assert!(!config.contains("  bundler:\n    template: bundler\n"));
-        // Workflow should only list cargo
-        assert!(config.contains("steps: [cargo]"));
+        // Should have cargo-build as a step definition
+        assert!(config.contains("  cargo-build:\n    template: cargo-build\n"));
+        // Should NOT have bundle-install as a step definition
+        assert!(!config.contains("  bundle-install:\n    template: bundle-install\n"));
+        // Workflow should only list cargo-build
+        assert!(config.contains("steps: [cargo-build]"));
     }
 
     #[test]

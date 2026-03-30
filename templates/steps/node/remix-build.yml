@@ -1,0 +1,24 @@
+name: remix-build
+description: "Set up a Remix application"
+category: node
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [remix-project.files]
+
+step:
+  title: "Build Remix application"
+  description: "Run Remix build to verify setup"
+  command: "npx remix build"
+  requires:
+    - node
+  completed_check:
+    type: file_exists
+    path: "build"
+  watches:
+    - remix.config.js
+    - remix.config.ts
+    - app/root.tsx
+
+environment_impact:
+  note: "Generates server and client build output"

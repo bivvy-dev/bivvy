@@ -29,10 +29,10 @@ fn registry_lists_all_builtin_templates() -> Result<(), Box<dyn std::error::Erro
     let names = registry.all_template_names();
 
     // Should include well-known builtins
-    assert!(names.contains(&"brew".to_string()));
-    assert!(names.contains(&"bundler".to_string()));
-    assert!(names.contains(&"npm".to_string()));
-    assert!(names.contains(&"cargo".to_string()));
+    assert!(names.contains(&"brew-bundle".to_string()));
+    assert!(names.contains(&"bundle-install".to_string()));
+    assert!(names.contains(&"npm-install".to_string()));
+    assert!(names.contains(&"cargo-build".to_string()));
 
     // Names should be sorted
     let mut sorted = names.clone();
@@ -98,8 +98,8 @@ fn registry_filter_by_category() -> Result<(), Box<dyn std::error::Error>> {
     let names = registry.all_template_names();
 
     // Get the category of "brew" template
-    let brew = registry.get("brew").unwrap();
-    let brew_category = &brew.category;
+    let brew_bundle = registry.get("brew-bundle").unwrap();
+    let brew_category = &brew_bundle.category;
 
     // Filter to that category
     let filtered: Vec<&str> = names
@@ -110,8 +110,8 @@ fn registry_filter_by_category() -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     assert!(
-        filtered.contains(&"brew"),
-        "brew should be in its own category"
+        filtered.contains(&"brew-bundle"),
+        "brew-bundle should be in its own category"
     );
 
     // Filtered list should be shorter than full list
@@ -148,9 +148,9 @@ fn registry_filter_nonexistent_category_returns_empty() -> Result<(), Box<dyn st
 #[test]
 fn registry_template_info_brew() -> Result<(), Box<dyn std::error::Error>> {
     let registry = Registry::new(None)?;
-    let (template, source) = registry.resolve("brew")?;
+    let (template, source) = registry.resolve("brew-bundle")?;
 
-    assert_eq!(template.name, "brew");
+    assert_eq!(template.name, "brew-bundle");
     assert_eq!(source, TemplateSource::Builtin);
     assert!(!template.description.is_empty());
     assert!(!template.category.is_empty());
@@ -182,19 +182,19 @@ fn project_override_shadows_builtin() -> Result<(), Box<dyn std::error::Error>> 
     let templates_dir = temp.path().join(".bivvy").join("templates").join("steps");
     fs::create_dir_all(&templates_dir)?;
 
-    // Create local template that shadows "brew"
+    // Create local template that shadows "brew-bundle"
     let local_brew = r#"
-name: brew
+name: brew-bundle
 description: "Custom project brew"
 category: custom
 step:
   title: "Custom Brew"
   command: "echo custom brew"
 "#;
-    fs::write(templates_dir.join("brew.yml"), local_brew)?;
+    fs::write(templates_dir.join("brew-bundle.yml"), local_brew)?;
 
     let registry = Registry::new(Some(temp.path()))?;
-    let (template, source) = registry.resolve("brew")?;
+    let (template, source) = registry.resolve("brew-bundle")?;
 
     assert_eq!(template.description, "Custom project brew");
     assert_eq!(source, TemplateSource::Project);
@@ -251,7 +251,7 @@ step:
 
     assert!(names.contains(&"unique-project-template".to_string()));
     // Builtins should still be present
-    assert!(names.contains(&"brew".to_string()));
+    assert!(names.contains(&"brew-bundle".to_string()));
 
     Ok(())
 }
@@ -264,7 +264,7 @@ fn cli_run_with_template_step() -> Result<(), Box<dyn std::error::Error>> {
 app_name: TemplateTest
 steps:
   deps:
-    template: brew
+    template: brew-bundle
 workflows:
   default:
     steps: [deps]
@@ -324,7 +324,7 @@ fn cli_lint_with_valid_template_reference() -> Result<(), Box<dyn std::error::Er
 app_name: LintTemplateTest
 steps:
   deps:
-    template: brew
+    template: brew-bundle
 workflows:
   default:
     steps: [deps]
@@ -364,7 +364,7 @@ fn cli_list_shows_template_steps() -> Result<(), Box<dyn std::error::Error>> {
 app_name: ListTemplateTest
 steps:
   deps:
-    template: brew
+    template: brew-bundle
   build:
     command: echo build
 workflows:
@@ -510,7 +510,7 @@ fn registry_empty_project_templates_dir() -> Result<(), Box<dyn std::error::Erro
     let registry = Registry::new(Some(temp.path()))?;
     let names = registry.all_template_names();
     assert!(!names.is_empty());
-    assert!(names.contains(&"brew".to_string()));
+    assert!(names.contains(&"brew-bundle".to_string()));
 
     Ok(())
 }
@@ -521,29 +521,29 @@ fn cli_run_project_template_overrides_builtin() -> Result<(), Box<dyn std::error
     let bivvy_dir = temp.path().join(".bivvy");
     fs::create_dir_all(&bivvy_dir)?;
 
-    // Create config referencing "brew" (builtin name)
+    // Create config referencing "brew-bundle" (builtin name)
     let config = r#"
 app_name: OverrideBuiltinTest
 steps:
   deps:
-    template: brew
+    template: brew-bundle
 workflows:
   default:
     steps: [deps]
 "#;
     fs::write(bivvy_dir.join("config.yml"), config)?;
 
-    // Create project-local brew that overrides the builtin
+    // Create project-local brew-bundle that overrides the builtin
     let templates_dir = bivvy_dir.join("templates").join("steps");
     fs::create_dir_all(&templates_dir)?;
     let custom_brew = r#"
-name: brew
+name: brew-bundle
 description: "Project-specific brew"
 category: custom
 step:
   command: "echo project-brew-override"
 "#;
-    fs::write(templates_dir.join("brew.yml"), custom_brew)?;
+    fs::write(templates_dir.join("brew-bundle.yml"), custom_brew)?;
 
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());

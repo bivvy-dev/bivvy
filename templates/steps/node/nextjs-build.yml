@@ -1,0 +1,24 @@
+name: nextjs-build
+description: "Set up a Next.js application"
+category: node
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [nextjs-project.files]
+
+step:
+  title: "Build Next.js application"
+  description: "Run Next.js build to verify setup and generate optimized output"
+  command: "npx next build"
+  requires:
+    - node
+  completed_check:
+    type: file_exists
+    path: ".next"
+  watches:
+    - next.config.js
+    - next.config.mjs
+    - next.config.ts
+
+environment_impact:
+  note: "Generates optimized production build in .next directory"

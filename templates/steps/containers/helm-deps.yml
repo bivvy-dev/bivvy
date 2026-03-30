@@ -1,0 +1,23 @@
+name: helm-deps
+description: "Update Helm chart dependencies"
+category: containers
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [helm-project.file]
+
+step:
+  title: "Update Helm dependencies"
+  description: "Download and update Helm chart dependencies"
+  command: "helm dependency update"
+  requires:
+    - helm
+  completed_check:
+    type: file_exists
+    path: "charts"
+  watches:
+    - Chart.yaml
+    - Chart.lock
+
+environment_impact:
+  note: "Chart dependencies are downloaded to the charts/ directory"

@@ -3,83 +3,83 @@ version: 1
 categories:
   - name: system
     description: "System-level package managers"
-    templates: [brew, apt, yum, pacman]
+    templates: [brew-bundle, apt-install, yum-install, pacman-install]
 
   - name: windows
     description: "Windows package managers"
-    templates: [chocolatey, scoop]
+    templates: [choco-install, scoop-install]
 
   - name: version_manager
     description: "Runtime version managers"
-    templates: [mise, asdf, volta, fnm]
+    templates: [mise-tools, asdf-tools, volta-setup, fnm-setup]
 
   - name: ruby
     description: "Ruby ecosystem tools"
-    templates: [bundler, rails-db]
+    templates: [bundle-install, rails-db]
 
   - name: node
     description: "Node.js ecosystem tools"
-    templates: [yarn, npm, pnpm, bun, prisma-migrate, nextjs, vite, remix]
+    templates: [yarn-install, npm-install, pnpm-install, bun-install, prisma-migrate, nextjs-build, vite-build, remix-build]
 
   - name: python
     description: "Python ecosystem tools"
-    templates: [pip, poetry, uv, alembic-migrate, django]
+    templates: [pip-install, poetry-install, uv-sync, alembic-migrate, django-migrate]
 
   - name: rust
     description: "Rust ecosystem tools"
-    templates: [cargo, version-bump, diesel-migrate]
+    templates: [cargo-build, version-bump, diesel-migrate]
 
   - name: go
     description: "Go ecosystem tools"
-    templates: [go]
+    templates: [go-mod-download]
 
   - name: php
     description: "PHP ecosystem tools"
-    templates: [composer, laravel]
+    templates: [composer-install, laravel-setup]
 
   - name: swift
     description: "Swift ecosystem tools"
-    templates: [swift]
+    templates: [swift-resolve]
 
   - name: gradle
     description: "Gradle/JVM ecosystem tools"
-    templates: [gradle, spring-boot]
+    templates: [gradle-deps, spring-boot-build]
 
   - name: elixir
     description: "Elixir ecosystem tools"
-    templates: [mix]
+    templates: [mix-deps-get]
 
   - name: iac
     description: "Infrastructure as Code tools"
-    templates: [terraform, aws-cdk, pulumi, ansible]
+    templates: [terraform-init, cdk-synth, pulumi-install, ansible-install]
 
   - name: java
     description: "Java ecosystem tools"
-    templates: [maven]
+    templates: [maven-resolve]
 
   - name: dotnet
     description: ".NET ecosystem tools"
-    templates: [dotnet]
+    templates: [dotnet-restore]
 
   - name: dart
     description: "Dart/Flutter ecosystem tools"
-    templates: [dart, flutter]
+    templates: [dart-pub-get, flutter-pub-get]
 
   - name: deno
     description: "Deno ecosystem tools"
-    templates: [deno]
+    templates: [deno-install]
 
   - name: containers
     description: "Container and orchestration tools"
-    templates: [docker-compose, helm]
+    templates: [docker-compose-up, helm-deps]
 
   - name: common
     description: "Cross-cutting project setup tools"
-    templates: [env-copy, pre-commit]
+    templates: [env-copy, pre-commit-install]
 
   - name: monorepo
     description: "Monorepo and workspace tools"
-    templates: [nx, turborepo, lerna]
+    templates: [nx-build, turbo-build, lerna-bootstrap]
 
   - name: install
     description: "Prerequisite installation templates"
@@ -113,53 +113,53 @@ categories:
       - docker-install
 
 detection_order:
-  - brew
-  - chocolatey
-  - apt
-  - yum
-  - pacman
-  - scoop
-  - mise
-  - asdf
-  - volta
-  - fnm
-  - bundler
-  - yarn
-  - npm
-  - pnpm
-  - bun
-  - poetry
-  - uv
-  - pip
-  - composer
-  - laravel
-  - gradle
-  - mix
-  - cargo
-  - go
-  - swift
-  - terraform
-  - aws-cdk
-  - maven
-  - dotnet
-  - dart
-  - flutter
-  - deno
-  - docker-compose
-  - helm
-  - pulumi
-  - ansible
+  - brew-bundle
+  - choco-install
+  - apt-install
+  - yum-install
+  - pacman-install
+  - scoop-install
+  - mise-tools
+  - asdf-tools
+  - volta-setup
+  - fnm-setup
+  - bundle-install
+  - yarn-install
+  - npm-install
+  - pnpm-install
+  - bun-install
+  - poetry-install
+  - uv-sync
+  - pip-install
+  - composer-install
+  - laravel-setup
+  - gradle-deps
+  - mix-deps-get
+  - cargo-build
+  - go-mod-download
+  - swift-resolve
+  - terraform-init
+  - cdk-synth
+  - maven-resolve
+  - dotnet-restore
+  - dart-pub-get
+  - flutter-pub-get
+  - deno-install
+  - docker-compose-up
+  - helm-deps
+  - pulumi-install
+  - ansible-install
   - rails-db
   - prisma-migrate
   - diesel-migrate
   - alembic-migrate
-  - nextjs
-  - vite
-  - remix
-  - django
-  - spring-boot
+  - nextjs-build
+  - vite-build
+  - remix-build
+  - django-migrate
+  - spring-boot-build
   - env-copy
-  - pre-commit
-  - nx
-  - turborepo
-  - lerna
+  - pre-commit-install
+  - nx-build
+  - turbo-build
+  - lerna-bootstrap

@@ -173,19 +173,19 @@ mod tests {
     #[test]
     fn load_templates_includes_brew() {
         let templates = load_templates().unwrap();
-        assert!(templates.contains_key("brew"));
+        assert!(templates.contains_key("brew-bundle"));
     }
 
     #[test]
     fn load_templates_includes_yarn() {
         let templates = load_templates().unwrap();
-        assert!(templates.contains_key("yarn"));
+        assert!(templates.contains_key("yarn-install"));
     }
 
     #[test]
     fn has_template_returns_true_for_builtin() {
-        assert!(has_template("brew"));
-        assert!(has_template("yarn"));
+        assert!(has_template("brew-bundle"));
+        assert!(has_template("yarn-install"));
     }
 
     #[test]
@@ -196,7 +196,7 @@ mod tests {
     #[test]
     fn brew_template_has_correct_fields() {
         let templates = load_templates().unwrap();
-        let brew = &templates["brew"];
+        let brew = &templates["brew-bundle"];
         assert_eq!(brew.category, "system");
         assert!(brew.step.command.is_some());
         assert!(!brew.detectors.is_empty());
@@ -211,7 +211,7 @@ mod tests {
     #[test]
     fn builtin_loader_get() {
         let loader = BuiltinLoader::new().unwrap();
-        assert!(loader.get("brew").is_some());
+        assert!(loader.get("brew-bundle").is_some());
         assert!(loader.get("nonexistent").is_none());
     }
 
@@ -248,54 +248,54 @@ mod tests {
     fn all_expected_templates_load() {
         let templates = load_templates().unwrap();
         let expected = [
-            "brew",
-            "apt",
-            "yum",
-            "pacman",
-            "chocolatey",
-            "scoop",
-            "mise",
-            "asdf",
-            "volta",
-            "fnm",
-            "bundler",
+            "brew-bundle",
+            "apt-install",
+            "yum-install",
+            "pacman-install",
+            "choco-install",
+            "scoop-install",
+            "mise-tools",
+            "asdf-tools",
+            "volta-setup",
+            "fnm-setup",
+            "bundle-install",
             "rails-db",
-            "yarn",
-            "npm",
-            "pnpm",
-            "bun",
+            "yarn-install",
+            "npm-install",
+            "pnpm-install",
+            "bun-install",
             "prisma-migrate",
-            "nextjs",
-            "vite",
-            "remix",
-            "pip",
-            "poetry",
-            "uv",
+            "nextjs-build",
+            "vite-build",
+            "remix-build",
+            "pip-install",
+            "poetry-install",
+            "uv-sync",
             "alembic-migrate",
-            "django",
-            "composer",
-            "laravel",
-            "gradle",
-            "mix",
-            "cargo",
+            "django-migrate",
+            "composer-install",
+            "laravel-setup",
+            "gradle-deps",
+            "mix-deps-get",
+            "cargo-build",
             "version-bump",
             "diesel-migrate",
-            "go",
-            "swift",
-            "terraform",
-            "aws-cdk",
-            "maven",
-            "dotnet",
-            "dart",
-            "flutter",
-            "deno",
-            "spring-boot",
+            "go-mod-download",
+            "swift-resolve",
+            "terraform-init",
+            "cdk-synth",
+            "maven-resolve",
+            "dotnet-restore",
+            "dart-pub-get",
+            "flutter-pub-get",
+            "deno-install",
+            "spring-boot-build",
             // Container/orchestration templates
-            "docker-compose",
-            "helm",
+            "docker-compose-up",
+            "helm-deps",
             // IaC templates
-            "pulumi",
-            "ansible",
+            "pulumi-install",
+            "ansible-install",
             // Install templates
             "mise-install",
             "mise-ruby",
@@ -326,11 +326,11 @@ mod tests {
             "docker-install",
             // Common templates
             "env-copy",
-            "pre-commit",
+            "pre-commit-install",
             // Monorepo templates
-            "nx",
-            "turborepo",
-            "lerna",
+            "nx-build",
+            "turbo-build",
+            "lerna-bootstrap",
         ];
         for name in &expected {
             assert!(
@@ -390,7 +390,7 @@ mod tests {
     #[test]
     fn bundler_template_has_correct_fields() {
         let templates = load_templates().unwrap();
-        let bundler = &templates["bundler"];
+        let bundler = &templates["bundle-install"];
         assert_eq!(bundler.category, "ruby");
         assert_eq!(bundler.step.command.as_deref(), Some("bundle install"));
         assert!(bundler.step.completed_check.is_some());
@@ -404,7 +404,7 @@ mod tests {
     #[test]
     fn npm_template_has_file_exists_check() {
         let templates = load_templates().unwrap();
-        let npm = &templates["npm"];
+        let npm = &templates["npm-install"];
         assert_eq!(npm.category, "node");
         assert!(npm.step.completed_check.is_some());
     }
@@ -412,7 +412,7 @@ mod tests {
     #[test]
     fn cargo_template_detects_cargo_toml() {
         let templates = load_templates().unwrap();
-        let cargo = &templates["cargo"];
+        let cargo = &templates["cargo-build"];
         assert_eq!(cargo.category, "rust");
         assert!(!cargo.detectors.is_empty());
         assert!(cargo

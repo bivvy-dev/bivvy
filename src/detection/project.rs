@@ -48,7 +48,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Ruby")
                     .with_detail("Gemfile found")
-                    .with_template("bundler"),
+                    .with_template("bundle-install"),
             );
 
             // Rails (detected alongside Ruby)
@@ -78,10 +78,10 @@ impl ProjectDetector {
             );
 
             let template = match lockfile.as_deref() {
-                Some("yarn.lock") => "yarn",
-                Some("pnpm-lock.yaml") => "pnpm",
-                Some("bun.lockb") => "bun",
-                _ => "npm",
+                Some("yarn.lock") => "yarn-install",
+                Some("pnpm-lock.yaml") => "pnpm-install",
+                Some("bun.lockb") => "bun-install",
+                _ => "npm-install",
             };
 
             details.push(
@@ -100,7 +100,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Next.js")
                         .with_detail("Next.js config found")
-                        .with_template("nextjs"),
+                        .with_template("nextjs-build"),
                 );
             }
 
@@ -114,7 +114,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Vite")
                         .with_detail("Vite config found")
-                        .with_template("vite"),
+                        .with_template("vite-build"),
                 );
             }
 
@@ -125,7 +125,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Remix")
                         .with_detail("Remix application detected")
-                        .with_template("remix"),
+                        .with_template("remix-build"),
                 );
             }
         }
@@ -138,11 +138,11 @@ impl ProjectDetector {
             all_types.push(ProjectType::Python);
 
             let template = if file_exists(project_root, "poetry.lock") {
-                "poetry"
+                "poetry-install"
             } else if file_exists(project_root, "uv.lock") {
-                "uv"
+                "uv-sync"
             } else {
-                "pip"
+                "pip-install"
             };
 
             details.push(
@@ -167,7 +167,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Django")
                         .with_detail("manage.py found")
-                        .with_template("django"),
+                        .with_template("django-migrate"),
                 );
             }
         }
@@ -178,7 +178,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Rust")
                     .with_detail("Cargo.toml found")
-                    .with_template("cargo"),
+                    .with_template("cargo-build"),
             );
 
             // Diesel (detected alongside Rust)
@@ -197,7 +197,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Go")
                     .with_detail("go.mod found")
-                    .with_template("go"),
+                    .with_template("go-mod-download"),
             );
         }
 
@@ -207,7 +207,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("PHP")
                     .with_detail("composer.json found")
-                    .with_template("composer"),
+                    .with_template("composer-install"),
             );
 
             // Laravel (detected alongside PHP, not as a separate project type)
@@ -215,7 +215,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Laravel")
                         .with_detail("artisan found")
-                        .with_template("laravel"),
+                        .with_template("laravel-setup"),
                 );
             }
         }
@@ -228,7 +228,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Kotlin/JVM")
                     .with_detail("Gradle build file found")
-                    .with_template("gradle"),
+                    .with_template("gradle-deps"),
             );
 
             // Spring Boot (detected alongside Gradle)
@@ -238,7 +238,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Spring Boot")
                         .with_detail("Spring Boot application detected")
-                        .with_template("spring-boot"),
+                        .with_template("spring-boot-build"),
                 );
             }
         }
@@ -249,7 +249,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Elixir")
                     .with_detail("mix.exs found")
-                    .with_template("mix"),
+                    .with_template("mix-deps-get"),
             );
         }
 
@@ -259,7 +259,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Swift")
                     .with_detail("Package.swift found")
-                    .with_template("swift"),
+                    .with_template("swift-resolve"),
             );
         }
 
@@ -269,7 +269,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Terraform")
                     .with_detail("Terraform files found")
-                    .with_template("terraform"),
+                    .with_template("terraform-init"),
             );
         }
 
@@ -278,7 +278,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("AWS CDK")
                     .with_detail("cdk.json found")
-                    .with_template("aws-cdk"),
+                    .with_template("cdk-synth"),
             );
         }
 
@@ -288,7 +288,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Maven (Java)")
                     .with_detail("pom.xml found")
-                    .with_template("maven"),
+                    .with_template("maven-resolve"),
             );
         }
 
@@ -307,7 +307,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found(".NET")
                     .with_detail(".NET solution or project found")
-                    .with_template("dotnet"),
+                    .with_template("dotnet-restore"),
             );
         }
 
@@ -324,13 +324,13 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Flutter")
                         .with_detail("pubspec.yaml found")
-                        .with_template("flutter"),
+                        .with_template("flutter-pub-get"),
                 );
             } else {
                 details.push(
                     DetectionResult::found("Dart")
                         .with_detail("pubspec.yaml found")
-                        .with_template("dart"),
+                        .with_template("dart-pub-get"),
                 );
             }
         }
@@ -344,7 +344,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Deno")
                     .with_detail("Deno configuration found")
-                    .with_template("deno"),
+                    .with_template("deno-install"),
             );
         }
 
@@ -363,7 +363,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Docker Compose")
                     .with_detail("Docker Compose file found")
-                    .with_template("docker-compose"),
+                    .with_template("docker-compose-up"),
             );
         }
 
@@ -372,7 +372,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Helm")
                     .with_detail("Chart.yaml found")
-                    .with_template("helm"),
+                    .with_template("helm-deps"),
             );
         }
 
@@ -381,7 +381,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Pulumi")
                     .with_detail("Pulumi.yaml found")
-                    .with_template("pulumi"),
+                    .with_template("pulumi-install"),
             );
         }
 
@@ -396,7 +396,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Ansible")
                     .with_detail("Ansible configuration found")
-                    .with_template("ansible"),
+                    .with_template("ansible-install"),
             );
         }
 
@@ -431,7 +431,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("pre-commit")
                     .with_detail(".pre-commit-config.yaml found")
-                    .with_template("pre-commit"),
+                    .with_template("pre-commit-install"),
             );
         }
 
@@ -440,7 +440,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Nx")
                     .with_detail("Nx workspace detected")
-                    .with_template("nx"),
+                    .with_template("nx-build"),
             );
         }
 
@@ -448,7 +448,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Turborepo")
                     .with_detail("Turborepo workspace detected")
-                    .with_template("turborepo"),
+                    .with_template("turbo-build"),
             );
         }
 
@@ -456,7 +456,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Lerna")
                     .with_detail("Lerna monorepo detected")
-                    .with_template("lerna"),
+                    .with_template("lerna-bootstrap"),
             );
         }
 
@@ -504,7 +504,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("yarn".to_string())));
+            .any(|d| d.suggested_template == Some("yarn-install".to_string())));
     }
 
     #[test]
@@ -519,7 +519,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("poetry".to_string())));
+            .any(|d| d.suggested_template == Some("poetry-install".to_string())));
     }
 
     #[test]
@@ -534,7 +534,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("composer".to_string())));
+            .any(|d| d.suggested_template == Some("composer-install".to_string())));
     }
 
     #[test]
@@ -549,7 +549,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("terraform".to_string())));
+            .any(|d| d.suggested_template == Some("terraform-init".to_string())));
     }
 
     #[test]
@@ -563,7 +563,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("gradle".to_string())));
+            .any(|d| d.suggested_template == Some("gradle-deps".to_string())));
     }
 
     #[test]
@@ -577,7 +577,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("gradle".to_string())));
+            .any(|d| d.suggested_template == Some("gradle-deps".to_string())));
     }
 
     #[test]
@@ -591,7 +591,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("terraform".to_string())));
+            .any(|d| d.suggested_template == Some("terraform-init".to_string())));
     }
 
     #[test]
@@ -605,7 +605,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("mix".to_string())));
+            .any(|d| d.suggested_template == Some("mix-deps-get".to_string())));
     }
 
     #[test]
@@ -620,11 +620,11 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("composer".to_string())));
+            .any(|d| d.suggested_template == Some("composer-install".to_string())));
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("laravel".to_string())));
+            .any(|d| d.suggested_template == Some("laravel-setup".to_string())));
     }
 
     #[test]
@@ -637,7 +637,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("aws-cdk".to_string())));
+            .any(|d| d.suggested_template == Some("cdk-synth".to_string())));
     }
 
     #[test]
@@ -675,7 +675,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("bundler".to_string())));
+            .any(|d| d.suggested_template == Some("bundle-install".to_string())));
         assert!(detection
             .details
             .iter()
@@ -709,7 +709,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("cargo".to_string())));
+            .any(|d| d.suggested_template == Some("cargo-build".to_string())));
         assert!(detection
             .details
             .iter()
@@ -751,7 +751,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("maven".to_string())));
+            .any(|d| d.suggested_template == Some("maven-resolve".to_string())));
     }
 
     #[test]
@@ -765,7 +765,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("dotnet".to_string())));
+            .any(|d| d.suggested_template == Some("dotnet-restore".to_string())));
     }
 
     #[test]
@@ -789,7 +789,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("dart".to_string())));
+            .any(|d| d.suggested_template == Some("dart-pub-get".to_string())));
     }
 
     #[test]
@@ -804,7 +804,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("flutter".to_string())));
+            .any(|d| d.suggested_template == Some("flutter-pub-get".to_string())));
     }
 
     #[test]
@@ -818,7 +818,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("deno".to_string())));
+            .any(|d| d.suggested_template == Some("deno-install".to_string())));
     }
 
     #[test]
@@ -831,7 +831,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("docker-compose".to_string())));
+            .any(|d| d.suggested_template == Some("docker-compose-up".to_string())));
     }
 
     #[test]
@@ -844,7 +844,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("docker-compose".to_string())));
+            .any(|d| d.suggested_template == Some("docker-compose-up".to_string())));
     }
 
     #[test]
@@ -857,7 +857,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("helm".to_string())));
+            .any(|d| d.suggested_template == Some("helm-deps".to_string())));
     }
 
     #[test]
@@ -870,7 +870,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("pulumi".to_string())));
+            .any(|d| d.suggested_template == Some("pulumi-install".to_string())));
     }
 
     #[test]
@@ -883,7 +883,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("ansible".to_string())));
+            .any(|d| d.suggested_template == Some("ansible-install".to_string())));
     }
 
     #[test]
@@ -896,7 +896,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("ansible".to_string())));
+            .any(|d| d.suggested_template == Some("ansible-install".to_string())));
     }
 
     #[test]
@@ -909,7 +909,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("nextjs".to_string())));
+            .any(|d| d.suggested_template == Some("nextjs-build".to_string())));
     }
 
     #[test]
@@ -921,7 +921,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("nextjs".to_string())));
+            .any(|d| d.suggested_template == Some("nextjs-build".to_string())));
     }
 
     #[test]
@@ -934,7 +934,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("vite".to_string())));
+            .any(|d| d.suggested_template == Some("vite-build".to_string())));
     }
 
     #[test]
@@ -947,7 +947,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("remix".to_string())));
+            .any(|d| d.suggested_template == Some("remix-build".to_string())));
     }
 
     #[test]
@@ -960,7 +960,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("remix".to_string())));
+            .any(|d| d.suggested_template == Some("remix-build".to_string())));
     }
 
     #[test]
@@ -973,7 +973,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("django".to_string())));
+            .any(|d| d.suggested_template == Some("django-migrate".to_string())));
     }
 
     #[test]
@@ -992,11 +992,11 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("gradle".to_string())));
+            .any(|d| d.suggested_template == Some("gradle-deps".to_string())));
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("spring-boot".to_string())));
+            .any(|d| d.suggested_template == Some("spring-boot-build".to_string())));
     }
 
     #[test]
@@ -1041,7 +1041,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("pre-commit".to_string())));
+            .any(|d| d.suggested_template == Some("pre-commit-install".to_string())));
     }
 
     #[test]
@@ -1052,7 +1052,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("nx".to_string())));
+            .any(|d| d.suggested_template == Some("nx-build".to_string())));
     }
 
     #[test]
@@ -1063,7 +1063,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("turborepo".to_string())));
+            .any(|d| d.suggested_template == Some("turbo-build".to_string())));
     }
 
     #[test]
@@ -1074,6 +1074,6 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("lerna".to_string())));
+            .any(|d| d.suggested_template == Some("lerna-bootstrap".to_string())));
     }
 }

@@ -311,7 +311,7 @@ workflows:
 app_name: Test
 steps:
   deps:
-    template: yarn
+    template: yarn-install
 workflows:
   default:
     steps: [deps]
@@ -323,7 +323,10 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        assert!(ui.messages().iter().any(|m| m.contains("template: yarn")));
+        assert!(ui
+            .messages()
+            .iter()
+            .any(|m| m.contains("template: yarn-install")));
     }
 
     #[test]

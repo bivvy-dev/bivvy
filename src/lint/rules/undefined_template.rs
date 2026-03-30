@@ -96,7 +96,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                template: Some("brew".to_string()), // This is a built-in template
+                template: Some("brew-bundle".to_string()), // This is a built-in template
                 ..Default::default()
             },
         );

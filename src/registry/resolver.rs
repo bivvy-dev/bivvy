@@ -211,8 +211,8 @@ mod tests {
     #[test]
     fn registry_resolves_builtin() {
         let registry = Registry::new(None).unwrap();
-        let (template, source) = registry.resolve("brew").unwrap();
-        assert_eq!(template.name, "brew");
+        let (template, source) = registry.resolve("brew-bundle").unwrap();
+        assert_eq!(template.name, "brew-bundle");
         assert_eq!(source, TemplateSource::Builtin);
     }
 
@@ -249,7 +249,7 @@ step:
     #[test]
     fn registry_has_works() {
         let registry = Registry::new(None).unwrap();
-        assert!(registry.has("brew"));
+        assert!(registry.has("brew-bundle"));
         assert!(!registry.has("nonexistent"));
     }
 
@@ -257,13 +257,13 @@ step:
     fn registry_all_names_includes_builtin() {
         let registry = Registry::new(None).unwrap();
         let names = registry.all_template_names();
-        assert!(names.contains(&"brew".to_string()));
+        assert!(names.contains(&"brew-bundle".to_string()));
     }
 
     #[test]
     fn registry_get_convenience_method() {
         let registry = Registry::new(None).unwrap();
-        assert!(registry.get("brew").is_some());
+        assert!(registry.get("brew-bundle").is_some());
         assert!(registry.get("nonexistent").is_none());
     }
 
@@ -272,16 +272,16 @@ step:
         let registry = Registry::new(None).unwrap();
 
         let expected: &[(&str, &[&str])] = &[
-            ("bundler", &["ruby"]),
-            ("yarn", &["node"]),
-            ("npm", &["node"]),
-            ("pnpm", &["node"]),
-            ("bun", &["node"]),
-            ("pip", &["python"]),
-            ("poetry", &["python"]),
-            ("uv", &["python"]),
-            ("cargo", &["rust"]),
-            ("brew", &["brew"]),
+            ("bundle-install", &["ruby"]),
+            ("yarn-install", &["node"]),
+            ("npm-install", &["node"]),
+            ("pnpm-install", &["node"]),
+            ("bun-install", &["node"]),
+            ("pip-install", &["python"]),
+            ("poetry-install", &["python"]),
+            ("uv-sync", &["python"]),
+            ("cargo-build", &["rust"]),
+            ("brew-bundle", &["brew"]),
         ];
 
         for (name, reqs) in expected {
@@ -409,7 +409,7 @@ step:
             serde_yaml::Value::String("value".to_string()),
         );
 
-        let errors = registry.validate_inputs("brew", &inputs).unwrap();
+        let errors = registry.validate_inputs("brew-bundle", &inputs).unwrap();
         assert!(errors.iter().any(|e| e.contains("Unknown input")));
     }
 

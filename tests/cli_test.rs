@@ -333,9 +333,9 @@ fn cli_templates_lists_available() -> Result<(), Box<dyn std::error::Error>> {
     cmd.arg("templates");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("bundler"))
-        .stdout(predicate::str::contains("yarn"))
-        .stdout(predicate::str::contains("cargo"))
+        .stdout(predicate::str::contains("bundle-install"))
+        .stdout(predicate::str::contains("yarn-install"))
+        .stdout(predicate::str::contains("cargo-build"))
         .stdout(predicate::str::contains("templates available"));
     Ok(())
 }
@@ -348,7 +348,7 @@ fn cli_templates_filter_by_category() -> Result<(), Box<dyn std::error::Error>> 
     cmd.args(["templates", "--category", "ruby"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("bundler"))
+        .stdout(predicate::str::contains("bundle-install"))
         .stdout(predicate::str::contains("ruby"));
     Ok(())
 }
@@ -363,10 +363,10 @@ fn cli_templates_filter_by_category_excludes_others() -> Result<(), Box<dyn std:
     let stdout = String::from_utf8(output.stdout)?;
 
     // Ruby templates should be present
-    assert!(stdout.contains("bundler"));
+    assert!(stdout.contains("bundle-install"));
     // Non-ruby templates should be absent
-    assert!(!stdout.contains("yarn"));
-    assert!(!stdout.contains("cargo"));
+    assert!(!stdout.contains("yarn-install"));
+    assert!(!stdout.contains("cargo-build"));
     assert!(!stdout.contains("pip"));
     Ok(())
 }
@@ -400,13 +400,13 @@ fn cli_add_appends_step() -> Result<(), Box<dyn std::error::Error>> {
     let temp = setup_project(SIMPLE_CONFIG);
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler"]);
+    cmd.args(["add", "bundle-install"]);
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("Added 'bundler'"));
+        .stdout(predicate::str::contains("Added 'bundle-install'"));
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
-    assert!(config.contains("template: bundler"));
+    assert!(config.contains("template: bundle-install"));
     assert!(config.contains("# command: bundle install"));
     Ok(())
 }
@@ -416,14 +416,14 @@ fn cli_add_with_custom_name() -> Result<(), Box<dyn std::error::Error>> {
     let temp = setup_project(SIMPLE_CONFIG);
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler", "--as", "ruby_deps"]);
+    cmd.args(["add", "bundle-install", "--as", "ruby_deps"]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("Added 'ruby_deps'"));
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
     assert!(config.contains("ruby_deps:"));
-    assert!(config.contains("template: bundler"));
+    assert!(config.contains("template: bundle-install"));
     Ok(())
 }
 
@@ -432,13 +432,13 @@ fn cli_add_no_workflow() -> Result<(), Box<dyn std::error::Error>> {
     let temp = setup_project(SIMPLE_CONFIG);
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler", "--no-workflow"]);
+    cmd.args(["add", "bundle-install", "--no-workflow"]);
     cmd.assert().success();
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
-    assert!(config.contains("template: bundler"));
-    // Workflow should not include bundler
-    assert!(!config.contains("steps: [hello, bundler]"));
+    assert!(config.contains("template: bundle-install"));
+    // Workflow should not include bundle-install
+    assert!(!config.contains("steps: [hello, bundle-install]"));
     Ok(())
 }
 
@@ -447,7 +447,7 @@ fn cli_add_fails_without_config() -> Result<(), Box<dyn std::error::Error>> {
     let temp = TempDir::new()?;
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler"]);
+    cmd.args(["add", "bundle-install"]);
     cmd.assert()
         .failure()
         .stderr(predicate::str::contains("bivvy init"));
@@ -469,13 +469,13 @@ fn cli_add_fails_for_duplicate_step() -> Result<(), Box<dyn std::error::Error>> 
     let temp = setup_project(SIMPLE_CONFIG);
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler"]);
+    cmd.args(["add", "bundle-install"]);
     cmd.assert().success();
 
     // Adding again should fail
     let mut cmd2 = Command::new(cargo_bin("bivvy"));
     cmd2.current_dir(temp.path());
-    cmd2.args(["add", "bundler"]);
+    cmd2.args(["add", "bundle-install"]);
     cmd2.assert()
         .failure()
         .stderr(predicate::str::contains("already exists"));
@@ -498,12 +498,12 @@ workflows:
     let temp = setup_project(config);
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler", "--after", "install"]);
+    cmd.args(["add", "bundle-install", "--after", "install"]);
     cmd.assert().success();
 
     let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
-    // bundler should appear between install and build in the workflow
-    assert!(new_config.contains("steps: [install, bundler, build]"));
+    // bundle-install should appear between install and build in the workflow
+    assert!(new_config.contains("steps: [install, bundle-install, build]"));
     Ok(())
 }
 
@@ -523,12 +523,12 @@ workflows:
     let temp = setup_project(config);
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.args(["add", "bundler", "--workflow", "ci"]);
+    cmd.args(["add", "bundle-install", "--workflow", "ci"]);
     cmd.assert().success();
 
     let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
-    // bundler should be added to the ci workflow
-    assert!(new_config.contains("steps: [hello, bundler]"));
+    // bundle-install should be added to the ci workflow
+    assert!(new_config.contains("steps: [hello, bundle-install]"));
     // The default workflow should remain unchanged
     assert!(new_config.contains("steps: [hello]\n"));
     Ok(())

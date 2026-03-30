@@ -360,20 +360,20 @@ mod tests {
     fn add_command_creation() {
         let temp = TempDir::new().unwrap();
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
 
         assert_eq!(cmd.project_root(), temp.path());
-        assert_eq!(cmd.args().template, "bundler");
+        assert_eq!(cmd.args().template, "bundle-install");
     }
 
     #[test]
     fn add_fails_without_config() {
         let temp = TempDir::new().unwrap();
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
@@ -414,15 +414,15 @@ workflows:
         let config = r#"
 app_name: Test
 steps:
-  bundler:
+  bundle-install:
     command: echo hello
 workflows:
   default:
-    steps: [bundler]
+    steps: [bundle-install]
 "#;
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
@@ -439,7 +439,7 @@ workflows:
         let config = "app_name: Test\n\nsteps:\n  hello:\n    command: echo hello\n\nworkflows:\n  default:\n    steps: [hello]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
@@ -450,7 +450,7 @@ workflows:
         assert!(result.success);
 
         let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(new_config.contains("  bundler:\n    template: bundler\n"));
+        assert!(new_config.contains("  bundle-install:\n    template: bundle-install\n"));
         assert!(new_config.contains("# command: bundle install"));
     }
 
@@ -459,7 +459,7 @@ workflows:
         let config = "app_name: Test\n\nsteps:\n  hello:\n    command: echo hello\n\nworkflows:\n  default:\n    steps: [hello]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
@@ -468,7 +468,7 @@ workflows:
         cmd.execute(&mut ui).unwrap();
 
         let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(new_config.contains("steps: [hello, bundler]"));
+        assert!(new_config.contains("steps: [hello, bundle-install]"));
     }
 
     #[test]
@@ -476,7 +476,7 @@ workflows:
         let config = "app_name: Test\n\nsteps:\n  hello:\n    command: echo hello\n\nworkflows:\n  default:\n    steps: [hello]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             step_name: Some("ruby_deps".to_string()),
             ..Default::default()
         };
@@ -487,7 +487,7 @@ workflows:
 
         assert!(result.success);
         let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(new_config.contains("  ruby_deps:\n    template: bundler\n"));
+        assert!(new_config.contains("  ruby_deps:\n    template: bundle-install\n"));
         assert!(new_config.contains("steps: [hello, ruby_deps]"));
     }
 
@@ -496,7 +496,7 @@ workflows:
         let config = "app_name: Test\n\nsteps:\n  hello:\n    command: echo hello\n\nworkflows:\n  default:\n    steps: [hello]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             no_workflow: true,
             ..Default::default()
         };
@@ -507,7 +507,7 @@ workflows:
 
         assert!(result.success);
         let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(new_config.contains("  bundler:\n    template: bundler\n"));
+        assert!(new_config.contains("  bundle-install:\n    template: bundle-install\n"));
         // Workflow should NOT be updated
         assert!(new_config.contains("steps: [hello]"));
     }
@@ -517,7 +517,7 @@ workflows:
         let config = "app_name: Test\n\nsteps:\n  install:\n    command: npm install\n  build:\n    command: npm build\n\nworkflows:\n  default:\n    steps: [install, build]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             after: Some("install".to_string()),
             ..Default::default()
         };
@@ -528,7 +528,7 @@ workflows:
 
         assert!(result.success);
         let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-        assert!(new_config.contains("steps: [install, bundler, build]"));
+        assert!(new_config.contains("steps: [install, bundle-install, build]"));
     }
 
     #[test]
@@ -536,7 +536,7 @@ workflows:
         let config = "app_name: Test\n\nsteps:\n  hello:\n    command: echo hello\n\nworkflows:\n  default:\n    steps: [hello]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
@@ -544,7 +544,7 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        assert!(ui.successes().iter().any(|m| m.contains("bundler")));
+        assert!(ui.successes().iter().any(|m| m.contains("bundle-install")));
         assert!(ui.messages().iter().any(|m| m.contains("default")));
     }
 
@@ -553,7 +553,7 @@ workflows:
         let config = "# My project config\napp_name: Test\n\n# Steps section\nsteps:\n  hello:\n    command: echo hello\n    # A custom comment\n\nworkflows:\n  default:\n    steps: [hello]\n";
         let temp = setup_project(config);
         let args = AddArgs {
-            template: "bundler".to_string(),
+            template: "bundle-install".to_string(),
             ..Default::default()
         };
         let cmd = AddCommand::new(temp.path(), args);
@@ -572,11 +572,11 @@ workflows:
     #[test]
     fn format_step_block_basic() {
         let loader = BuiltinLoader::new().unwrap();
-        let template = loader.get("bundler").unwrap();
+        let template = loader.get("bundle-install").unwrap();
 
-        let block = AddCommand::format_step_block("bundler", "bundler", template);
+        let block = AddCommand::format_step_block("bundle-install", "bundle-install", template);
 
-        assert!(block.contains("  bundler:\n    template: bundler\n"));
+        assert!(block.contains("  bundle-install:\n    template: bundle-install\n"));
         assert!(block.contains("# command: bundle install"));
         assert!(block.contains("# completed_check:"));
         assert!(block.contains("# watches:"));
@@ -585,11 +585,11 @@ workflows:
     #[test]
     fn format_step_block_custom_name() {
         let loader = BuiltinLoader::new().unwrap();
-        let template = loader.get("bundler").unwrap();
+        let template = loader.get("bundle-install").unwrap();
 
-        let block = AddCommand::format_step_block("ruby_deps", "bundler", template);
+        let block = AddCommand::format_step_block("ruby_deps", "bundle-install", template);
 
-        assert!(block.starts_with("  ruby_deps:\n    template: bundler\n"));
+        assert!(block.starts_with("  ruby_deps:\n    template: bundle-install\n"));
     }
 
     #[test]
