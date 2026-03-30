@@ -34,7 +34,15 @@ pub fn some_steps_pending(pending: &[String]) -> String {
 
 /// Generate a hint after init when the user declines to run.
 pub fn after_init() -> &'static str {
-    "Run `bivvy run` when you're ready to start setup."
+    "Run `bivvy run` when you're ready, or `bivvy templates` to see all available templates."
+}
+
+/// Generate a hint after adding a template step.
+pub fn after_add(step_name: &str) -> String {
+    format!(
+        "Run `bivvy run --only={}` to run it, or `bivvy list` to see all steps.",
+        step_name
+    )
 }
 
 #[cfg(test)]
@@ -75,5 +83,13 @@ mod tests {
     fn after_init_hint() {
         let hint = after_init();
         assert!(hint.contains("bivvy run"));
+        assert!(hint.contains("bivvy templates"));
+    }
+
+    #[test]
+    fn after_add_hint() {
+        let hint = after_add("bundler");
+        assert!(hint.contains("bivvy run --only=bundler"));
+        assert!(hint.contains("bivvy list"));
     }
 }

@@ -96,6 +96,14 @@ impl CommandDispatcher {
                 let cmd = super::init::InitCommand::new(&self.project_root, args.clone());
                 cmd.execute(ui)
             }
+            Some(Commands::Add(args)) => {
+                let cmd = super::add::AddCommand::new(&self.project_root, args.clone());
+                cmd.execute(ui)
+            }
+            Some(Commands::Templates(args)) => {
+                let cmd = super::templates::TemplatesCommand::new(&self.project_root, args.clone());
+                cmd.execute(ui)
+            }
             Some(Commands::Status(args)) => {
                 let cmd = super::status::StatusCommand::new(&self.project_root, args.clone());
                 cmd.execute(ui)

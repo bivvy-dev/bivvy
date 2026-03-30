@@ -58,11 +58,17 @@ pub enum Commands {
     /// Initialize Bivvy configuration for a project
     Init(InitArgs),
 
+    /// Add a template step to the configuration
+    Add(AddArgs),
+
     /// Show current setup status
     Status(StatusArgs),
 
     /// List available steps and workflows
     List(ListArgs),
+
+    /// List available templates
+    Templates(TemplatesArgs),
 
     /// Show last run information
     Last(LastArgs),
@@ -293,4 +299,35 @@ pub struct CompletionsArgs {
     /// Shell to generate completions for
     #[arg(value_enum)]
     pub shell: Shell,
+}
+
+/// Arguments for the `templates` command.
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct TemplatesArgs {
+    /// Filter by category (e.g., ruby, node, python)
+    #[arg(long)]
+    pub category: Option<String>,
+}
+
+/// Arguments for the `add` command.
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct AddArgs {
+    /// Template to add
+    pub template: String,
+
+    /// Step name to use in config (defaults to template name)
+    #[arg(long = "as", value_name = "NAME")]
+    pub step_name: Option<String>,
+
+    /// Workflow to add the step to (defaults to "default")
+    #[arg(long)]
+    pub workflow: Option<String>,
+
+    /// Insert after this step in the workflow
+    #[arg(long)]
+    pub after: Option<String>,
+
+    /// Don't add to any workflow
+    #[arg(long)]
+    pub no_workflow: bool,
 }

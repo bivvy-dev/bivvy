@@ -11,6 +11,8 @@ Bivvy provides the following commands:
 |---------|-------------|
 | [`bivvy run`](./run.md) | Run setup workflow |
 | [`bivvy init`](./init.md) | Initialize configuration |
+| [`bivvy add`](./add.md) | Add a template step to configuration |
+| [`bivvy templates`](./templates.md) | List available templates |
 | [`bivvy status`](./status.md) | Show current status |
 | [`bivvy list`](./list.md) | List steps and workflows |
 | [`bivvy last`](./last.md) | Show last run info |

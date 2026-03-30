@@ -115,6 +115,8 @@ reqwest = { version = "0.13", features = ["blocking"] }   # HTTP client
 |---------|-------------|
 | `bivvy` / `bivvy run` | Run default workflow |
 | `bivvy init` | Initialize configuration |
+| `bivvy add <template>` | Add a template step to config |
+| `bivvy templates` | List available templates |
 | `bivvy status` | Pre-flight check |
 | `bivvy list` | Show steps and workflows |
 | `bivvy lint` | Validate configuration |

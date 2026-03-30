@@ -11,6 +11,7 @@
 //! - Shared initialization logic
 //! - Consistent global flag handling
 
+pub mod add;
 pub mod cache;
 pub mod completions;
 pub mod config;
@@ -24,6 +25,7 @@ pub mod lint;
 pub mod list;
 pub mod run;
 pub mod status;
+pub mod templates;
 pub mod update;
 
 pub use dispatcher::{Command, CommandDispatcher, CommandResult};

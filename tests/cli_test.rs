@@ -322,3 +322,142 @@ fn cli_dry_run_with_env_shows_filtered_steps() -> Result<(), Box<dyn std::error:
         .stdout(predicate::str::contains("ci_only"));
     Ok(())
 }
+
+// --- Templates command tests ---
+
+#[test]
+fn cli_templates_lists_available() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.arg("templates");
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("bundler"))
+        .stdout(predicate::str::contains("yarn"))
+        .stdout(predicate::str::contains("cargo"))
+        .stdout(predicate::str::contains("templates available"));
+    Ok(())
+}
+
+#[test]
+fn cli_templates_filter_by_category() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["templates", "--category", "ruby"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("bundler"))
+        .stdout(predicate::str::contains("ruby"));
+    Ok(())
+}
+
+#[test]
+fn cli_templates_help() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.args(["templates", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("available templates"));
+    Ok(())
+}
+
+// --- Add command tests ---
+
+#[test]
+fn cli_add_appends_step() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = setup_project(SIMPLE_CONFIG);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Added 'bundler'"));
+
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
+    assert!(config.contains("template: bundler"));
+    assert!(config.contains("# command: bundle install"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_with_custom_name() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = setup_project(SIMPLE_CONFIG);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler", "--as", "ruby_deps"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("Added 'ruby_deps'"));
+
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
+    assert!(config.contains("ruby_deps:"));
+    assert!(config.contains("template: bundler"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_no_workflow() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = setup_project(SIMPLE_CONFIG);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler", "--no-workflow"]);
+    cmd.assert().success();
+
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
+    assert!(config.contains("template: bundler"));
+    // Workflow should not include bundler
+    assert!(!config.contains("steps: [hello, bundler]"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_fails_without_config() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler"]);
+    cmd.assert()
+        .failure()
+        .stderr(predicate::str::contains("bivvy init"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_fails_for_unknown_template() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = setup_project(SIMPLE_CONFIG);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "nonexistent_template_xyz"]);
+    cmd.assert().failure();
+    Ok(())
+}
+
+#[test]
+fn cli_add_fails_for_duplicate_step() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = setup_project(SIMPLE_CONFIG);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler"]);
+    cmd.assert().success();
+
+    // Adding again should fail
+    let mut cmd2 = Command::new(cargo_bin("bivvy"));
+    cmd2.current_dir(temp.path());
+    cmd2.args(["add", "bundler"]);
+    cmd2.assert()
+        .failure()
+        .stderr(predicate::str::contains("already exists"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_help() -> Result<(), Box<dyn std::error::Error>> {
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.args(["add", "--help"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("template"));
+    Ok(())
+}
