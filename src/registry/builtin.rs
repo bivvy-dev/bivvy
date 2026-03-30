@@ -256,6 +256,13 @@ mod tests {
             "postgres-install",
             "redis-install",
             "docker-install",
+            // Common templates
+            "env-copy",
+            "pre-commit",
+            // Monorepo templates
+            "nx",
+            "turborepo",
+            "lerna",
         ];
         for name in &expected {
             assert!(

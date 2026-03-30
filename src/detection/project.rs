@@ -124,6 +124,57 @@ impl ProjectDetector {
             );
         }
 
+        // --- Cross-cutting sidebar detections ---
+
+        // Environment file setup (detected alongside any project type)
+        if any_file_exists(
+            project_root,
+            &[".env.example", ".env.sample", ".env.template"],
+        )
+        .is_some()
+            && !file_exists(project_root, ".env")
+        {
+            details.push(
+                DetectionResult::found("Environment setup")
+                    .with_detail("Environment template file found")
+                    .with_template("env-copy"),
+            );
+        }
+
+        // Pre-commit hooks (detected alongside any project type)
+        if file_exists(project_root, ".pre-commit-config.yaml") {
+            details.push(
+                DetectionResult::found("pre-commit")
+                    .with_detail(".pre-commit-config.yaml found")
+                    .with_template("pre-commit"),
+            );
+        }
+
+        // Monorepo/workspace detection (detected alongside other project types)
+        if file_exists(project_root, "nx.json") {
+            details.push(
+                DetectionResult::found("Nx")
+                    .with_detail("Nx workspace detected")
+                    .with_template("nx"),
+            );
+        }
+
+        if file_exists(project_root, "turbo.json") {
+            details.push(
+                DetectionResult::found("Turborepo")
+                    .with_detail("Turborepo workspace detected")
+                    .with_template("turborepo"),
+            );
+        }
+
+        if file_exists(project_root, "lerna.json") {
+            details.push(
+                DetectionResult::found("Lerna")
+                    .with_detail("Lerna monorepo detected")
+                    .with_template("lerna"),
+            );
+        }
+
         let primary_type = all_types.first().cloned().unwrap_or(ProjectType::Unknown);
 
         ProjectDetection {
@@ -215,5 +266,83 @@ mod tests {
 
         assert!(ProjectDetector::has_type(temp.path(), ProjectType::Rust));
         assert!(!ProjectDetector::has_type(temp.path(), ProjectType::Ruby));
+    }
+
+    #[test]
+    fn detect_env_copy_needed() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".env.example"), "DB_HOST=localhost").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("env-copy".to_string())));
+    }
+
+    #[test]
+    fn detect_env_copy_not_needed_when_env_exists() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".env.example"), "DB_HOST=localhost").unwrap();
+        fs::write(temp.path().join(".env"), "DB_HOST=localhost").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(!detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("env-copy".to_string())));
+    }
+
+    #[test]
+    fn detect_env_copy_with_sample() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".env.sample"), "").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("env-copy".to_string())));
+    }
+
+    #[test]
+    fn detect_pre_commit() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".pre-commit-config.yaml"), "repos: []").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("pre-commit".to_string())));
+    }
+
+    #[test]
+    fn detect_nx_workspace() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("nx.json"), "{}").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("nx".to_string())));
+    }
+
+    #[test]
+    fn detect_turborepo_workspace() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("turbo.json"), "{}").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("turborepo".to_string())));
+    }
+
+    #[test]
+    fn detect_lerna_monorepo() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("lerna.json"), "{}").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("lerna".to_string())));
     }
 }
