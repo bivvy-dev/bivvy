@@ -1,0 +1,26 @@
+name: deno
+description: "Cache Deno dependencies"
+category: deno
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: deno.json
+  - file: deno.jsonc
+
+step:
+  title: "Cache Deno dependencies"
+  description: "Download and cache project dependencies"
+  command: "deno install"
+  requires:
+    - deno
+  completed_check:
+    type: file_exists
+    path: "deno.lock"
+  watches:
+    - deno.json
+    - deno.jsonc
+    - deno.lock
+
+environment_impact:
+  note: "Dependencies are cached in DENO_DIR (defaults to ~/.cache/deno)"

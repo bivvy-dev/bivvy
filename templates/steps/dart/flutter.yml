@@ -1,0 +1,24 @@
+name: flutter
+description: "Install Flutter dependencies"
+category: dart
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: pubspec.yaml
+
+step:
+  title: "Install Flutter dependencies"
+  description: "Install packages and set up Flutter project"
+  command: "flutter pub get"
+  requires:
+    - flutter
+  completed_check:
+    type: file_exists
+    path: ".dart_tool"
+  watches:
+    - pubspec.yaml
+    - pubspec.lock
+
+environment_impact:
+  note: "Packages are cached in ~/.pub-cache"

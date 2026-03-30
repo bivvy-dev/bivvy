@@ -18,6 +18,10 @@ pub enum ProjectType {
     Elixir,
     Swift,
     Terraform,
+    Maven,
+    Dotnet,
+    Dart,
+    Deno,
     Unknown,
 }
 
@@ -185,6 +189,72 @@ impl ProjectDetector {
                 DetectionResult::found("AWS CDK")
                     .with_detail("cdk.json found")
                     .with_template("aws-cdk"),
+            );
+        }
+
+        // Maven (Java)
+        if file_exists(project_root, "pom.xml") {
+            all_types.push(ProjectType::Maven);
+            details.push(
+                DetectionResult::found("Maven (Java)")
+                    .with_detail("pom.xml found")
+                    .with_template("maven"),
+            );
+        }
+
+        // .NET (C#)
+        if std::fs::read_dir(project_root)
+            .map(|entries| {
+                entries.filter_map(|e| e.ok()).any(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    name.ends_with(".sln") || name.ends_with(".csproj")
+                })
+            })
+            .unwrap_or(false)
+        {
+            all_types.push(ProjectType::Dotnet);
+            details.push(
+                DetectionResult::found(".NET")
+                    .with_detail(".NET solution or project found")
+                    .with_template("dotnet"),
+            );
+        }
+
+        // Dart/Flutter
+        if file_exists(project_root, "pubspec.yaml") {
+            all_types.push(ProjectType::Dart);
+
+            let flutter_dirs = ["android", "ios", "web", "macos", "linux", "windows"];
+            let is_flutter = flutter_dirs
+                .iter()
+                .any(|dir| project_root.join(dir).is_dir());
+
+            if is_flutter {
+                details.push(
+                    DetectionResult::found("Flutter")
+                        .with_detail("pubspec.yaml found")
+                        .with_template("flutter"),
+                );
+            } else {
+                details.push(
+                    DetectionResult::found("Dart")
+                        .with_detail("pubspec.yaml found")
+                        .with_template("dart"),
+                );
+            }
+        }
+
+        // Deno
+        if file_exists(project_root, "deno.json")
+            || file_exists(project_root, "deno.jsonc")
+            || file_exists(project_root, "deno.lock")
+        {
+            all_types.push(ProjectType::Deno);
+            details.push(
+                DetectionResult::found("Deno")
+                    .with_detail("Deno configuration found")
+                    .with_template("deno"),
             );
         }
 
@@ -397,5 +467,86 @@ mod tests {
 
         assert!(ProjectDetector::has_type(temp.path(), ProjectType::Rust));
         assert!(!ProjectDetector::has_type(temp.path(), ProjectType::Ruby));
+    }
+
+    #[test]
+    fn detect_maven_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pom.xml"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Maven);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("maven".to_string())));
+    }
+
+    #[test]
+    fn detect_dotnet_project_sln() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("MyApp.sln"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Dotnet);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("dotnet".to_string())));
+    }
+
+    #[test]
+    fn detect_dotnet_project_csproj() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("MyApp.csproj"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Dotnet);
+    }
+
+    #[test]
+    fn detect_dart_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pubspec.yaml"), "name: my_app").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Dart);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("dart".to_string())));
+    }
+
+    #[test]
+    fn detect_flutter_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pubspec.yaml"), "name: my_app").unwrap();
+        fs::create_dir(temp.path().join("android")).unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Dart);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("flutter".to_string())));
+    }
+
+    #[test]
+    fn detect_deno_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("deno.json"), "{}").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Deno);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("deno".to_string())));
     }
 }

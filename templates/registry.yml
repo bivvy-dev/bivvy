@@ -53,6 +53,22 @@ categories:
     description: "Infrastructure as Code tools"
     templates: [terraform, aws-cdk]
 
+  - name: java
+    description: "Java ecosystem tools"
+    templates: [maven]
+
+  - name: dotnet
+    description: ".NET ecosystem tools"
+    templates: [dotnet]
+
+  - name: dart
+    description: "Dart/Flutter ecosystem tools"
+    templates: [dart, flutter]
+
+  - name: deno
+    description: "Deno ecosystem tools"
+    templates: [deno]
+
   - name: install
     description: "Prerequisite installation templates"
     templates:
@@ -110,3 +126,8 @@ detection_order:
   - swift
   - terraform
   - aws-cdk
+  - maven
+  - dotnet
+  - dart
+  - flutter
+  - deno

@@ -253,6 +253,11 @@ mod tests {
             "swift",
             "terraform",
             "aws-cdk",
+            "maven",
+            "dotnet",
+            "dart",
+            "flutter",
+            "deno",
             // Install templates
             "mise-install",
             "mise-ruby",
