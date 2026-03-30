@@ -82,7 +82,17 @@ impl RemoteFetcher {
     }
 
     /// Fetch with authentication header.
+    ///
+    /// Requires HTTPS to prevent credential leakage over plain HTTP.
+    /// Returns an error if the URL scheme is not `https://`.
     pub fn fetch_with_auth(&self, url: &str, auth: &AuthHeader) -> Result<String> {
+        if !url.starts_with("https://") {
+            return Err(anyhow!(
+                "Refusing to send auth headers over insecure HTTP: {}. Use HTTPS instead",
+                url
+            ));
+        }
+
         let response = self
             .client
             .get(url)
@@ -418,24 +428,65 @@ mod tests {
     }
 
     #[test]
-    fn fetch_sends_auth_header() {
+    fn fetch_with_auth_rejects_http_url() {
         let server = MockServer::start();
-
-        let mock = server.mock(|when, then| {
-            when.method(GET)
-                .path("/private.yml")
-                .header("Authorization", "Bearer secret-token");
-            then.status(200).body("private: true");
-        });
-
         let fetcher = fetcher_with_mock(&server);
         let auth = AuthHeader::bearer("secret-token");
-        let content = fetcher
-            .fetch_with_auth(&server.url("/private.yml"), &auth)
-            .unwrap();
 
-        assert_eq!(content, "private: true");
-        mock.assert();
+        // Mock server URLs are http://, so this should be rejected
+        let result = fetcher.fetch_with_auth(&server.url("/private.yml"), &auth);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("insecure HTTP"),
+            "Error should mention insecure HTTP: {}",
+            err
+        );
+        assert!(
+            err.contains("Use HTTPS"),
+            "Error should suggest HTTPS: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn fetch_with_auth_accepts_https_url() {
+        // We can't easily mock an HTTPS server, so we verify the URL
+        // validation passes for https:// by checking the error is NOT
+        // about insecure HTTP (it will fail on the actual network request
+        // since the host doesn't exist, which is fine).
+        let temp = TempDir::new().unwrap();
+        let cache_dir = temp.path().join("cache");
+        let fetcher = RemoteFetcher::with_cache_dir(Duration::from_secs(1), cache_dir);
+        let auth = AuthHeader::bearer("secret-token");
+
+        let result = fetcher.fetch_with_auth("https://nonexistent.invalid/config.yml", &auth);
+
+        // Should fail due to network error, NOT due to HTTPS validation
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            !err.contains("insecure HTTP"),
+            "HTTPS URL should not trigger insecure HTTP error: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn fetch_with_auth_rejects_http_with_custom_header() {
+        let fetcher = RemoteFetcher::default();
+        let auth = AuthHeader::custom("X-API-Key", "my-secret-key");
+
+        let result = fetcher.fetch_with_auth("http://example.com/config.yml", &auth);
+
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("insecure HTTP"),
+            "Error should mention insecure HTTP: {}",
+            err
+        );
     }
 
     #[test]
