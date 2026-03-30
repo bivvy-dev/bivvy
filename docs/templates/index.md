@@ -1,6 +1,6 @@
 # Templates
 
-Templates define reusable setup steps. Bivvy includes 20 built-in templates covering system package managers, version managers, and language-specific dependency tools. You can also create custom templates.
+Templates define reusable setup steps. Bivvy includes 45+ built-in templates covering system package managers, version managers, language-specific dependency tools, database migrations, containers, infrastructure as code, and monorepo tools. You can also create custom templates.
 
 ## Using Templates
 
@@ -20,13 +20,22 @@ When you run `bivvy init`, templates are auto-detected based on files in your pr
 |----------|-----------|
 | System | `brew`, `apt`, `yum`, `pacman` |
 | Windows | `chocolatey`, `scoop` |
-| Version managers | `mise`, `asdf`, `volta` |
-| Ruby | `bundler` |
-| Node.js | `yarn`, `npm`, `pnpm`, `bun` |
-| Python | `pip`, `poetry`, `uv` |
-| Rust | `cargo` |
+| Version managers | `mise`, `asdf`, `volta`, `nvm`, `fnm`, `rbenv`, `pyenv` |
+| Ruby | `bundler`, `rails-db` |
+| Node.js | `yarn`, `npm`, `pnpm`, `bun`, `next`, `vite`, `remix` |
+| Python | `pip`, `poetry`, `uv`, `django`, `alembic` |
+| Rust | `cargo`, `diesel` |
 | Go | `go` |
 | Swift | `swift` |
+| Java | `maven`, `spring-boot` |
+| .NET | `dotnet` |
+| Dart / Flutter | `dart`, `flutter` |
+| Deno | `deno` |
+| Database migrations | `rails-db`, `prisma`, `diesel`, `alembic` |
+| Containers | `docker-compose`, `helm` |
+| Infrastructure as Code | `pulumi`, `ansible` |
+| Cross-cutting | `env-copy`, `pre-commit` |
+| Monorepo / Workspace | `nx`, `turborepo`, `lerna` |
 
 See [Built-in Templates](builtin.md) for full details on each template.
 

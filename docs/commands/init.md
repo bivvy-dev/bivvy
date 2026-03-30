@@ -70,12 +70,37 @@ Bivvy automatically detects technologies and maps them to built-in templates:
 |----------|-------------|----------|
 | System | Brewfile | `brew` |
 | Ruby | Gemfile | `bundler` |
+| Ruby (Rails) | bin/rails, config/routes.rb | `rails-db` |
 | Node.js | yarn.lock, package-lock.json, pnpm-lock.yaml, bun.lockb | `yarn`, `npm`, `pnpm`, `bun` |
+| Node.js (Next.js) | next.config.js, next.config.mjs | `next` |
+| Node.js (Vite) | vite.config.ts, vite.config.js | `vite` |
+| Node.js (Remix) | remix.config.js | `remix` |
 | Python | requirements.txt, poetry.lock, uv.lock | `pip`, `poetry`, `uv` |
+| Python (Django) | manage.py | `django` |
+| Python (Alembic) | alembic.ini | `alembic` |
 | Rust | Cargo.toml | `cargo` |
+| Rust (Diesel) | diesel.toml | `diesel` |
 | Go | go.mod | `go` |
 | Swift | Package.swift | `swift` |
+| Java (Maven) | pom.xml | `maven` |
+| Java (Spring Boot) | application.properties, application.yml | `spring-boot` |
+| .NET | *.sln, *.csproj | `dotnet` |
+| Dart / Flutter | pubspec.yaml | `dart`, `flutter` |
+| Deno | deno.json, deno.jsonc | `deno` |
+| Database (Prisma) | prisma/schema.prisma | `prisma` |
+| Containers | compose.yml, docker-compose.yml | `docker-compose` |
+| Kubernetes | Chart.yaml | `helm` |
+| IaC (Pulumi) | Pulumi.yaml | `pulumi` |
+| IaC (Ansible) | ansible.cfg, playbook.yml | `ansible` |
+| Cross-cutting | .env.example | `env-copy` |
+| Cross-cutting | .pre-commit-config.yaml | `pre-commit` |
+| Monorepo | nx.json | `nx` |
+| Monorepo | turbo.json | `turborepo` |
+| Monorepo | lerna.json | `lerna` |
 | Version managers | .mise.toml, .tool-versions, volta | `mise`, `asdf`, `volta` |
+| Version managers | .nvmrc, .node-version | `nvm`, `fnm` |
+| Version managers | .ruby-version | `rbenv` |
+| Version managers | .python-version | `pyenv` |
 
 ## Enriched Output
 

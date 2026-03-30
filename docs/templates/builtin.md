@@ -1,6 +1,6 @@
 # Built-in Templates
 
-Bivvy includes 20 built-in templates for common development tools. When you run `bivvy init`, these are auto-detected based on files in your project.
+Bivvy includes 45+ built-in templates for common development tools. When you run `bivvy init`, these are auto-detected based on files in your project.
 
 ## System Package Managers
 
@@ -25,12 +25,17 @@ Bivvy includes 20 built-in templates for common development tools. When you run 
 | `mise` | macOS, Linux, Windows | `.mise.toml`, `mise.toml` | `mise install` |
 | `asdf` | macOS, Linux | `.tool-versions` | `asdf install` |
 | `volta` | macOS, Linux, Windows | `volta` available | `volta install node` |
+| `nvm` | macOS, Linux | `.nvmrc` | `nvm install` |
+| `fnm` | macOS, Linux, Windows | `.nvmrc`, `.node-version` | `fnm install` |
+| `rbenv` | macOS, Linux | `.ruby-version` | `rbenv install` |
+| `pyenv` | macOS, Linux | `.python-version` | `pyenv install` |
 
 ## Ruby
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
 | `bundler` | macOS, Linux, Windows | `Gemfile` | `bundle install` |
+| `rails-db` | macOS, Linux, Windows | `bin/rails`, `config/routes.rb` | `bin/rails db:prepare` |
 
 ## Node.js
 
@@ -40,6 +45,9 @@ Bivvy includes 20 built-in templates for common development tools. When you run 
 | `npm` | macOS, Linux, Windows | `package-lock.json` | `npm install` |
 | `pnpm` | macOS, Linux, Windows | `pnpm-lock.yaml` | `pnpm install` |
 | `bun` | macOS, Linux, Windows | `bun.lockb` | `bun install` |
+| `next` | macOS, Linux, Windows | `next.config.js`, `next.config.mjs` | `npm run dev` |
+| `vite` | macOS, Linux, Windows | `vite.config.ts`, `vite.config.js` | `npm run dev` |
+| `remix` | macOS, Linux, Windows | `remix.config.js` | `npm run dev` |
 
 ## Python
 
@@ -48,6 +56,8 @@ Bivvy includes 20 built-in templates for common development tools. When you run 
 | `pip` | macOS, Linux, Windows | `requirements.txt` | `pip install -r requirements.txt` |
 | `poetry` | macOS, Linux, Windows | `poetry.lock` | `poetry install` |
 | `uv` | macOS, Linux, Windows | `uv.lock` | `uv sync` |
+| `django` | macOS, Linux, Windows | `manage.py` | `python manage.py migrate` |
+| `alembic` | macOS, Linux, Windows | `alembic.ini` | `alembic upgrade head` |
 
 ## Rust
 
@@ -85,6 +95,32 @@ steps:
             value: major
 ```
 
+## Java
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `maven` | macOS, Linux, Windows | `pom.xml` | `mvn install` |
+| `spring-boot` | macOS, Linux, Windows | `application.properties`, `application.yml` | `./gradlew bootRun` |
+
+## .NET
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `dotnet` | macOS, Linux, Windows | `*.sln`, `*.csproj` | `dotnet restore` |
+
+## Dart / Flutter
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `dart` | macOS, Linux, Windows | `pubspec.yaml` | `dart pub get` |
+| `flutter` | macOS, Linux, Windows | `pubspec.yaml` (with Flutter SDK) | `flutter pub get` |
+
+## Deno
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `deno` | macOS, Linux, Windows | `deno.json`, `deno.jsonc` | `deno cache` |
+
 ## Go
 
 | Template | Platforms | Detects | Command |
@@ -96,6 +132,44 @@ steps:
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
 | `swift` | macOS, Linux | `Package.swift` | `swift package resolve` |
+
+## Database Migrations
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `rails-db` | macOS, Linux, Windows | `bin/rails`, `config/routes.rb` | `bin/rails db:prepare` |
+| `prisma` | macOS, Linux, Windows | `prisma/schema.prisma` | `npx prisma migrate dev` |
+| `diesel` | macOS, Linux, Windows | `diesel.toml` | `diesel migration run` |
+| `alembic` | macOS, Linux, Windows | `alembic.ini` | `alembic upgrade head` |
+
+## Containers & Orchestration
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `docker-compose` | macOS, Linux, Windows | `compose.yml`, `docker-compose.yml` | `docker compose up -d` |
+| `helm` | macOS, Linux, Windows | `Chart.yaml` | `helm dependency build` |
+
+## Infrastructure as Code
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `pulumi` | macOS, Linux, Windows | `Pulumi.yaml` | `pulumi up` |
+| `ansible` | macOS, Linux | `ansible.cfg`, `playbook.yml` | `ansible-playbook playbook.yml` |
+
+## Cross-cutting Tools
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `env-copy` | macOS, Linux, Windows | `.env.example` | `cp .env.example .env` |
+| `pre-commit` | macOS, Linux, Windows | `.pre-commit-config.yaml` | `pre-commit install` |
+
+## Monorepo / Workspace
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `nx` | macOS, Linux, Windows | `nx.json` | `npx nx run-many --target=build` |
+| `turborepo` | macOS, Linux, Windows | `turbo.json` | `npx turbo run build` |
+| `lerna` | macOS, Linux, Windows | `lerna.json` | `npx lerna bootstrap` |
 
 ## Example Usage
 
@@ -272,6 +346,276 @@ Resolves Swift Package Manager dependencies.
 - **Command**: `swift package resolve`
 - **Completion check**: `.build` directory exists
 - **Watches**: `Package.swift`, `Package.resolved`
+
+### nvm
+
+Installs Node.js version using nvm.
+
+- **Platforms**: macOS, Linux
+- **Detects**: `.nvmrc`
+- **Command**: `nvm install`
+- **Completion check**: `nvm current`
+- **Watches**: `.nvmrc`
+
+### fnm
+
+Installs Node.js version using fnm (Fast Node Manager).
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `.nvmrc`, `.node-version`
+- **Command**: `fnm install`
+- **Completion check**: `fnm current`
+- **Watches**: `.nvmrc`, `.node-version`
+
+### rbenv
+
+Installs Ruby version using rbenv.
+
+- **Platforms**: macOS, Linux
+- **Detects**: `.ruby-version`
+- **Command**: `rbenv install`
+- **Completion check**: `rbenv version`
+- **Watches**: `.ruby-version`
+
+### pyenv
+
+Installs Python version using pyenv.
+
+- **Platforms**: macOS, Linux
+- **Detects**: `.python-version`
+- **Command**: `pyenv install`
+- **Completion check**: `pyenv version`
+- **Watches**: `.python-version`
+
+### maven
+
+Installs Java dependencies using Maven.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `pom.xml`
+- **Command**: `mvn install`
+- **Completion check**: `target` directory exists
+- **Watches**: `pom.xml`
+
+### spring-boot
+
+Sets up a Spring Boot project (Gradle-based).
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `application.properties`, `application.yml`
+- **Command**: `./gradlew bootRun`
+- **Completion check**: `build` directory exists
+- **Watches**: `build.gradle`, `build.gradle.kts`, `application.properties`, `application.yml`
+
+### dotnet
+
+Restores .NET project dependencies.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `*.sln`, `*.csproj`
+- **Command**: `dotnet restore`
+- **Completion check**: `dotnet build --no-restore` succeeds
+- **Watches**: `*.sln`, `*.csproj`, `Directory.Build.props`
+
+### dart
+
+Installs Dart package dependencies.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `pubspec.yaml`
+- **Command**: `dart pub get`
+- **Completion check**: `.dart_tool` directory exists
+- **Watches**: `pubspec.yaml`, `pubspec.lock`
+
+### flutter
+
+Installs Flutter package dependencies.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `pubspec.yaml` (with Flutter SDK dependency)
+- **Command**: `flutter pub get`
+- **Completion check**: `.dart_tool` directory exists
+- **Watches**: `pubspec.yaml`, `pubspec.lock`
+
+### deno
+
+Caches Deno module dependencies.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `deno.json`, `deno.jsonc`
+- **Command**: `deno cache`
+- **Completion check**: `deno info` succeeds
+- **Watches**: `deno.json`, `deno.jsonc`, `deno.lock`
+
+### next
+
+Detects a Next.js project. Uses the project's Node.js package manager for dependency installation.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `next.config.js`, `next.config.mjs`
+- **Command**: `npm run dev`
+- **Completion check**: `.next` directory exists
+- **Watches**: `next.config.js`, `next.config.mjs`, `package.json`
+
+### vite
+
+Detects a Vite project. Uses the project's Node.js package manager for dependency installation.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `vite.config.ts`, `vite.config.js`
+- **Command**: `npm run dev`
+- **Completion check**: `node_modules` directory exists
+- **Watches**: `vite.config.ts`, `vite.config.js`, `package.json`
+
+### remix
+
+Detects a Remix project. Uses the project's Node.js package manager for dependency installation.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `remix.config.js`
+- **Command**: `npm run dev`
+- **Completion check**: `node_modules` directory exists
+- **Watches**: `remix.config.js`, `package.json`
+
+### django
+
+Runs Django database migrations.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `manage.py`
+- **Command**: `python manage.py migrate`
+- **Completion check**: `python manage.py showmigrations --plan` shows no unapplied migrations
+- **Watches**: `manage.py`, `*/migrations/*.py`
+
+### rails-db
+
+Prepares the Rails database (creates, migrates, seeds).
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `bin/rails`, `config/routes.rb`
+- **Command**: `bin/rails db:prepare`
+- **Completion check**: `bin/rails db:version` succeeds
+- **Watches**: `db/migrate/*`, `db/schema.rb`, `db/seeds.rb`
+
+### prisma
+
+Runs Prisma database migrations.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `prisma/schema.prisma`
+- **Command**: `npx prisma migrate dev`
+- **Completion check**: `npx prisma migrate status` shows no pending migrations
+- **Watches**: `prisma/schema.prisma`, `prisma/migrations/*`
+
+### diesel
+
+Runs Diesel database migrations (Rust).
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `diesel.toml`
+- **Command**: `diesel migration run`
+- **Completion check**: `diesel migration pending` returns empty
+- **Watches**: `diesel.toml`, `migrations/*`
+
+### alembic
+
+Runs Alembic database migrations (Python/SQLAlchemy).
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `alembic.ini`
+- **Command**: `alembic upgrade head`
+- **Completion check**: `alembic current` matches head
+- **Watches**: `alembic.ini`, `alembic/versions/*`
+
+### docker-compose
+
+Starts services defined in a Docker Compose file.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `compose.yml`, `docker-compose.yml`
+- **Command**: `docker compose up -d`
+- **Completion check**: `docker compose ps` shows running services
+- **Watches**: `compose.yml`, `docker-compose.yml`, `Dockerfile`
+
+### helm
+
+Builds Helm chart dependencies for Kubernetes deployments.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `Chart.yaml`
+- **Command**: `helm dependency build`
+- **Completion check**: `charts/` directory exists
+- **Watches**: `Chart.yaml`, `Chart.lock`, `values.yaml`
+
+### pulumi
+
+Deploys infrastructure using Pulumi.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `Pulumi.yaml`
+- **Command**: `pulumi up`
+- **Completion check**: `pulumi stack` succeeds
+- **Watches**: `Pulumi.yaml`, `Pulumi.*.yaml`
+
+### ansible
+
+Runs an Ansible playbook.
+
+- **Platforms**: macOS, Linux
+- **Detects**: `ansible.cfg`, `playbook.yml`
+- **Command**: `ansible-playbook playbook.yml`
+- **Completion check**: Command succeeds
+- **Watches**: `ansible.cfg`, `playbook.yml`, `inventory/*`, `roles/*`
+
+### env-copy
+
+Copies `.env.example` to `.env` if it doesn't already exist.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `.env.example`
+- **Command**: `cp .env.example .env`
+- **Completion check**: `.env` file exists
+- **Watches**: `.env.example`
+
+### pre-commit
+
+Installs pre-commit hook scripts into your Git repository.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `.pre-commit-config.yaml`
+- **Command**: `pre-commit install`
+- **Completion check**: `.git/hooks/pre-commit` file exists
+- **Watches**: `.pre-commit-config.yaml`
+
+### nx
+
+Sets up an Nx monorepo workspace.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `nx.json`
+- **Command**: `npx nx run-many --target=build`
+- **Completion check**: `node_modules` directory exists
+- **Watches**: `nx.json`, `workspace.json`, `package.json`
+
+### turborepo
+
+Sets up a Turborepo monorepo workspace.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `turbo.json`
+- **Command**: `npx turbo run build`
+- **Completion check**: `node_modules` directory exists
+- **Watches**: `turbo.json`, `package.json`
+
+### lerna
+
+Bootstraps a Lerna monorepo workspace.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `lerna.json`
+- **Command**: `npx lerna bootstrap`
+- **Completion check**: `node_modules` directory exists
+- **Watches**: `lerna.json`, `package.json`
 
 ## Install Templates
 
