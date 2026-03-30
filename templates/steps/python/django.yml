@@ -17,8 +17,7 @@ step:
     type: file_exists
     path: "manage.py"
   completed_check:
-    type: command_succeeds
-    command: "python manage.py migrate --check 2>&1"
+    type: marker
   watches:
     - manage.py
     - "*/migrations"

@@ -5,13 +5,13 @@ version: "1.0.0"
 platforms: [macos, linux, windows]
 
 detects:
-  - file: bin/rails
   - file: config/routes.rb
+  - file: config/application.rb
 
 step:
   title: "Set up Rails database"
   description: "Create database, run migrations, and seed data"
-  command: "bin/rails db:prepare"
+  command: "bundle exec rails db:prepare"
   requires:
     - ruby
     - bundler
@@ -19,8 +19,7 @@ step:
     type: file_exists
     path: "config/database.yml"
   completed_check:
-    type: command_succeeds
-    command: "bin/rails db:migrate:status 2>&1 | grep -v '\\bdown\\b'"
+    type: marker
   watches:
     - db/migrate
     - db/seeds.rb

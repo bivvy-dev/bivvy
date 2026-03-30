@@ -17,8 +17,7 @@ step:
     type: file_exists
     path: "diesel.toml"
   completed_check:
-    type: command_succeeds
-    command: "diesel migration pending 2>&1 | grep -q 'No pending migrations'"
+    type: marker
   watches:
     - diesel.toml
     - migrations

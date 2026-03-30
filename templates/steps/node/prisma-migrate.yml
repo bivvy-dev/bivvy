@@ -17,8 +17,7 @@ step:
     type: file_exists
     path: "prisma/schema.prisma"
   completed_check:
-    type: command_succeeds
-    command: "npx prisma migrate status 2>&1 | grep -q 'Database schema is up to date'"
+    type: marker
   watches:
     - prisma/schema.prisma
     - prisma/migrations

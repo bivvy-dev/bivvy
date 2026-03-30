@@ -18,8 +18,7 @@ step:
     type: file_exists
     path: "alembic.ini"
   completed_check:
-    type: command_succeeds
-    command: "alembic current 2>&1 | grep -q '(head)'"
+    type: marker
   watches:
     - alembic.ini
     - alembic/versions

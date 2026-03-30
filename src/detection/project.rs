@@ -52,8 +52,8 @@ impl ProjectDetector {
             );
 
             // Rails (detected alongside Ruby)
-            if file_exists(project_root, "bin/rails")
-                || file_exists(project_root, "config/routes.rb")
+            if file_exists(project_root, "config/routes.rb")
+                || file_exists(project_root, "config/application.rb")
             {
                 details.push(
                     DetectionResult::found("Rails")
