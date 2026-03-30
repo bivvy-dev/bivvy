@@ -73,6 +73,14 @@ categories:
     description: "Container and orchestration tools"
     templates: [docker-compose, helm]
 
+  - name: common
+    description: "Cross-cutting project setup tools"
+    templates: [env-copy, pre-commit]
+
+  - name: monorepo
+    description: "Monorepo and workspace tools"
+    templates: [nx, turborepo, lerna]
+
   - name: install
     description: "Prerequisite installation templates"
     templates:
@@ -150,3 +158,8 @@ detection_order:
   - remix
   - django
   - spring-boot
+  - env-copy
+  - pre-commit
+  - nx
+  - turborepo
+  - lerna

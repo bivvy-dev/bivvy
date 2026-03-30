@@ -1,0 +1,24 @@
+name: turborepo
+description: "Set up Turborepo workspace"
+category: monorepo
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: turbo.json
+
+step:
+  title: "Set up Turborepo workspace"
+  description: "Install dependencies and build workspace packages"
+  command: "npx turbo build"
+  requires:
+    - node
+  completed_check:
+    type: file_exists
+    path: "node_modules/.cache/turbo"
+  watches:
+    - turbo.json
+    - "packages/*/package.json"
+
+environment_impact:
+  note: "Builds all workspace packages using Turborepo pipeline"

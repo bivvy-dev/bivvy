@@ -334,6 +334,36 @@ mod tests {
     }
 
     #[test]
+    fn full_detection_env_copy() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".env.example"), "SECRET=xxx").unwrap();
+        let detection = DetectionRunner::run(temp.path());
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "env-copy"));
+    }
+
+    #[test]
+    fn full_detection_pre_commit() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".pre-commit-config.yaml"), "repos: []").unwrap();
+        let detection = DetectionRunner::run(temp.path());
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "pre-commit"));
+    }
+
+    #[test]
+    fn full_detection_nx_workspace() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("nx.json"), "{}").unwrap();
+        let detection = DetectionRunner::run(temp.path());
+        assert!(detection.suggested_templates.iter().any(|t| t.name == "nx"));
+    }
+
+    #[test]
     fn full_detection_multi_language() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile"), "").unwrap();

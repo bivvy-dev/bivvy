@@ -6,12 +6,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::RunArgs;
+#[cfg(test)]
+use crate::config::load_merged_config;
 use crate::config::{
     evaluate_vars, load_merged_config_with_trust, ConfigPaths, ExtendsResolver,
     InterpolationContext, TrustPolicy, TrustStore,
 };
-#[cfg(test)]
-use crate::config::load_merged_config;
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::registry::Registry;

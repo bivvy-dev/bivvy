@@ -287,8 +287,7 @@ pub fn load_merged_config_with_trust(
         })?;
 
     if config.extends.is_some() {
-        let mut trust_store =
-            TrustStore::load(trust_store_path).map_err(BivvyError::Other)?;
+        let mut trust_store = TrustStore::load(trust_store_path).map_err(BivvyError::Other)?;
         let mut store_modified = false;
 
         let resolved = resolver

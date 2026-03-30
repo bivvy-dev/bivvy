@@ -1,0 +1,25 @@
+name: env-copy
+description: "Copy environment template to .env"
+category: common
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: .env.example
+  - file: .env.sample
+  - file: .env.template
+
+step:
+  title: "Set up environment file"
+  description: "Copy environment template to .env for local configuration"
+  command: "cp -n .env.example .env 2>/dev/null || cp -n .env.sample .env 2>/dev/null || cp -n .env.template .env 2>/dev/null || true"
+  completed_check:
+    type: file_exists
+    path: ".env"
+  watches:
+    - .env.example
+    - .env.sample
+    - .env.template
+
+environment_impact:
+  note: "Creates .env from template — review and update values for your environment"
