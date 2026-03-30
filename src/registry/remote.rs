@@ -117,6 +117,18 @@ impl RemoteLoader {
         self.templates.get(name).map(|(t, p)| (t, *p))
     }
 
+    /// Get a template with its priority, filtering by category.
+    pub fn get_with_priority_by_category(
+        &self,
+        name: &str,
+        category: &str,
+    ) -> Option<(&Template, u32)> {
+        self.templates
+            .get(name)
+            .filter(|(t, _)| t.category == category)
+            .map(|(t, p)| (t, *p))
+    }
+
     /// Check if a template exists.
     pub fn has(&self, name: &str) -> bool {
         self.templates.contains_key(name)

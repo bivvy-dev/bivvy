@@ -119,6 +119,11 @@ impl BuiltinLoader {
         self.templates.get(name)
     }
 
+    /// Get a template by name, filtering by category.
+    pub fn get_by_category(&self, name: &str, category: &str) -> Option<&Template> {
+        self.templates.get(name).filter(|t| t.category == category)
+    }
+
     /// Get all template names.
     pub fn template_names(&self) -> Vec<&str> {
         self.templates.keys().map(|s| s.as_str()).collect()

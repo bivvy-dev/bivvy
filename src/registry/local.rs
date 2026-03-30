@@ -103,6 +103,18 @@ impl LocalLoader {
         self.templates.get(name).map(|(t, s)| (t, *s))
     }
 
+    /// Get a template with its source, filtering by category.
+    pub fn get_with_source_by_category(
+        &self,
+        name: &str,
+        category: &str,
+    ) -> Option<(&Template, TemplateSource)> {
+        self.templates
+            .get(name)
+            .filter(|(t, _)| t.category == category)
+            .map(|(t, s)| (t, *s))
+    }
+
     /// Get all template names.
     pub fn template_names(&self) -> Vec<&str> {
         self.templates.keys().map(|s| s.as_str()).collect()

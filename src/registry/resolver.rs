@@ -15,6 +15,37 @@ use crate::registry::template::{Template, TemplateSource};
 use std::collections::HashMap;
 use std::path::Path;
 
+/// A parsed template reference, optionally qualified by category.
+///
+/// Template references in config can use `category/name` syntax
+/// (e.g., `rust/version-bump`) to disambiguate templates that share
+/// a name across categories.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct TemplateRef<'a> {
+    name: &'a str,
+    category: Option<&'a str>,
+}
+
+impl<'a> TemplateRef<'a> {
+    /// Parse a template reference string.
+    ///
+    /// Supports two forms:
+    /// - `"name"` — unqualified lookup (first match wins)
+    /// - `"category/name"` — qualified lookup (must match both name and category)
+    fn parse(input: &'a str) -> Self {
+        match input.split_once('/') {
+            Some((category, name)) if !category.is_empty() && !name.is_empty() => Self {
+                name,
+                category: Some(category),
+            },
+            _ => Self {
+                name: input,
+                category: None,
+            },
+        }
+    }
+}
+
 /// Template registry that resolves templates from multiple sources.
 #[derive(Debug, Clone)]
 pub struct Registry {
@@ -68,42 +99,81 @@ impl Registry {
         })
     }
 
-    /// Resolve a template by name.
+    /// Resolve a template by name, with optional `category/name` syntax.
+    ///
+    /// Template references can be:
+    /// - `"name"` — unqualified lookup (first match wins)
+    /// - `"category/name"` — qualified lookup (must match both name and category)
     ///
     /// Resolution order (first match wins):
     /// 1. Project-local (.bivvy/templates/)
     /// 2. User-local (~/.bivvy/templates/)
     /// 3. Remote (by priority)
     /// 4. Built-in
-    pub fn resolve(&self, name: &str) -> Result<(&Template, TemplateSource)> {
+    pub fn resolve(&self, input: &str) -> Result<(&Template, TemplateSource)> {
+        let tref = TemplateRef::parse(input);
+
         // Check local first (includes both project and user)
-        if let Some((template, source)) = self.local.get_with_source(name) {
+        let local_result = match tref.category {
+            Some(cat) => self.local.get_with_source_by_category(tref.name, cat),
+            None => self.local.get_with_source(tref.name),
+        };
+        if let Some((template, source)) = local_result {
             return Ok((template, source));
         }
 
         // Check remote sources
-        if let Some((template, priority)) = self.remote.get_with_priority(name) {
+        let remote_result = match tref.category {
+            Some(cat) => self.remote.get_with_priority_by_category(tref.name, cat),
+            None => self.remote.get_with_priority(tref.name),
+        };
+        if let Some((template, priority)) = remote_result {
             return Ok((template, TemplateSource::Remote { priority }));
         }
 
         // Check built-in
-        if let Some(template) = self.builtin.get(name) {
+        let builtin_result = match tref.category {
+            Some(cat) => self.builtin.get_by_category(tref.name, cat),
+            None => self.builtin.get(tref.name),
+        };
+        if let Some(template) = builtin_result {
             return Ok((template, TemplateSource::Builtin));
         }
 
         Err(BivvyError::UnknownTemplate {
-            name: name.to_string(),
+            name: input.to_string(),
         })
     }
 
     /// Get a template by name (without source info).
-    pub fn get(&self, name: &str) -> Option<&Template> {
-        self.resolve(name).ok().map(|(t, _)| t)
+    ///
+    /// Supports `category/name` syntax for qualified lookups.
+    pub fn get(&self, input: &str) -> Option<&Template> {
+        self.resolve(input).ok().map(|(t, _)| t)
     }
 
     /// Check if a template exists.
-    pub fn has(&self, name: &str) -> bool {
-        self.local.has(name) || self.remote.has(name) || self.builtin.get(name).is_some()
+    ///
+    /// Supports `category/name` syntax for qualified lookups.
+    pub fn has(&self, input: &str) -> bool {
+        let tref = TemplateRef::parse(input);
+        match tref.category {
+            Some(cat) => {
+                self.local
+                    .get_with_source_by_category(tref.name, cat)
+                    .is_some()
+                    || self
+                        .remote
+                        .get_with_priority_by_category(tref.name, cat)
+                        .is_some()
+                    || self.builtin.get_by_category(tref.name, cat).is_some()
+            }
+            None => {
+                self.local.has(tref.name)
+                    || self.remote.has(tref.name)
+                    || self.builtin.get(tref.name).is_some()
+            }
+        }
     }
 
     /// Get all available template names.
@@ -651,5 +721,140 @@ step:
             "Remote template should appear in all_template_names: {:?}",
             names
         );
+    }
+
+    // --- TemplateRef parsing tests ---
+
+    #[test]
+    fn template_ref_parse_unqualified() {
+        let tref = TemplateRef::parse("version-bump");
+        assert_eq!(tref.name, "version-bump");
+        assert_eq!(tref.category, None);
+    }
+
+    #[test]
+    fn template_ref_parse_qualified() {
+        let tref = TemplateRef::parse("rust/version-bump");
+        assert_eq!(tref.name, "version-bump");
+        assert_eq!(tref.category, Some("rust"));
+    }
+
+    #[test]
+    fn template_ref_parse_empty_category_is_unqualified() {
+        let tref = TemplateRef::parse("/version-bump");
+        assert_eq!(tref.name, "/version-bump");
+        assert_eq!(tref.category, None);
+    }
+
+    #[test]
+    fn template_ref_parse_trailing_slash_is_unqualified() {
+        let tref = TemplateRef::parse("rust/");
+        assert_eq!(tref.name, "rust/");
+        assert_eq!(tref.category, None);
+    }
+
+    #[test]
+    fn template_ref_parse_no_slash() {
+        let tref = TemplateRef::parse("brew-bundle");
+        assert_eq!(tref.name, "brew-bundle");
+        assert_eq!(tref.category, None);
+    }
+
+    // --- Namespaced resolution tests ---
+
+    #[test]
+    fn resolve_builtin_with_correct_category() {
+        let registry = Registry::new(None).unwrap();
+        let (template, source) = registry.resolve("rust/version-bump").unwrap();
+        assert_eq!(template.name, "version-bump");
+        assert_eq!(template.category, "rust");
+        assert_eq!(source, TemplateSource::Builtin);
+    }
+
+    #[test]
+    fn resolve_builtin_with_wrong_category_fails() {
+        let registry = Registry::new(None).unwrap();
+        let result = registry.resolve("node/version-bump");
+        assert!(matches!(result, Err(BivvyError::UnknownTemplate { .. })));
+    }
+
+    #[test]
+    fn has_with_correct_category() {
+        let registry = Registry::new(None).unwrap();
+        assert!(registry.has("rust/version-bump"));
+        assert!(registry.has("system/brew-bundle"));
+    }
+
+    #[test]
+    fn has_with_wrong_category() {
+        let registry = Registry::new(None).unwrap();
+        assert!(!registry.has("ruby/brew-bundle"));
+        assert!(!registry.has("node/version-bump"));
+    }
+
+    #[test]
+    fn get_with_correct_category() {
+        let registry = Registry::new(None).unwrap();
+        let template = registry.get("rust/cargo-build").unwrap();
+        assert_eq!(template.name, "cargo-build");
+        assert_eq!(template.category, "rust");
+    }
+
+    #[test]
+    fn get_with_wrong_category_returns_none() {
+        let registry = Registry::new(None).unwrap();
+        assert!(registry.get("python/cargo-build").is_none());
+    }
+
+    #[test]
+    fn resolve_namespaced_prefers_local_over_builtin() {
+        let temp = TempDir::new().unwrap();
+        let templates_dir = temp.path().join(".bivvy").join("templates").join("steps");
+        fs::create_dir_all(&templates_dir).unwrap();
+
+        let custom = r#"
+name: version-bump
+description: "Custom version-bump"
+category: rust
+step:
+  command: "echo custom"
+"#;
+        fs::write(templates_dir.join("version-bump.yml"), custom).unwrap();
+
+        let registry = Registry::new(Some(temp.path())).unwrap();
+        let (template, source) = registry.resolve("rust/version-bump").unwrap();
+        assert_eq!(template.description, "Custom version-bump");
+        assert_eq!(source, TemplateSource::Project);
+    }
+
+    #[test]
+    fn resolve_namespaced_local_wrong_category_falls_through() {
+        let temp = TempDir::new().unwrap();
+        let templates_dir = temp.path().join(".bivvy").join("templates").join("steps");
+        fs::create_dir_all(&templates_dir).unwrap();
+
+        // Local template has category "custom", but we query "rust/version-bump"
+        let custom = r#"
+name: version-bump
+description: "Custom version-bump"
+category: custom
+step:
+  command: "echo custom"
+"#;
+        fs::write(templates_dir.join("version-bump.yml"), custom).unwrap();
+
+        let registry = Registry::new(Some(temp.path())).unwrap();
+        // Should fall through to builtin since local has wrong category
+        let (template, source) = registry.resolve("rust/version-bump").unwrap();
+        assert_eq!(source, TemplateSource::Builtin);
+        assert_eq!(template.category, "rust");
+    }
+
+    #[test]
+    fn unqualified_name_still_works() {
+        let registry = Registry::new(None).unwrap();
+        // All existing unqualified lookups should continue to work
+        let (template, _) = registry.resolve("version-bump").unwrap();
+        assert_eq!(template.name, "version-bump");
     }
 }
