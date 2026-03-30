@@ -37,6 +37,10 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub debug: bool,
 
+    /// Trust all remote extends URLs without prompting
+    #[arg(long, global = true)]
+    pub trust: bool,
+
     #[command(subcommand)]
     pub command: Option<Commands>,
 }

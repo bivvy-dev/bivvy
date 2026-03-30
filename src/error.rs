@@ -57,6 +57,10 @@ pub enum BivvyError {
         message: String,
     },
 
+    /// An untrusted remote URL was encountered in non-interactive mode.
+    #[error("Untrusted remote config URL: {url}. Use --trust to auto-approve or run interactively to confirm.")]
+    UntrustedUrl { url: String },
+
     /// Shell operation failed (e.g., spawning a debug shell).
     #[error("Shell error: {message}")]
     ShellError { message: String },
@@ -162,6 +166,16 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("node"));
         assert!(msg.contains("Install command exited with code 1"));
+    }
+
+    #[test]
+    fn untrusted_url_displays_url_and_hint() {
+        let err = BivvyError::UntrustedUrl {
+            url: "https://example.com/config.yml".into(),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("https://example.com/config.yml"));
+        assert!(msg.contains("--trust"));
     }
 
     #[test]

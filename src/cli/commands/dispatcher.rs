@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::{Cli, Commands};
+use crate::config::TrustPolicy;
 use crate::error::Result;
 use crate::ui::UserInterface;
 
@@ -76,9 +77,19 @@ impl CommandDispatcher {
     /// Routes the CLI subcommand to the appropriate command implementation
     /// and executes it.
     pub fn dispatch(&self, cli: &Cli, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        // Determine trust policy from CLI flags
+        let trust_policy = if cli.trust {
+            TrustPolicy::TrustAll
+        } else if ui.is_interactive() {
+            TrustPolicy::Prompt
+        } else {
+            TrustPolicy::Reject
+        };
+
         match &cli.command {
             Some(Commands::Run(args)) => {
-                let cmd = super::run::RunCommand::new(&self.project_root, args.clone());
+                let cmd = super::run::RunCommand::new(&self.project_root, args.clone())
+                    .with_trust_policy(trust_policy);
                 cmd.execute(ui)
             }
             Some(Commands::Init(args)) => {
@@ -130,7 +141,8 @@ impl CommandDispatcher {
                 let cmd = super::run::RunCommand::new(
                     &self.project_root,
                     crate::cli::args::RunArgs::default(),
-                );
+                )
+                .with_trust_policy(trust_policy);
                 cmd.execute(ui)
             }
         }

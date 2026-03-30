@@ -42,6 +42,7 @@ pub mod loader;
 pub mod merger;
 pub mod remote;
 pub mod schema;
+pub mod trust;
 pub mod validator;
 pub mod vars;
 
@@ -59,7 +60,7 @@ pub use vars::evaluate_vars;
 // Loader re-exports
 pub use loader::{
     find_project_root, load_config, load_config_file, load_config_value, load_merged_config,
-    load_merged_config_with_resolver, parse_config, ConfigPaths,
+    load_merged_config_with_resolver, load_merged_config_with_trust, parse_config, ConfigPaths,
 };
 
 // Merger re-exports
@@ -84,6 +85,9 @@ pub use remote::{resolve_auth, AuthHeader, RemoteFetcher};
 
 // Extends re-exports
 pub use extends::{validate_extends, ExtendsResolver};
+
+// Trust re-exports
+pub use trust::{TrustPolicy, TrustStore};
 
 // Env layer re-exports
 pub use env_layer::{EnvLayer, EnvLayerStack};

@@ -62,15 +62,36 @@ impl ExtendsResolver {
 
     /// Resolve all extends references and merge configs.
     pub fn resolve(&self, config: &BivvyConfig) -> Result<BivvyConfig> {
-        self.resolve_with_visited(config, &mut HashSet::new(), 0)
+        self.resolve_with_visited(config, &mut HashSet::new(), 0, &mut |_| Ok(()))
     }
 
-    fn resolve_with_visited(
+    /// Resolve extends with a trust checker.
+    ///
+    /// The `trust_check` closure is called for each URL before it is fetched.
+    /// It should return `Ok(())` if the URL is trusted, or an error to abort.
+    /// This enables the caller to prompt the user, check a trust store, or
+    /// reject untrusted URLs based on the current trust policy.
+    pub fn resolve_with_trust<F>(
+        &self,
+        config: &BivvyConfig,
+        trust_check: &mut F,
+    ) -> Result<BivvyConfig>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
+        self.resolve_with_visited(config, &mut HashSet::new(), 0, trust_check)
+    }
+
+    fn resolve_with_visited<F>(
         &self,
         config: &BivvyConfig,
         visited: &mut HashSet<String>,
         depth: usize,
-    ) -> Result<BivvyConfig> {
+        trust_check: &mut F,
+    ) -> Result<BivvyConfig>
+    where
+        F: FnMut(&str) -> Result<()>,
+    {
         if depth > self.max_depth {
             return Err(anyhow!(
                 "Config extends depth exceeds maximum of {}",
@@ -101,12 +122,16 @@ impl ExtendsResolver {
             }
             visited.insert(ext.url.clone());
 
+            // Check trust before fetching
+            trust_check(&ext.url)?;
+
             // Fetch and parse base config
             let content = self.fetcher.fetch(&ext.url)?;
             let base_config: BivvyConfig = serde_yaml::from_str(&content)?;
 
             // Recursively resolve base's extends
-            let resolved_base = self.resolve_with_visited(&base_config, visited, depth + 1)?;
+            let resolved_base =
+                self.resolve_with_visited(&base_config, visited, depth + 1, trust_check)?;
 
             // Convert to Value and merge
             let base_value = serde_yaml::to_value(&resolved_base)?;
