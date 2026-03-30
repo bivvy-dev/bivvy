@@ -21,8 +21,36 @@ fn prompt_theme() -> ColorfulTheme {
     }
 }
 
+/// Check for an environment variable override for a prompt.
+///
+/// Users can skip any prompt by setting an env var matching the prompt key:
+///   `BUMP=minor bivvy run --workflow release`
+///
+/// The lookup is case-insensitive on the key side: a prompt with key "bump"
+/// matches env var `BUMP`, `bump`, or `Bump`.
+pub(super) fn env_override(prompt: &Prompt) -> Option<PromptResult> {
+    let env_key = prompt.key.to_uppercase();
+    let value = std::env::var(&env_key).ok()?;
+
+    let is_multiselect = matches!(prompt.prompt_type, PromptType::MultiSelect { .. });
+    if is_multiselect {
+        let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
+        Some(PromptResult::Strings(values))
+    } else {
+        Some(PromptResult::String(value))
+    }
+}
+
 /// Prompt the user for input.
+///
+/// Before showing any interactive prompt, checks for an environment variable
+/// matching the prompt key (e.g., `BUMP=minor` for a prompt with key "bump").
+/// This works in both interactive and non-interactive modes.
 pub fn prompt_user(prompt: &Prompt, term: &Term) -> Result<PromptResult> {
+    if let Some(result) = env_override(prompt) {
+        return Ok(result);
+    }
+
     match &prompt.prompt_type {
         PromptType::Confirm => prompt_confirm(prompt, term),
         PromptType::Input => prompt_input(prompt, term),
@@ -145,6 +173,7 @@ impl Drop for CursorGuard<'_> {
 /// This function calls `term.read_key()` directly, which:
 ///   - Uses `tcsetattr` to enter raw mode → triggers SIGTTOU
 ///   - Reads from the terminal fd → triggers SIGTTIN
+///
 /// When bivvy is not the terminal's foreground process group (e.g.,
 /// launched via `cargo run`), zsh suspends the process with
 /// "suspended (tty output)" or "suspended (tty input)".

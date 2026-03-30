@@ -53,10 +53,14 @@ impl PreflightCollector {
         let mut values = HashMap::new();
 
         for prompt in prompts {
-            // Check environment override first
-            let env_key = format!("BIVVY_PROMPT_{}", prompt.key.to_uppercase());
-            if let Some(override_value) = env_overrides.get(&env_key) {
-                values.insert(prompt.key.clone(), override_value.clone());
+            // Check environment override first (KEY=value, e.g. BUMP=minor)
+            let env_key = prompt.key.to_uppercase();
+            let override_value = env_overrides
+                .get(&env_key)
+                .cloned()
+                .or_else(|| std::env::var(&env_key).ok());
+            if let Some(val) = override_value {
+                values.insert(prompt.key.clone(), val);
                 continue;
             }
 
@@ -105,7 +109,7 @@ mod tests {
     fn non_interactive_uses_env_override() {
         let prompts = vec![make_prompt("key1", Some("default"))];
         let mut env = HashMap::new();
-        env.insert("BIVVY_PROMPT_KEY1".to_string(), "override".to_string());
+        env.insert("KEY1".to_string(), "override".to_string());
 
         let values = PreflightCollector::collect_non_interactive(&prompts, &env).unwrap();
 
@@ -151,7 +155,7 @@ mod tests {
     fn non_interactive_env_override_takes_precedence() {
         let prompts = vec![make_prompt("db_name", Some("default_db"))];
         let mut env = HashMap::new();
-        env.insert("BIVVY_PROMPT_DB_NAME".to_string(), "env_db".to_string());
+        env.insert("DB_NAME".to_string(), "env_db".to_string());
 
         let values = PreflightCollector::collect_non_interactive(&prompts, &env).unwrap();
 
@@ -165,7 +169,7 @@ mod tests {
             make_prompt("key2", Some("default2")),
         ];
         let mut env = HashMap::new();
-        env.insert("BIVVY_PROMPT_KEY2".to_string(), "override2".to_string());
+        env.insert("KEY2".to_string(), "override2".to_string());
 
         let values = PreflightCollector::collect_non_interactive(&prompts, &env).unwrap();
 

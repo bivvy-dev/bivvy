@@ -1,6 +1,5 @@
 //! Non-interactive UI for CI/headless environments.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use crate::error::{BivvyError, Result};
@@ -19,45 +18,21 @@ use super::{
 /// All other output (headers, summaries, errors) is preserved.
 pub struct NonInteractiveUI {
     mode: OutputMode,
-    env_overrides: HashMap<String, String>,
     is_ci: bool,
 }
 
 impl NonInteractiveUI {
     /// Create a new non-interactive UI.
     pub fn new(mode: OutputMode) -> Self {
-        // Collect BIVVY_PROMPT_* env vars
-        let env_overrides: HashMap<String, String> = std::env::vars()
-            .filter(|(k, _)| k.starts_with("BIVVY_PROMPT_"))
-            .collect();
-
         Self {
             mode,
-            env_overrides,
             is_ci: crate::shell::is_ci(),
-        }
-    }
-
-    /// Create with explicit overrides (for testing).
-    pub fn with_overrides(mode: OutputMode, overrides: HashMap<String, String>) -> Self {
-        Self {
-            mode,
-            env_overrides: overrides,
-            is_ci: false,
         }
     }
 
     /// Create with explicit CI flag (for testing).
     pub fn with_ci(mode: OutputMode, is_ci: bool) -> Self {
-        let env_overrides: HashMap<String, String> = std::env::vars()
-            .filter(|(k, _)| k.starts_with("BIVVY_PROMPT_"))
-            .collect();
-
-        Self {
-            mode,
-            env_overrides,
-            is_ci,
-        }
+        Self { mode, is_ci }
     }
 }
 
@@ -91,14 +66,11 @@ impl UserInterface for NonInteractiveUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
         let is_multiselect = matches!(prompt.prompt_type, PromptType::MultiSelect { .. });
 
-        // Check environment override
-        let env_key = format!("BIVVY_PROMPT_{}", prompt.key.to_uppercase());
-        if let Some(value) = self.env_overrides.get(&env_key) {
-            if is_multiselect {
-                let values: Vec<String> = value.split(',').map(|s| s.trim().to_string()).collect();
-                return Ok(PromptResult::Strings(values));
-            }
-            return Ok(PromptResult::String(value.clone()));
+        // Check environment override (KEY=value, e.g. BUMP=minor).
+        // This is handled by prompt_user for TerminalUI, but
+        // NonInteractiveUI doesn't call prompt_user, so check here too.
+        if let Some(result) = super::prompts::env_override(prompt) {
+            return Ok(result);
         }
 
         // Use default
@@ -328,12 +300,12 @@ mod tests {
 
     #[test]
     fn prompt_uses_env_override() {
-        let mut overrides = HashMap::new();
-        overrides.insert("BIVVY_PROMPT_TEST".to_string(), "override".to_string());
+        // Set env var matching the prompt key (uppercase)
+        std::env::set_var("TEST_PROMPT_OVERRIDE", "override");
 
-        let mut ui = NonInteractiveUI::with_overrides(OutputMode::Normal, overrides);
+        let mut ui = NonInteractiveUI::new(OutputMode::Normal);
         let prompt = Prompt {
-            key: "test".to_string(),
+            key: "test_prompt_override".to_string(),
             question: "Test?".to_string(),
             prompt_type: PromptType::Input,
             default: Some("default".to_string()),
@@ -341,6 +313,8 @@ mod tests {
 
         let result = ui.prompt(&prompt).unwrap();
         assert_eq!(result.as_string(), "override");
+
+        std::env::remove_var("TEST_PROMPT_OVERRIDE");
     }
 
     #[test]
@@ -385,12 +359,11 @@ mod tests {
 
     #[test]
     fn multiselect_prompt_uses_env_override() {
-        let mut overrides = HashMap::new();
-        overrides.insert("BIVVY_PROMPT_STEPS".to_string(), "npm".to_string());
+        std::env::set_var("MULTISELECT_OVERRIDE_STEPS", "npm");
 
-        let mut ui = NonInteractiveUI::with_overrides(OutputMode::Normal, overrides);
+        let mut ui = NonInteractiveUI::new(OutputMode::Normal);
         let prompt = Prompt {
-            key: "steps".to_string(),
+            key: "multiselect_override_steps".to_string(),
             question: "Select steps".to_string(),
             prompt_type: PromptType::MultiSelect { options: vec![] },
             default: Some("bundler,cargo".to_string()),
@@ -399,6 +372,8 @@ mod tests {
         let result = ui.prompt(&prompt).unwrap();
         assert!(matches!(result, PromptResult::Strings(_)));
         assert_eq!(result.as_string(), "npm");
+
+        std::env::remove_var("MULTISELECT_OVERRIDE_STEPS");
     }
 
     #[test]
@@ -408,8 +383,8 @@ mod tests {
     }
 
     #[test]
-    fn non_ci_mode_default_for_with_overrides() {
-        let ui = NonInteractiveUI::with_overrides(OutputMode::Normal, HashMap::new());
+    fn non_ci_mode_default() {
+        let ui = NonInteractiveUI::new(OutputMode::Normal);
         assert!(!ui.is_ci);
     }
 
