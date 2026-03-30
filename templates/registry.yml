@@ -11,7 +11,7 @@ categories:
 
   - name: version_manager
     description: "Runtime version managers"
-    templates: [mise, asdf, volta]
+    templates: [mise, asdf, volta, fnm]
 
   - name: ruby
     description: "Ruby ecosystem tools"
@@ -39,7 +39,7 @@ categories:
 
   - name: install
     description: "Prerequisite installation templates"
-    templates: [mise-install, mise-ruby, mise-node, mise-python, brew-install, rust-install, postgres-install, redis-install, docker-install]
+    templates: [mise-install, mise-ruby, mise-node, mise-python, fnm-node, brew-install, rust-install, postgres-install, redis-install, docker-install]
 
 detection_order:
   - brew
@@ -51,6 +51,7 @@ detection_order:
   - mise
   - asdf
   - volta
+  - fnm
   - bundler
   - yarn
   - npm

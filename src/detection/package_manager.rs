@@ -22,6 +22,7 @@ pub enum PackageManager {
     Asdf,
     Volta,
     Nvm,
+    Fnm,
     Pyenv,
     Rbenv,
 
@@ -98,20 +99,46 @@ impl PackageManagerDetector {
     }
 
     fn detect_version_manager(project_root: &Path) -> Option<PackageManager> {
-        // Check for config files first
+        // Check for config files first (cheap)
         if file_exists(project_root, ".mise.toml") || file_exists(project_root, "mise.toml") {
             return Some(PackageManager::Mise);
         }
         if file_exists(project_root, ".tool-versions") {
             return Some(PackageManager::Asdf);
         }
+        if file_exists(project_root, ".nvmrc") {
+            // Could be nvm or fnm — check if fnm is installed (it reads .nvmrc too)
+            if command_succeeds("fnm --version") {
+                return Some(PackageManager::Fnm);
+            }
+            return Some(PackageManager::Nvm);
+        }
+        if file_exists(project_root, ".node-version") {
+            // fnm, volta, and nodenv all read .node-version
+            if command_succeeds("fnm --version") {
+                return Some(PackageManager::Fnm);
+            }
+            if command_succeeds("volta --version") {
+                return Some(PackageManager::Volta);
+            }
+            return Some(PackageManager::Nvm);
+        }
+        if file_exists(project_root, ".ruby-version") {
+            return Some(PackageManager::Rbenv);
+        }
+        if file_exists(project_root, ".python-version") {
+            return Some(PackageManager::Pyenv);
+        }
 
-        // Check if tools are installed
+        // Check if tools are installed (expensive — runs commands)
         if command_succeeds("mise --version") {
             return Some(PackageManager::Mise);
         }
         if command_succeeds("asdf --version") {
             return Some(PackageManager::Asdf);
+        }
+        if command_succeeds("fnm --version") {
+            return Some(PackageManager::Fnm);
         }
         if command_succeeds("volta --version") {
             return Some(PackageManager::Volta);
@@ -218,6 +245,37 @@ mod tests {
             .contains(&PackageManager::Bundler));
         assert!(detection.language_managers.contains(&PackageManager::Npm));
         assert!(detection.language_managers.contains(&PackageManager::Cargo));
+    }
+
+    #[test]
+    fn detect_version_manager_nvm_via_nvmrc() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".nvmrc"), "18").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        // Should detect nvm or fnm depending on what's installed
+        assert!(detection.version_manager.is_some());
+    }
+
+    #[test]
+    fn detect_version_manager_rbenv_via_ruby_version() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".ruby-version"), "3.2.0").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert_eq!(detection.version_manager, Some(PackageManager::Rbenv));
+    }
+
+    #[test]
+    fn detect_version_manager_pyenv_via_python_version() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join(".python-version"), "3.11").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert_eq!(detection.version_manager, Some(PackageManager::Pyenv));
     }
 
     #[test]

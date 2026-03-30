@@ -77,6 +77,10 @@ impl DetectionRunner {
                 PackageManager::Mise => "mise",
                 PackageManager::Asdf => "asdf",
                 PackageManager::Volta => "volta",
+                PackageManager::Fnm => "fnm",
+                PackageManager::Nvm => "nvm-node",
+                PackageManager::Rbenv => "rbenv-ruby",
+                PackageManager::Pyenv => "pyenv-python",
                 _ => "unknown",
             };
 
