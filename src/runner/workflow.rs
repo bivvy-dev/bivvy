@@ -796,9 +796,9 @@ impl<'a> WorkflowRunner<'a> {
                         } else {
                             None
                         };
-                        spinner.finish_success(&format!("{} ({})", step_name, duration_str));
-                        // Collapse step header + spinner finish → single line
-                        ui.clear_lines(2);
+                        // Clear spinner, then collapse step header → single result line
+                        spinner.finish_and_clear();
+                        ui.clear_lines(1);
                         ui.message(&format!(
                             "{} {}",
                             theme.step_number.apply_to(&step_number),
@@ -939,6 +939,8 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
+            // Blank line before progress bar
+            ui.message("");
             // Update progress bar
             ui.show_workflow_progress(index + 1, total, start.elapsed());
 

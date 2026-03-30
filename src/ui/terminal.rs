@@ -144,7 +144,7 @@ impl UserInterface for TerminalUI {
             let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty),);
             writeln!(
                 self.term,
-                "  {} {}/{} steps {} {}",
+                "{} {}/{} steps {} {}",
                 self.theme.info.apply_to(format!("[{}]", bar)),
                 current,
                 total,
@@ -159,7 +159,7 @@ impl UserInterface for TerminalUI {
 
     fn show_hint(&mut self, hint: &str) {
         if self.mode.shows_status() {
-            writeln!(self.term, "  {}", self.theme.hint.apply_to(hint)).ok();
+            writeln!(self.term, "{}", self.theme.hint.apply_to(hint)).ok();
             writeln!(self.term).ok();
         }
     }
@@ -221,7 +221,7 @@ impl UserInterface for TerminalUI {
         writeln!(self.term).ok();
         writeln!(
             self.term,
-            "  {} {}",
+            "{} {}",
             b.apply_to("┌─"),
             b.apply_to("Summary ──────────────────────────")
         )
@@ -242,7 +242,7 @@ impl UserInterface for TerminalUI {
 
             writeln!(
                 self.term,
-                "  {} {} {:<20} {}",
+                "{} {} {:<20} {}",
                 b.apply_to("│"),
                 icon,
                 step.name,
@@ -254,13 +254,13 @@ impl UserInterface for TerminalUI {
         // Footer
         writeln!(
             self.term,
-            "  {}",
+            "{}",
             b.apply_to("├────────────────────────────────────")
         )
         .ok();
         writeln!(
             self.term,
-            "  {} Total: {} {} {} run {} {} skipped",
+            "{} Total: {} {} {} run {} {} skipped",
             b.apply_to("│"),
             self.theme
                 .duration
@@ -273,7 +273,7 @@ impl UserInterface for TerminalUI {
         .ok();
         writeln!(
             self.term,
-            "  {}",
+            "{}",
             b.apply_to("└────────────────────────────────────")
         )
         .ok();

@@ -282,6 +282,10 @@ impl SpinnerHandle for NoopSpinner {
         let theme = BivvyTheme::new();
         println!("{}{}", prefix, theme.format_skipped(msg));
     }
+
+    fn finish_and_clear(&mut self) {
+        // No-op for non-interactive: nothing to clear
+    }
 }
 
 #[cfg(test)]

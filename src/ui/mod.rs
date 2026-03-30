@@ -193,6 +193,9 @@ pub trait SpinnerHandle {
     /// Mark as skipped.
     fn finish_skipped(&mut self, msg: &str);
 
+    /// Clear the spinner without leaving any output.
+    fn finish_and_clear(&mut self);
+
     /// Get a clone of the underlying progress bar, if available.
     ///
     /// This is used for live output streaming: the cloned bar can be shared

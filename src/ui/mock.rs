@@ -445,6 +445,10 @@ impl SpinnerHandle for MockSpinner {
         self.finish_message = Some(msg.to_string());
         self.status = Some(SpinnerStatus::Skipped);
     }
+
+    fn finish_and_clear(&mut self) {
+        self.status = Some(SpinnerStatus::Success);
+    }
 }
 
 #[cfg(test)]

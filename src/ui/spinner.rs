@@ -86,6 +86,10 @@ impl SpinnerHandle for ProgressSpinner {
             .finish_with_message(format!("{}{}", prefix, theme.format_skipped(msg)));
     }
 
+    fn finish_and_clear(&mut self) {
+        self.bar.finish_and_clear();
+    }
+
     fn progress_bar(&self) -> Option<ProgressBar> {
         Some(self.bar.clone())
     }
