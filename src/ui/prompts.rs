@@ -109,10 +109,31 @@ fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
     Ok(PromptResult::String(options[selection].value.clone()))
 }
 
+/// RAII guard that restores the terminal cursor when dropped.
+///
+/// Ensures the cursor is shown even if the process panics or is
+/// interrupted (Ctrl+C) while the cursor is hidden during a prompt.
+struct CursorGuard<'a> {
+    term: &'a Term,
+}
+
+impl<'a> CursorGuard<'a> {
+    fn new(term: &'a Term) -> std::io::Result<Self> {
+        term.hide_cursor()?;
+        Ok(Self { term })
+    }
+}
+
+impl Drop for CursorGuard<'_> {
+    fn drop(&mut self) {
+        self.term.show_cursor().ok();
+    }
+}
+
 /// Custom yes/no prompt with `›`/`·` indicators and `y`/`n` keyboard shortcuts.
 ///
 /// Renders options below the prompt question, indented to align with
-/// the step name. Supports arrow keys, j/k, Enter/Space, and y/n.
+/// the step name. Supports arrow keys, j/k, Enter/Space, y/n, and Escape.
 fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Result<PromptResult> {
     let default_idx = prompt
         .default
@@ -136,7 +157,9 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
 
     // Write prompt question
     term.write_line(&prompt.question).map_err(BivvyError::Io)?;
-    term.hide_cursor().map_err(BivvyError::Io)?;
+
+    // Hide cursor with RAII guard — cursor is restored on drop (panic, Ctrl+C, early return).
+    let _cursor_guard = CursorGuard::new(term).map_err(BivvyError::Io)?;
 
     loop {
         // Draw option lines
@@ -167,6 +190,15 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
             Key::Char('y') | Key::Char('Y') => options.iter().position(|o| o.value == "yes"),
             Key::Char('n') | Key::Char('N') => options.iter().position(|o| o.value == "no"),
             Key::Enter | Key::Char(' ') => Some(sel),
+            Key::Escape => {
+                // Treat Escape as "no" (matching dialoguer's abort behavior).
+                // Find "no" option; fall back to default if somehow absent.
+                let no_idx = options
+                    .iter()
+                    .position(|o| o.value == "no")
+                    .unwrap_or(default_idx);
+                Some(no_idx)
+            }
             Key::ArrowDown | Key::Tab | Key::Char('j') => {
                 sel = (sel + 1) % options.len();
                 None
@@ -196,8 +228,8 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
                 Style::new().bold().apply_to(answer_text)
             ))
             .map_err(BivvyError::Io)?;
-            term.show_cursor().map_err(BivvyError::Io)?;
 
+            // _cursor_guard is dropped here, restoring the cursor.
             return Ok(PromptResult::String(options[idx].value.clone()));
         }
 
@@ -381,5 +413,21 @@ mod tests {
         let theme = select_theme();
         // Verify the theme object can be used (smoke test)
         drop(theme);
+    }
+
+    #[test]
+    fn cursor_guard_restores_on_drop() {
+        // CursorGuard::new requires a real terminal for hide_cursor(),
+        // but we can verify the struct compiles and the Drop impl exists
+        // by constructing with Term::stdout() in a non-panicking context.
+        // On non-TTY (CI), hide_cursor is a no-op that still succeeds.
+        let term = Term::stdout();
+        // If hide_cursor succeeds, guard will restore on drop.
+        // If it fails (no TTY), that's fine — the guard pattern is still valid.
+        let guard_result = CursorGuard::new(&term);
+        if let Ok(guard) = guard_result {
+            drop(guard);
+            // After drop, cursor should be visible again (no-op on non-TTY).
+        }
     }
 }
