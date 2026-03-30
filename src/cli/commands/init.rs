@@ -258,6 +258,7 @@ impl Command for InitCommand {
         // Update gitignore
         self.update_gitignore(ui)?;
 
+        ui.message("");
         ui.success("Created .bivvy/config.yml");
 
         // Show init summary
