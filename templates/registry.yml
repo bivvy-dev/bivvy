@@ -19,11 +19,11 @@ categories:
 
   - name: node
     description: "Node.js ecosystem tools"
-    templates: [yarn, npm, pnpm, bun]
+    templates: [yarn, npm, pnpm, bun, nextjs, vite, remix]
 
   - name: python
     description: "Python ecosystem tools"
-    templates: [pip, poetry, uv]
+    templates: [pip, poetry, uv, django]
 
   - name: rust
     description: "Rust ecosystem tools"
@@ -36,6 +36,10 @@ categories:
   - name: swift
     description: "Swift ecosystem tools"
     templates: [swift]
+
+  - name: gradle
+    description: "Gradle/JVM ecosystem tools"
+    templates: [gradle, spring-boot]
 
   - name: install
     description: "Prerequisite installation templates"
@@ -62,3 +66,8 @@ detection_order:
   - cargo
   - go
   - swift
+  - nextjs
+  - vite
+  - remix
+  - django
+  - spring-boot

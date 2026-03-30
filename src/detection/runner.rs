@@ -195,4 +195,46 @@ mod tests {
             .iter()
             .any(|t| t.name == "cargo"));
     }
+
+    #[test]
+    fn full_detection_nextjs_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::write(temp.path().join("next.config.js"), "").unwrap();
+        let detection = DetectionRunner::run(temp.path());
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "nextjs"));
+    }
+
+    #[test]
+    fn full_detection_django_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pyproject.toml"), "").unwrap();
+        fs::write(temp.path().join("manage.py"), "").unwrap();
+        let detection = DetectionRunner::run(temp.path());
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "django"));
+    }
+
+    #[test]
+    fn full_detection_spring_boot_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("build.gradle.kts"), "").unwrap();
+        fs::create_dir_all(temp.path().join("src/main/resources")).unwrap();
+        fs::write(
+            temp.path()
+                .join("src/main/resources/application.properties"),
+            "",
+        )
+        .unwrap();
+        let detection = DetectionRunner::run(temp.path());
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "spring-boot"));
+    }
 }

@@ -1,0 +1,27 @@
+name: gradle
+description: "Build project using Gradle"
+category: gradle
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: build.gradle
+  - file: build.gradle.kts
+
+step:
+  title: "Build with Gradle"
+  description: "Run Gradle build to compile and verify the project"
+  command: "./gradlew build"
+  requires:
+    - java
+  completed_check:
+    type: file_exists
+    path: "build"
+  watches:
+    - build.gradle
+    - build.gradle.kts
+    - settings.gradle
+    - settings.gradle.kts
+
+environment_impact:
+  note: "Compiles sources and runs tests via Gradle"
