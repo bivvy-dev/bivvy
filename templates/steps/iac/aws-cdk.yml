@@ -4,8 +4,7 @@ category: iac
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: cdk.json
+detectors: [aws-cdk-project.file]
 
 step:
   title: "Synthesize CDK stacks"

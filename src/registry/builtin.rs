@@ -199,7 +199,7 @@ mod tests {
         let brew = &templates["brew"];
         assert_eq!(brew.category, "system");
         assert!(brew.step.command.is_some());
-        assert!(!brew.detects.is_empty());
+        assert!(!brew.detectors.is_empty());
     }
 
     #[test]
@@ -395,7 +395,9 @@ mod tests {
         assert_eq!(bundler.step.command.as_deref(), Some("bundle install"));
         assert!(bundler.step.completed_check.is_some());
         assert!(!bundler.detectors.is_empty());
-        assert!(bundler.detectors.contains(&"ruby.file".to_string()));
+        assert!(bundler
+            .detectors
+            .contains(&"gemfile-present.file".to_string()));
         assert!(!bundler.step.watches.is_empty());
     }
 
@@ -413,7 +415,9 @@ mod tests {
         let cargo = &templates["cargo"];
         assert_eq!(cargo.category, "rust");
         assert!(!cargo.detectors.is_empty());
-        assert!(cargo.detectors.contains(&"rust.file".to_string()));
+        assert!(cargo
+            .detectors
+            .contains(&"cargo-toml-present.file".to_string()));
     }
 
     #[test]
@@ -438,12 +442,14 @@ mod tests {
     fn expected_detectors_exist() {
         let detectors = load_detectors().unwrap();
         let expected = [
-            "rails",
-            "node",
-            "python",
-            "rust",
-            "terraform",
-            "docker-compose",
+            "ruby-installed",
+            "gemfile-present",
+            "rails-project",
+            "node-installed",
+            "package-json-present",
+            "cargo-toml-present",
+            "terraform-project",
+            "docker-compose-project",
         ];
         for name in &expected {
             assert!(

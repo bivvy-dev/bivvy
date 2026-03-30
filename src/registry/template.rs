@@ -274,9 +274,7 @@ description: "Install Node.js dependencies using Yarn"
 category: node
 version: "2.0.0"
 platforms: [macos, linux]
-detects:
-  - file: yarn.lock
-  - file: package.json
+detectors: [yarn-lockfile.file]
 step:
   title: "Install Node dependencies"
   command: "yarn install"
@@ -297,7 +295,10 @@ environment_impact:
         assert_eq!(template.name, "yarn");
         assert_eq!(template.version, "2.0.0");
         assert_eq!(template.platforms.len(), 2);
-        assert_eq!(template.detects.len(), 2);
+        assert_eq!(template.detectors.len(), 1);
+        assert!(template
+            .detectors
+            .contains(&"yarn-lockfile.file".to_string()));
         assert!(template.step.command.is_some());
     }
 

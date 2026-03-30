@@ -4,7 +4,7 @@ category: version_manager
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [mise]
+detectors: [mise-configured.files]
 
 step:
   title: "Install tool versions"

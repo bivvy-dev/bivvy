@@ -4,7 +4,7 @@ category: rust
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [rust.file]
+detectors: [cargo-toml-present.file]
 
 step:
   title: "Build Rust project"

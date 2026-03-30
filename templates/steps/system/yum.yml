@@ -4,8 +4,7 @@ category: system
 version: "1.0.0"
 platforms: [linux]
 
-detects:
-  - command: "yum --version"
+detectors: [yum-installed.command]
 
 step:
   title: "Install system packages"

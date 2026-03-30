@@ -4,7 +4,7 @@ category: python
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [python.files]
+detectors: [requirements-txt-present.file, pyproject-present.file]
 
 step:
   title: "Install Python dependencies"

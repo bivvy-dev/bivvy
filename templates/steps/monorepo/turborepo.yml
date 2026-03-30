@@ -4,7 +4,7 @@ category: monorepo
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [turborepo.file]
+detectors: [turborepo-project.file]
 
 step:
   title: "Set up Turborepo workspace"

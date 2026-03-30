@@ -4,7 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [prisma.file]
+detectors: [prisma-project.file]
 
 step:
   title: "Run Prisma migrations"

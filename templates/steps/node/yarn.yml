@@ -4,9 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: yarn.lock
-  - file: package.json
+detectors: [yarn-lockfile.file]
 
 step:
   title: "Install Node dependencies"

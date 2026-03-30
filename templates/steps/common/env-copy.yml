@@ -4,10 +4,7 @@ category: common
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: .env.example
-  - file: .env.sample
-  - file: .env.template
+detectors: [env-template-present.files]
 
 step:
   title: "Set up environment file"

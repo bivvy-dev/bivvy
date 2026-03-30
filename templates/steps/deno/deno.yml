@@ -4,7 +4,7 @@ category: deno
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [deno.files]
+detectors: [deno-config-present.files]
 
 step:
   title: "Cache Deno dependencies"

@@ -4,8 +4,7 @@ category: python
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: uv.lock
+detectors: [uv-lockfile.file]
 
 step:
   title: "Install Python dependencies"

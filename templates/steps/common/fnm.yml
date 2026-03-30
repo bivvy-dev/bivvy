@@ -4,10 +4,7 @@ category: version_manager
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [fnm.command]
-detects:
-  - file: .nvmrc
-  - file: .node-version
+detectors: [fnm-installed.command, nvmrc-present.file, node-version-present.file]
 
 step:
   title: "Set up fnm"

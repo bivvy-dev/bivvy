@@ -4,7 +4,7 @@ category: install
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [fnm.command]
+detectors: [fnm-installed.command]
 
 step:
   title: "Install Node.js via fnm"

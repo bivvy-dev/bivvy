@@ -4,7 +4,7 @@ category: go
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [go.file]
+detectors: [go-mod-present.file]
 
 step:
   title: "Download Go dependencies"

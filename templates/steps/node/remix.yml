@@ -4,7 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [remix.files]
+detectors: [remix-project.files]
 
 step:
   title: "Build Remix application"

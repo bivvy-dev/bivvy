@@ -4,7 +4,7 @@ category: gradle
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [gradle.files]
+detectors: [gradle-project.files]
 
 step:
   title: "Download Gradle dependencies"

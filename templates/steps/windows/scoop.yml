@@ -4,8 +4,7 @@ category: windows
 version: "1.0.0"
 platforms: [windows]
 
-detects:
-  - command: "scoop --version"
+detectors: [scoop-installed.command]
 
 step:
   title: "Install Scoop packages"

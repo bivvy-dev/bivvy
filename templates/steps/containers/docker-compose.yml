@@ -4,7 +4,7 @@ category: containers
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [docker-compose.files]
+detectors: [docker-compose-project.files]
 
 step:
   title: "Start Docker Compose services"

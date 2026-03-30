@@ -4,7 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [nextjs.files]
+detectors: [nextjs-project.files]
 
 step:
   title: "Build Next.js application"

@@ -1,168 +1,228 @@
 detectors:
-  rails:
-    commands:
-      rails_version: "rails -v"
-    files:
-      application_file: config/application.rb
-      database_file: config/database.yml
+  # --- Tool installation detectors (*-installed) ---
 
-  node:
-    command: "node -v"
-    file: package.json
-
-  python:
-    command: "python3 --version"
-    files:
-      pyproject: pyproject.toml
-      requirements: requirements.txt
-      setup: setup.py
-
-  ruby:
+  ruby-installed:
     command: "ruby -v"
-    file: Gemfile
-
-  rust:
+  bundler-installed:
+    command: "bundle -v"
+  node-installed:
+    command: "node -v"
+  yarn-installed:
+    command: "yarn -v"
+  pnpm-installed:
+    command: "pnpm -v"
+  bun-installed:
+    command: "bun --version"
+  npm-installed:
+    command: "npm -v"
+  python-installed:
+    command: "python3 --version"
+  pip-installed:
+    command: "pip --version"
+  poetry-installed:
+    command: "poetry --version"
+  uv-installed:
+    command: "uv --version"
+  rust-installed:
     command: "rustc --version"
-    file: Cargo.toml
-
-  go:
+  cargo-installed:
+    command: "cargo --version"
+  go-installed:
     command: "go version"
-    file: go.mod
-
-  php:
+  php-installed:
     command: "php -v"
-    file: composer.json
-
-  elixir:
+  composer-installed:
+    command: "composer --version"
+  elixir-installed:
     command: "elixir --version"
-    file: mix.exs
-
-  swift:
+  mix-installed:
+    command: "mix --version"
+  swift-installed:
     command: "swift --version"
-    file: Package.swift
-
-  java:
+  java-installed:
     command: "java --version"
-    file: pom.xml
-
-  dotnet:
+  dotnet-installed:
     command: "dotnet --version"
-    files:
-      sln: "*.sln"
-      csproj: "*.csproj"
-
-  dart:
+  dart-installed:
     command: "dart --version"
-    file: pubspec.yaml
-
-  flutter:
+  flutter-installed:
     command: "flutter --version"
-    file: pubspec.yaml
-
-  deno:
+  deno-installed:
     command: "deno --version"
-    files:
-      config: deno.json
-      config_c: deno.jsonc
-
-  gradle:
+  gradle-installed:
     command: "gradle --version"
+  rails-installed:
+    command: "rails -v"
+  django-installed:
+    command: "django-admin --version"
+  terraform-installed:
+    command: "terraform -v"
+  docker-installed:
+    command: "docker --version"
+  docker-compose-installed:
+    command: "docker compose version"
+  helm-installed:
+    command: "helm version"
+  pulumi-installed:
+    command: "pulumi version"
+  ansible-installed:
+    command: "ansible --version"
+  diesel-installed:
+    command: "diesel --version"
+  pre-commit-installed:
+    command: "pre-commit --version"
+  brew-installed:
+    command: "brew --version"
+  mise-installed:
+    command: "mise --version"
+  asdf-installed:
+    command: "asdf --version"
+  fnm-installed:
+    command: "fnm --version"
+  volta-installed:
+    command: "volta --version"
+  apt-installed:
+    command: "apt --version"
+  yum-installed:
+    command: "yum --version"
+  pacman-installed:
+    command: "pacman --version"
+  chocolatey-installed:
+    command: "choco --version"
+  scoop-installed:
+    command: "scoop --version"
+
+  # --- Project/file presence detectors ---
+
+  gemfile-present:
+    file: Gemfile
+  brewfile-present:
+    file: Brewfile
+  package-json-present:
+    file: package.json
+  yarn-lockfile:
+    file: yarn.lock
+  npm-lockfile:
+    file: package-lock.json
+  pnpm-lockfile:
+    file: pnpm-lock.yaml
+  bun-lockfile:
+    file: bun.lockb
+  poetry-lockfile:
+    file: poetry.lock
+  uv-lockfile:
+    file: uv.lock
+  pyproject-present:
+    file: pyproject.toml
+  requirements-txt-present:
+    file: requirements.txt
+  setup-py-present:
+    file: setup.py
+  cargo-toml-present:
+    file: Cargo.toml
+  go-mod-present:
+    file: go.mod
+  composer-json-present:
+    file: composer.json
+  mix-exs-present:
+    file: mix.exs
+  package-swift-present:
+    file: Package.swift
+  pom-xml-present:
+    file: pom.xml
+  pubspec-present:
+    file: pubspec.yaml
+  deno-config-present:
+    files:
+      json: deno.json
+      jsonc: deno.jsonc
+  gradle-project:
     files:
       kts: build.gradle.kts
       groovy: build.gradle
-
-  terraform:
-    command: "terraform -v"
+  dotnet-project:
+    files:
+      sln: "*.sln"
+      csproj: "*.csproj"
+  rails-project:
+    files:
+      application: config/application.rb
+      database: config/database.yml
+  django-project:
+    file: manage.py
+  spring-boot-project:
+    files:
+      properties: src/main/resources/application.properties
+      yml: src/main/resources/application.yml
+  nextjs-project:
+    files:
+      js: next.config.js
+      mjs: next.config.mjs
+      ts: next.config.ts
+  vite-project:
+    files:
+      js: vite.config.js
+      ts: vite.config.ts
+      mjs: vite.config.mjs
+  remix-project:
+    files:
+      js: remix.config.js
+      ts: remix.config.ts
+      root: app/root.tsx
+  laravel-project:
+    file: artisan
+  terraform-project:
     files:
       main: main.tf
       terraform: terraform.tf
       versions: versions.tf
-
-  docker-compose:
+  docker-compose-project:
     files:
       compose: compose.yml
       compose_yaml: compose.yaml
       docker_compose: docker-compose.yml
       docker_compose_yaml: docker-compose.yaml
-
-  helm:
-    command: "helm version"
+  helm-project:
     file: Chart.yaml
-
-  pulumi:
-    command: "pulumi version"
+  pulumi-project:
     file: Pulumi.yaml
-
-  ansible:
-    command: "ansible --version"
+  ansible-project:
     files:
       cfg: ansible.cfg
       playbook: playbook.yml
       playbook_yaml: playbook.yaml
       site: site.yml
       site_yaml: site.yaml
-
-  prisma:
+  aws-cdk-project:
+    file: cdk.json
+  prisma-project:
     file: prisma/schema.prisma
-
-  diesel:
+  diesel-project:
     file: diesel.toml
-
-  alembic:
+  alembic-project:
     files:
       ini: alembic.ini
       env: alembic/env.py
-
-  django:
-    file: manage.py
-
-  nextjs:
-    files:
-      js: next.config.js
-      mjs: next.config.mjs
-      ts: next.config.ts
-
-  vite:
-    files:
-      js: vite.config.js
-      ts: vite.config.ts
-      mjs: vite.config.mjs
-
-  remix:
-    files:
-      js: remix.config.js
-      ts: remix.config.ts
-      root: app/root.tsx
-
-  spring-boot:
-    files:
-      properties: src/main/resources/application.properties
-      yml: src/main/resources/application.yml
-
-  pre-commit:
+  pre-commit-configured:
     file: .pre-commit-config.yaml
-
-  nx:
-    file: nx.json
-
-  turborepo:
-    file: turbo.json
-
-  lerna:
-    file: lerna.json
-
-  mise:
-    command: "mise --version"
+  env-template-present:
     files:
-      mise_toml: .mise.toml
-      mise_toml_alt: mise.toml
-
-  asdf:
-    command: "asdf --version"
+      example: .env.example
+      sample: .env.sample
+      template: .env.template
+  nx-project:
+    file: nx.json
+  turborepo-project:
+    file: turbo.json
+  lerna-project:
+    file: lerna.json
+  mise-configured:
+    files:
+      toml: .mise.toml
+      alt: mise.toml
+  asdf-configured:
     file: .tool-versions
-
-  fnm:
-    command: "fnm --version"
-
-  volta:
-    command: "volta --version"
+  nvmrc-present:
+    file: .nvmrc
+  node-version-present:
+    file: .node-version

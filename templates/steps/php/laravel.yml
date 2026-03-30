@@ -4,8 +4,7 @@ category: php
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: artisan
+detectors: [laravel-project.file]
 
 step:
   title: "Set up Laravel"

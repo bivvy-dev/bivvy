@@ -4,8 +4,7 @@ category: windows
 version: "1.0.0"
 platforms: [windows]
 
-detects:
-  - command: "choco --version"
+detectors: [chocolatey-installed.command]
 
 step:
   title: "Install Chocolatey packages"

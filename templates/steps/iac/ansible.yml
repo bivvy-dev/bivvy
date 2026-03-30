@@ -4,7 +4,7 @@ category: iac
 version: "1.0.0"
 platforms: [macos, linux]
 
-detectors: [ansible.files]
+detectors: [ansible-project.files]
 
 step:
   title: "Install Ansible requirements"

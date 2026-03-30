@@ -4,7 +4,7 @@ category: iac
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [pulumi.file]
+detectors: [pulumi-project.file]
 
 step:
   title: "Install Pulumi dependencies"

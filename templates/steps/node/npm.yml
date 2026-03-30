@@ -4,9 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: package-lock.json
-  - file: package.json
+detectors: [npm-lockfile.file, package-json-present.file]
 
 step:
   title: "Install Node dependencies"

@@ -4,7 +4,7 @@ category: java
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [java.file]
+detectors: [pom-xml-present.file]
 
 step:
   title: "Install Maven dependencies"

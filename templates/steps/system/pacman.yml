@@ -4,8 +4,7 @@ category: system
 version: "1.0.0"
 platforms: [linux]
 
-detects:
-  - command: "pacman --version"
+detectors: [pacman-installed.command]
 
 step:
   title: "Install system packages"

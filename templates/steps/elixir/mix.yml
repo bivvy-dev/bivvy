@@ -4,7 +4,7 @@ category: elixir
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [elixir.file]
+detectors: [mix-exs-present.file]
 
 step:
   title: "Install Elixir dependencies"

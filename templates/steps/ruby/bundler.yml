@@ -4,7 +4,7 @@ category: ruby
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [ruby.file]
+detectors: [gemfile-present.file]
 
 step:
   title: "Install Ruby dependencies"

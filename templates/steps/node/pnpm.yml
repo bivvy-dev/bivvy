@@ -4,8 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: pnpm-lock.yaml
+detectors: [pnpm-lockfile.file]
 
 step:
   title: "Install Node dependencies"

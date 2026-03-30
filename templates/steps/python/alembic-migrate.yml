@@ -4,7 +4,7 @@ category: python
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [alembic.files]
+detectors: [alembic-project.files]
 
 step:
   title: "Run Alembic migrations"

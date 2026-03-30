@@ -2,26 +2,26 @@
 //!
 //! Detectors are named, structured check definitions with addressable facets.
 //! They are defined once in `templates/detectors.yml` and referenced by
-//! templates via dot notation (e.g., `rails.commands.rails_version` or
-//! `node.file`).
+//! templates via dot notation (e.g., `rails-project.files.application` or
+//! `gemfile-present.file`).
 //!
 //! # Reference Syntax
 //!
-//! - `rails` — bare name: all commands pass AND any file matches
-//! - `rails.commands` — run all commands (AND semantics)
-//! - `rails.files` — check all files (OR semantics)
-//! - `rails.commands.rails_version` — run a specific named command
-//! - `rails.files.application_file` — check a specific named file
-//! - `node.command` — singular command shorthand
-//! - `node.file` — singular file shorthand
+//! - `rails-project` — bare name: ANY check across all groups passes (OR)
+//! - `rails-project.commands` — run all commands (OR semantics)
+//! - `rails-project.files` — check all files (OR semantics)
+//! - `rails-project.commands.rails_version` — run a specific named command
+//! - `rails-project.files.application` — check a specific named file
+//! - `gemfile-present.command` — singular command shorthand
+//! - `gemfile-present.file` — singular file shorthand
 //!
 //! # Evaluation Semantics
 //!
-//! - **commands group** (plural): ALL must succeed (AND)
+//! - **commands group** (plural): ANY must succeed (OR)
 //! - **files group** (plural): ANY must exist (OR)
 //! - **single command**: must succeed
 //! - **single file**: must exist
-//! - **bare detector name**: commands pass AND files pass
+//! - **bare detector name**: ANY check across all groups passes (OR)
 
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -115,7 +115,7 @@ pub struct DetectorRef {
 /// Which group of checks a detector reference targets.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum DetectorGroup {
-    /// Plural commands group (AND semantics).
+    /// Plural commands group (OR semantics).
     Commands,
     /// Plural files group (OR semantics).
     Files,
@@ -247,15 +247,15 @@ impl DetectorRegistry {
         })?;
 
         let (passed, details) = match (&parsed.group, &parsed.specific) {
-            // Bare name: commands AND files
+            // Bare name: ANY check across all groups passes (OR)
             (None, None) => {
                 let (cmds_pass, mut details) = self.eval_commands_group(def);
                 let (files_pass, file_details) = self.eval_files_group(def, project_root);
                 details.extend(file_details);
-                (cmds_pass && files_pass, details)
+                (cmds_pass || files_pass, details)
             }
 
-            // commands group (all must pass)
+            // commands group (any must pass)
             (Some(DetectorGroup::Commands), None) => self.eval_commands_group(def),
 
             // files group (any must exist)
@@ -321,12 +321,15 @@ impl DetectorRegistry {
 
     fn eval_commands_group(&self, def: &DetectorDef) -> (bool, Vec<String>) {
         let cmds = def.all_commands();
+        if cmds.is_empty() {
+            return (true, Vec::new());
+        }
         let mut details = Vec::new();
-        let mut all_pass = true;
+        let mut any_pass = false;
         for (name, cmd) in &cmds {
             let pass = self.eval_command_cached(cmd);
-            if !pass {
-                all_pass = false;
+            if pass {
+                any_pass = true;
             }
             details.push(format!(
                 "{}: {} ({})",
@@ -335,7 +338,7 @@ impl DetectorRegistry {
                 cmd
             ));
         }
-        (all_pass, details)
+        (any_pass, details)
     }
 
     fn eval_files_group(&self, def: &DetectorDef, project_root: &Path) -> (bool, Vec<String>) {
@@ -488,26 +491,26 @@ mod tests {
         serde_yaml::from_str(
             r#"
 detectors:
-  rails:
+  rails-project:
     commands:
       rails_version: "true"
       has_gemfile: "true"
     files:
-      application_file: config/application.rb
-      database_file: config/database.yml
+      application: config/application.rb
+      database: config/database.yml
 
-  node:
+  package-json-present:
     command: "true"
     file: package.json
 
-  missing_tool:
+  missing-tool:
     command: "false"
     file: nonexistent.txt
 
-  file_only:
+  cargo-toml-present:
     file: Cargo.toml
 
-  command_only:
+  node-installed:
     command: "true"
 "#,
         )
@@ -518,61 +521,61 @@ detectors:
 
     #[test]
     fn parse_bare_name() {
-        let r = DetectorRef::parse("rails").unwrap();
-        assert_eq!(r.detector, "rails");
+        let r = DetectorRef::parse("rails-project").unwrap();
+        assert_eq!(r.detector, "rails-project");
         assert!(r.group.is_none());
         assert!(r.specific.is_none());
     }
 
     #[test]
     fn parse_commands_group() {
-        let r = DetectorRef::parse("rails.commands").unwrap();
-        assert_eq!(r.detector, "rails");
+        let r = DetectorRef::parse("rails-project.commands").unwrap();
+        assert_eq!(r.detector, "rails-project");
         assert_eq!(r.group, Some(DetectorGroup::Commands));
         assert!(r.specific.is_none());
     }
 
     #[test]
     fn parse_files_group() {
-        let r = DetectorRef::parse("rails.files").unwrap();
+        let r = DetectorRef::parse("rails-project.files").unwrap();
         assert_eq!(r.group, Some(DetectorGroup::Files));
     }
 
     #[test]
     fn parse_command_singular() {
-        let r = DetectorRef::parse("node.command").unwrap();
+        let r = DetectorRef::parse("node-installed.command").unwrap();
         assert_eq!(r.group, Some(DetectorGroup::Command));
     }
 
     #[test]
     fn parse_file_singular() {
-        let r = DetectorRef::parse("node.file").unwrap();
+        let r = DetectorRef::parse("package-json-present.file").unwrap();
         assert_eq!(r.group, Some(DetectorGroup::File));
     }
 
     #[test]
     fn parse_specific_command() {
-        let r = DetectorRef::parse("rails.commands.rails_version").unwrap();
-        assert_eq!(r.detector, "rails");
+        let r = DetectorRef::parse("rails-project.commands.rails_version").unwrap();
+        assert_eq!(r.detector, "rails-project");
         assert_eq!(r.group, Some(DetectorGroup::Commands));
         assert_eq!(r.specific, Some("rails_version".to_string()));
     }
 
     #[test]
     fn parse_specific_file() {
-        let r = DetectorRef::parse("rails.files.application_file").unwrap();
-        assert_eq!(r.specific, Some("application_file".to_string()));
+        let r = DetectorRef::parse("rails-project.files.application").unwrap();
+        assert_eq!(r.specific, Some("application".to_string()));
     }
 
     #[test]
     fn parse_invalid_group_errors() {
-        assert!(DetectorRef::parse("rails.foobar").is_err());
+        assert!(DetectorRef::parse("rails-project.foobar").is_err());
     }
 
     #[test]
     fn parse_specific_on_singular_errors_at_parse() {
-        // "node.command.something" errors because "command" isn't valid for 3-part refs
-        assert!(DetectorRef::parse("node.command.something").is_err());
+        // "node-installed.command.something" errors because "command" isn't valid for 3-part refs
+        assert!(DetectorRef::parse("node-installed.command.something").is_err());
     }
 
     // --- DetectorDef tests ---
@@ -648,7 +651,9 @@ detectors:
         fs::write(temp.path().join("package.json"), "{}").unwrap();
 
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("node.file", temp.path()).unwrap();
+        let result = registry
+            .evaluate("package-json-present.file", temp.path())
+            .unwrap();
         assert!(result.passed);
     }
 
@@ -657,7 +662,9 @@ detectors:
         let temp = TempDir::new().unwrap();
 
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("node.file", temp.path()).unwrap();
+        let result = registry
+            .evaluate("package-json-present.file", temp.path())
+            .unwrap();
         assert!(!result.passed);
     }
 
@@ -665,15 +672,19 @@ detectors:
     fn evaluate_command_singular() {
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("node.command", temp.path()).unwrap();
+        let result = registry
+            .evaluate("package-json-present.command", temp.path())
+            .unwrap();
         assert!(result.passed); // "true" succeeds
     }
 
     #[test]
-    fn evaluate_commands_group_all_must_pass() {
+    fn evaluate_commands_group_any_must_pass() {
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("rails.commands", temp.path()).unwrap();
+        let result = registry
+            .evaluate("rails-project.commands", temp.path())
+            .unwrap();
         assert!(result.passed); // both "true"
     }
 
@@ -685,7 +696,9 @@ detectors:
         fs::write(temp.path().join("config/application.rb"), "").unwrap();
 
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("rails.files", temp.path()).unwrap();
+        let result = registry
+            .evaluate("rails-project.files", temp.path())
+            .unwrap();
         assert!(result.passed); // one file found is enough
     }
 
@@ -693,7 +706,9 @@ detectors:
     fn evaluate_files_group_none_match() {
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("rails.files", temp.path()).unwrap();
+        let result = registry
+            .evaluate("rails-project.files", temp.path())
+            .unwrap();
         assert!(!result.passed); // no files found
     }
 
@@ -702,7 +717,7 @@ detectors:
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
         let result = registry
-            .evaluate("rails.commands.rails_version", temp.path())
+            .evaluate("rails-project.commands.rails_version", temp.path())
             .unwrap();
         assert!(result.passed);
     }
@@ -715,7 +730,7 @@ detectors:
 
         let registry = DetectorRegistry::new(sample_detectors());
         let result = registry
-            .evaluate("rails.files.application_file", temp.path())
+            .evaluate("rails-project.files.application", temp.path())
             .unwrap();
         assert!(result.passed);
     }
@@ -725,36 +740,44 @@ detectors:
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
         let result = registry
-            .evaluate("rails.files.database_file", temp.path())
+            .evaluate("rails-project.files.database", temp.path())
             .unwrap();
         assert!(!result.passed);
     }
 
     #[test]
-    fn evaluate_bare_name_requires_both() {
+    fn evaluate_bare_name_passes_with_commands_only() {
         let temp = TempDir::new().unwrap();
-        // commands pass (exit 0) but no files exist
+        // commands pass (exit 0) but no files exist — OR means this passes
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("rails", temp.path()).unwrap();
-        assert!(!result.passed); // files not found
+        let result = registry.evaluate("rails-project", temp.path()).unwrap();
+        assert!(result.passed); // commands pass, OR semantics
     }
 
     #[test]
-    fn evaluate_bare_name_passes_when_all_match() {
+    fn evaluate_bare_name_passes_when_files_match() {
         let temp = TempDir::new().unwrap();
         fs::create_dir_all(temp.path().join("config")).unwrap();
         fs::write(temp.path().join("config/application.rb"), "").unwrap();
         // commands pass (exit 0) and at least one file exists
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("rails", temp.path()).unwrap();
+        let result = registry.evaluate("rails-project", temp.path()).unwrap();
         assert!(result.passed);
+    }
+
+    #[test]
+    fn evaluate_bare_name_fails_when_nothing_matches() {
+        let temp = TempDir::new().unwrap();
+        let registry = DetectorRegistry::new(sample_detectors());
+        let result = registry.evaluate("missing-tool", temp.path()).unwrap();
+        assert!(!result.passed); // "false" command fails and no file exists
     }
 
     #[test]
     fn evaluate_command_only_detector() {
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("command_only", temp.path()).unwrap();
+        let result = registry.evaluate("node-installed", temp.path()).unwrap();
         assert!(result.passed); // "true" + no files = pass
     }
 
@@ -763,7 +786,9 @@ detectors:
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Cargo.toml"), "").unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
-        let result = registry.evaluate("file_only", temp.path()).unwrap();
+        let result = registry
+            .evaluate("cargo-toml-present", temp.path())
+            .unwrap();
         assert!(result.passed); // no commands + file found = pass
     }
 
@@ -779,7 +804,7 @@ detectors:
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
         assert!(registry
-            .evaluate("rails.commands.nonexistent", temp.path())
+            .evaluate("rails-project.commands.nonexistent", temp.path())
             .is_err());
     }
 
@@ -789,17 +814,23 @@ detectors:
         fs::write(temp.path().join("package.json"), "{}").unwrap();
 
         let registry = DetectorRegistry::new(sample_detectors());
-        let refs = vec!["node.command".to_string(), "node.file".to_string()];
+        let refs = vec![
+            "package-json-present.command".to_string(),
+            "package-json-present.file".to_string(),
+        ];
         assert!(registry.evaluate_all(&refs, temp.path()).unwrap());
     }
 
     #[test]
     fn evaluate_all_returns_false_when_any_fails() {
         let temp = TempDir::new().unwrap();
-        // node.command passes but node.file fails (no package.json)
+        // command passes but file fails (no package.json)
 
         let registry = DetectorRegistry::new(sample_detectors());
-        let refs = vec!["node.command".to_string(), "node.file".to_string()];
+        let refs = vec![
+            "package-json-present.command".to_string(),
+            "package-json-present.file".to_string(),
+        ];
         assert!(!registry.evaluate_all(&refs, temp.path()).unwrap());
     }
 
@@ -813,8 +844,12 @@ detectors:
         let registry = DetectorRegistry::new(sample_detectors());
 
         // Evaluate twice
-        let r1 = registry.evaluate("node.file", temp.path()).unwrap();
-        let r2 = registry.evaluate("node.file", temp.path()).unwrap();
+        let r1 = registry
+            .evaluate("package-json-present.file", temp.path())
+            .unwrap();
+        let r2 = registry
+            .evaluate("package-json-present.file", temp.path())
+            .unwrap();
         assert_eq!(r1.passed, r2.passed);
 
         // Cache should have an entry
@@ -825,7 +860,9 @@ detectors:
     fn clear_cache_empties_cache() {
         let temp = TempDir::new().unwrap();
         let registry = DetectorRegistry::new(sample_detectors());
-        registry.evaluate("node.command", temp.path()).unwrap();
+        registry
+            .evaluate("package-json-present.command", temp.path())
+            .unwrap();
         assert!(!registry.cache.borrow().is_empty());
 
         registry.clear_cache();

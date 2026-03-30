@@ -4,7 +4,7 @@ category: dotnet
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [dotnet.files]
+detectors: [dotnet-project.files]
 
 step:
   title: "Restore .NET dependencies"

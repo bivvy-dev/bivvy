@@ -4,8 +4,7 @@ category: system
 version: "1.0.0"
 platforms: [macos, linux]
 
-detects:
-  - file: Brewfile
+detectors: [brewfile-present.file]
 
 step:
   title: "Install Homebrew packages"

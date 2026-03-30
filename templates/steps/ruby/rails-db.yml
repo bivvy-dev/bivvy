@@ -4,9 +4,7 @@ category: ruby
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [rails.files]
-detects:
-  - file: config/routes.rb
+detectors: [rails-project.files]
 
 step:
   title: "Set up Rails database"

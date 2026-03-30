@@ -4,8 +4,7 @@ category: node
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detects:
-  - file: bun.lockb
+detectors: [bun-lockfile.file]
 
 step:
   title: "Install Node dependencies"

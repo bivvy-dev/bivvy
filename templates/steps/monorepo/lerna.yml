@@ -4,7 +4,7 @@ category: monorepo
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [lerna.file]
+detectors: [lerna-project.file]
 
 step:
   title: "Bootstrap Lerna packages"

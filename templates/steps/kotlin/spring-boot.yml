@@ -4,7 +4,7 @@ category: gradle
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [spring-boot.files]
+detectors: [spring-boot-project.files]
 
 step:
   title: "Build Spring Boot application"

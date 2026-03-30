@@ -4,7 +4,7 @@ category: python
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
-detectors: [django.file]
+detectors: [django-project.file]
 
 step:
   title: "Run Django migrations"
