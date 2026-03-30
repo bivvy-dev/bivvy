@@ -112,6 +112,10 @@ workflows:
 - [CLI Reference](docs/commands/index.md)
 - [Guides](docs/SUMMARY.md)
 
+## Screenshots
+<img width="294" height="855" alt="Screenshot 2026-03-30 at 4 37 54 AM" src="https://github.com/user-attachments/assets/6c68feae-5b03-41a8-b8d7-e6a6459c374f" />
+
+
 ## Shell Completions
 
 ```bash
