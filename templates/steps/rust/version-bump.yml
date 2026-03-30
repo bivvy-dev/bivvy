@@ -9,6 +9,16 @@ inputs:
     description: "Version bump type (patch, minor, major) or explicit semver string (e.g. 1.5.0)"
     type: string
     required: true
+    prompt:
+      question: "Version bump type"
+      type: select
+      options:
+        - label: "Patch (x.y.Z)"
+          value: patch
+        - label: "Minor (x.Y.0)"
+          value: minor
+        - label: "Major (X.0.0)"
+          value: major
 
 step:
   title: "Bump version"

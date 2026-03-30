@@ -109,6 +109,27 @@ pub struct TemplateInput {
     /// Valid values for enum type
     #[serde(default)]
     pub values: Vec<String>,
+
+    /// Interactive prompt definition for this input.
+    /// When present, the template automatically prompts for this input
+    /// if it wasn't provided statically via `inputs:` in the config.
+    #[serde(default)]
+    pub prompt: Option<TemplateInputPrompt>,
+}
+
+/// Prompt definition embedded in a template input.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TemplateInputPrompt {
+    /// Question to display
+    pub question: String,
+
+    /// Prompt type: select, input, confirm, multiselect
+    #[serde(rename = "type")]
+    pub prompt_type: crate::config::schema::PromptType,
+
+    /// Options for select/multiselect
+    #[serde(default)]
+    pub options: Vec<crate::config::schema::PromptOption>,
 }
 
 impl TemplateInput {
@@ -350,6 +371,7 @@ step:
             required: true,
             default: None,
             values: vec![],
+            prompt: None,
         };
         assert!(input.validate("test", None).is_err());
     }
@@ -362,6 +384,7 @@ step:
             required: true,
             default: Some(serde_yaml::Value::String("default".to_string())),
             values: vec![],
+            prompt: None,
         };
         assert!(input.validate("test", None).is_ok());
     }
@@ -374,6 +397,7 @@ step:
             required: false,
             default: None,
             values: vec![],
+            prompt: None,
         };
 
         let valid = serde_yaml::Value::String("hello".to_string());
@@ -391,6 +415,7 @@ step:
             required: false,
             default: None,
             values: vec![],
+            prompt: None,
         };
 
         let valid = serde_yaml::Value::Bool(true);
@@ -408,6 +433,7 @@ step:
             required: false,
             default: None,
             values: vec!["a".to_string(), "b".to_string()],
+            prompt: None,
         };
 
         let valid = serde_yaml::Value::String("a".to_string());
@@ -425,6 +451,7 @@ step:
             required: false,
             default: Some(serde_yaml::Value::String("default".to_string())),
             values: vec![],
+            prompt: None,
         };
 
         let provided = serde_yaml::Value::String("provided".to_string());

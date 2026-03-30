@@ -138,8 +138,12 @@ impl ResolvedStep {
             requires_sudo: config.requires_sudo,
             requires: merge_requires(&step.requires, &config.requires),
             only_environments: config.only_environments.clone(),
-            inputs: resolved_inputs,
-            prompts: config.prompts.clone(),
+            inputs: resolved_inputs.clone(),
+            prompts: merge_template_prompts(
+                &config.prompts,
+                &template.inputs,
+                &resolved_inputs,
+            ),
         };
 
         if let Some(env_name) = environment {
@@ -288,6 +292,46 @@ fn merge_requires(template_requires: &[String], config_requires: &[String]) -> V
         }
     }
     result
+}
+
+/// Merge config-level prompts with template input prompts.
+///
+/// Template inputs that have a `prompt` defined will generate a PromptConfig
+/// entry UNLESS the input was already provided statically (via `inputs:` in
+/// config) or the config already defines a prompt with the same key.
+/// Config prompts take precedence over template prompts.
+fn merge_template_prompts(
+    config_prompts: &[PromptConfig],
+    template_inputs: &HashMap<String, crate::registry::template::TemplateInput>,
+    resolved_inputs: &HashMap<String, String>,
+) -> Vec<PromptConfig> {
+    let mut prompts = config_prompts.to_vec();
+
+    for (input_name, input_def) in template_inputs {
+        let Some(ref template_prompt) = input_def.prompt else {
+            continue;
+        };
+
+        // Skip if already provided statically
+        if resolved_inputs.contains_key(input_name) {
+            continue;
+        }
+
+        // Skip if config already defines a prompt for this key
+        if prompts.iter().any(|p| p.key == *input_name) {
+            continue;
+        }
+
+        prompts.push(PromptConfig {
+            key: input_name.clone(),
+            question: template_prompt.question.clone(),
+            prompt_type: template_prompt.prompt_type.clone(),
+            options: template_prompt.options.clone(),
+            default: input_def.default.clone(),
+        });
+    }
+
+    prompts
 }
 
 fn merge_env(
@@ -1055,6 +1099,7 @@ mod tests {
                 required: true,
                 default: None,
                 values: vec![],
+                prompt: None,
             },
         );
 
@@ -1083,6 +1128,7 @@ mod tests {
                 required: false,
                 default: Some(serde_yaml::Value::String("patch".to_string())),
                 values: vec![],
+                prompt: None,
             },
         );
 
@@ -1106,6 +1152,7 @@ mod tests {
                 required: false,
                 default: None,
                 values: vec![],
+                prompt: None,
             },
         );
 
