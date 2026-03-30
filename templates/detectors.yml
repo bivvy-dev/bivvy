@@ -1,0 +1,168 @@
+detectors:
+  rails:
+    commands:
+      rails_version: "rails -v"
+    files:
+      application_file: config/application.rb
+      database_file: config/database.yml
+
+  node:
+    command: "node -v"
+    file: package.json
+
+  python:
+    command: "python3 --version"
+    files:
+      pyproject: pyproject.toml
+      requirements: requirements.txt
+      setup: setup.py
+
+  ruby:
+    command: "ruby -v"
+    file: Gemfile
+
+  rust:
+    command: "rustc --version"
+    file: Cargo.toml
+
+  go:
+    command: "go version"
+    file: go.mod
+
+  php:
+    command: "php -v"
+    file: composer.json
+
+  elixir:
+    command: "elixir --version"
+    file: mix.exs
+
+  swift:
+    command: "swift --version"
+    file: Package.swift
+
+  java:
+    command: "java --version"
+    file: pom.xml
+
+  dotnet:
+    command: "dotnet --version"
+    files:
+      sln: "*.sln"
+      csproj: "*.csproj"
+
+  dart:
+    command: "dart --version"
+    file: pubspec.yaml
+
+  flutter:
+    command: "flutter --version"
+    file: pubspec.yaml
+
+  deno:
+    command: "deno --version"
+    files:
+      config: deno.json
+      config_c: deno.jsonc
+
+  gradle:
+    command: "gradle --version"
+    files:
+      kts: build.gradle.kts
+      groovy: build.gradle
+
+  terraform:
+    command: "terraform -v"
+    files:
+      main: main.tf
+      terraform: terraform.tf
+      versions: versions.tf
+
+  docker-compose:
+    files:
+      compose: compose.yml
+      compose_yaml: compose.yaml
+      docker_compose: docker-compose.yml
+      docker_compose_yaml: docker-compose.yaml
+
+  helm:
+    command: "helm version"
+    file: Chart.yaml
+
+  pulumi:
+    command: "pulumi version"
+    file: Pulumi.yaml
+
+  ansible:
+    command: "ansible --version"
+    files:
+      cfg: ansible.cfg
+      playbook: playbook.yml
+      playbook_yaml: playbook.yaml
+      site: site.yml
+      site_yaml: site.yaml
+
+  prisma:
+    file: prisma/schema.prisma
+
+  diesel:
+    file: diesel.toml
+
+  alembic:
+    files:
+      ini: alembic.ini
+      env: alembic/env.py
+
+  django:
+    file: manage.py
+
+  nextjs:
+    files:
+      js: next.config.js
+      mjs: next.config.mjs
+      ts: next.config.ts
+
+  vite:
+    files:
+      js: vite.config.js
+      ts: vite.config.ts
+      mjs: vite.config.mjs
+
+  remix:
+    files:
+      js: remix.config.js
+      ts: remix.config.ts
+      root: app/root.tsx
+
+  spring-boot:
+    files:
+      properties: src/main/resources/application.properties
+      yml: src/main/resources/application.yml
+
+  pre-commit:
+    file: .pre-commit-config.yaml
+
+  nx:
+    file: nx.json
+
+  turborepo:
+    file: turbo.json
+
+  lerna:
+    file: lerna.json
+
+  mise:
+    command: "mise --version"
+    files:
+      mise_toml: .mise.toml
+      mise_toml_alt: mise.toml
+
+  asdf:
+    command: "asdf --version"
+    file: .tool-versions
+
+  fnm:
+    command: "fnm --version"
+
+  volta:
+    command: "volta --version"

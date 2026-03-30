@@ -33,6 +33,13 @@ pub struct Template {
     #[serde(default)]
     pub detects: Vec<Detection>,
 
+    /// Detector references for this template (additive alongside `detects`).
+    ///
+    /// Each entry is a dot-notation reference to a detector facet defined in
+    /// `templates/detectors.yml` (e.g., `"rails.files.application_file"`).
+    #[serde(default)]
+    pub detectors: Vec<String>,
+
     /// Input contracts for this template
     #[serde(default)]
     pub inputs: HashMap<String, TemplateInput>,

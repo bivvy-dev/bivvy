@@ -1,6 +1,7 @@
 //! Built-in templates embedded at compile time.
 
 use crate::error::Result;
+use crate::registry::detector::DetectorFile;
 use crate::registry::manifest::RegistryManifest;
 use crate::registry::template::{Template, TemplateSource};
 use include_dir::{include_dir, Dir};
@@ -26,6 +27,27 @@ pub fn load_manifest() -> Result<RegistryManifest> {
 
     serde_yaml::from_str(content).map_err(|e| crate::error::BivvyError::ConfigParseError {
         path: "templates/registry.yml".into(),
+        message: e.to_string(),
+    })
+}
+
+/// Load the built-in detector definitions.
+pub fn load_detectors() -> Result<DetectorFile> {
+    let detector_file = TEMPLATES_DIR.get_file("detectors.yml").ok_or_else(|| {
+        crate::error::BivvyError::ConfigNotFound {
+            path: "templates/detectors.yml".into(),
+        }
+    })?;
+
+    let content = detector_file.contents_utf8().ok_or_else(|| {
+        crate::error::BivvyError::ConfigParseError {
+            path: "templates/detectors.yml".into(),
+            message: "Invalid UTF-8".to_string(),
+        }
+    })?;
+
+    serde_yaml::from_str(content).map_err(|e| crate::error::BivvyError::ConfigParseError {
+        path: "templates/detectors.yml".into(),
         message: e.to_string(),
     })
 }
@@ -393,5 +415,43 @@ mod tests {
             .detects
             .iter()
             .any(|d| d.file.as_deref() == Some("Cargo.toml")));
+    }
+
+    #[test]
+    fn load_detectors_succeeds() {
+        let detectors = load_detectors().unwrap();
+        assert!(!detectors.detectors.is_empty());
+    }
+
+    #[test]
+    fn all_detectors_have_checks() {
+        let detectors = load_detectors().unwrap();
+        for (name, def) in &detectors.detectors {
+            assert!(
+                def.has_checks(),
+                "Detector '{}' has no checks defined",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn expected_detectors_exist() {
+        let detectors = load_detectors().unwrap();
+        let expected = [
+            "rails",
+            "node",
+            "python",
+            "rust",
+            "terraform",
+            "docker-compose",
+        ];
+        for name in &expected {
+            assert!(
+                detectors.detectors.contains_key(*name),
+                "Missing detector: {}",
+                name
+            );
+        }
     }
 }

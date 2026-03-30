@@ -313,6 +313,7 @@ mod tests {
             min_bivvy_version: None,
             platforms: vec![],
             detects: vec![],
+            detectors: vec![],
             inputs: HashMap::new(),
             step: TemplateStep {
                 title: Some("Template Title".to_string()),

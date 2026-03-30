@@ -29,6 +29,7 @@
 //! ```
 
 pub mod builtin;
+pub mod detector;
 pub mod fetch;
 pub mod local;
 pub mod manifest;
@@ -39,6 +40,7 @@ pub mod template;
 
 // Re-exports
 pub use builtin::BuiltinLoader;
+pub use detector::{DetectorDef, DetectorFile, DetectorRef, DetectorRegistry, DetectorResult};
 pub use fetch::{FetchResponse, GitFetchResult, GitFetcher, HttpFetcher};
 pub use local::LocalLoader;
 pub use manifest::{Category, RegistryManifest};
