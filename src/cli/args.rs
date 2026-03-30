@@ -43,6 +43,7 @@ pub struct Cli {
 
 use super::commands::cache::CacheArgs;
 use super::commands::feedback::FeedbackArgs;
+use super::commands::update::UpdateArgs;
 
 /// Available subcommands.
 #[derive(Debug, Subcommand)]
@@ -76,6 +77,9 @@ pub enum Commands {
 
     /// Capture and manage feedback
     Feedback(FeedbackArgs),
+
+    /// Check for and install updates
+    Update(UpdateArgs),
 
     /// Generate shell completions
     Completions(CompletionsArgs),

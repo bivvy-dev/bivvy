@@ -117,6 +117,10 @@ impl CommandDispatcher {
                 let cmd = super::feedback::FeedbackCommand::new(args.clone());
                 cmd.execute(ui)
             }
+            Some(Commands::Update(args)) => {
+                let cmd = super::update::UpdateCommand::new(args.clone());
+                cmd.execute(ui)
+            }
             Some(Commands::Completions(args)) => {
                 let cmd = super::completions::CompletionsCommand::new(args.clone());
                 cmd.execute(ui)

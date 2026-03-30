@@ -24,5 +24,6 @@ pub mod lint;
 pub mod list;
 pub mod run;
 pub mod status;
+pub mod update;
 
 pub use dispatcher::{Command, CommandDispatcher, CommandResult};

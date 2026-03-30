@@ -5,6 +5,7 @@ use std::process::ExitCode;
 use bivvy::cli::{Cli, CommandDispatcher, Commands};
 use bivvy::shell::is_ci;
 use bivvy::ui::{create_ui, OutputMode};
+use bivvy::updates::{is_notification_suppressed, show_update_notification};
 use clap::Parser;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -67,7 +68,13 @@ fn main() -> ExitCode {
     let dispatcher = CommandDispatcher::new(project_root);
 
     match dispatcher.dispatch(&cli, ui.as_mut()) {
-        Ok(result) => ExitCode::from(result.exit_code as u8),
+        Ok(result) => {
+            // Show update notification after successful runs
+            if result.success && is_interactive && !is_notification_suppressed() {
+                show_update_notification(ui.as_mut());
+            }
+            ExitCode::from(result.exit_code as u8)
+        }
         Err(e) => {
             ui.error(&format!("Error: {}", e));
             ExitCode::from(1)
