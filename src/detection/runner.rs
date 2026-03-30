@@ -195,4 +195,43 @@ mod tests {
             .iter()
             .any(|t| t.name == "cargo"));
     }
+
+    #[test]
+    fn full_detection_maven_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pom.xml"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "maven"));
+    }
+
+    #[test]
+    fn full_detection_dotnet_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("MyApp.sln"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "dotnet"));
+    }
+
+    #[test]
+    fn full_detection_deno_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("deno.json"), "{}").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "deno"));
+    }
 }

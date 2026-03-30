@@ -37,6 +37,22 @@ categories:
     description: "Swift ecosystem tools"
     templates: [swift]
 
+  - name: java
+    description: "Java ecosystem tools"
+    templates: [maven]
+
+  - name: dotnet
+    description: ".NET ecosystem tools"
+    templates: [dotnet]
+
+  - name: dart
+    description: "Dart/Flutter ecosystem tools"
+    templates: [dart, flutter]
+
+  - name: deno
+    description: "Deno ecosystem tools"
+    templates: [deno]
+
   - name: install
     description: "Prerequisite installation templates"
     templates: [mise-install, mise-ruby, mise-node, mise-python, brew-install, rust-install, postgres-install, redis-install, docker-install]
@@ -62,3 +78,8 @@ detection_order:
   - cargo
   - go
   - swift
+  - maven
+  - dotnet
+  - dart
+  - flutter
+  - deno

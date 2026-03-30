@@ -246,6 +246,11 @@ mod tests {
             "cargo",
             "go",
             "swift",
+            "maven",
+            "dotnet",
+            "dart",
+            "flutter",
+            "deno",
             // Install templates
             "mise-install",
             "mise-ruby",

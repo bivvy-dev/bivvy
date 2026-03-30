@@ -36,6 +36,11 @@ pub enum PackageManager {
     Uv,
     Cargo,
     Go,
+    Maven,
+    Dotnet,
+    Dart,
+    Flutter,
+    Deno,
 }
 
 /// Result of package manager detection.
@@ -162,6 +167,35 @@ impl PackageManagerDetector {
             managers.push(PackageManager::Go);
         }
 
+        // Maven (Java)
+        if file_exists(project_root, "pom.xml") {
+            managers.push(PackageManager::Maven);
+        }
+
+        // .NET
+        if std::fs::read_dir(project_root)
+            .map(|entries| {
+                entries.filter_map(|e| e.ok()).any(|e| {
+                    let name = e.file_name();
+                    let name = name.to_string_lossy();
+                    name.ends_with(".sln") || name.ends_with(".csproj")
+                })
+            })
+            .unwrap_or(false)
+        {
+            managers.push(PackageManager::Dotnet);
+        }
+
+        // Dart/Flutter
+        if file_exists(project_root, "pubspec.yaml") {
+            managers.push(PackageManager::Dart);
+        }
+
+        // Deno
+        if file_exists(project_root, "deno.json") || file_exists(project_root, "deno.jsonc") {
+            managers.push(PackageManager::Deno);
+        }
+
         managers
     }
 }
@@ -229,5 +263,47 @@ mod tests {
         // version_manager may be set if mise/asdf/volta is installed globally,
         // so we only check that language_managers is empty for an empty project
         assert!(detection.language_managers.is_empty());
+    }
+
+    #[test]
+    fn detect_language_managers_maven() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pom.xml"), "").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection.language_managers.contains(&PackageManager::Maven));
+    }
+
+    #[test]
+    fn detect_language_managers_dotnet() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("MyApp.csproj"), "").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection
+            .language_managers
+            .contains(&PackageManager::Dotnet));
+    }
+
+    #[test]
+    fn detect_language_managers_dart() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pubspec.yaml"), "").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection.language_managers.contains(&PackageManager::Dart));
+    }
+
+    #[test]
+    fn detect_language_managers_deno() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("deno.json"), "{}").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection.language_managers.contains(&PackageManager::Deno));
     }
 }
