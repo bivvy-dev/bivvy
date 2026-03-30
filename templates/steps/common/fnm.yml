@@ -1,0 +1,30 @@
+name: fnm
+description: "Set up fnm (Fast Node Manager)"
+category: version_manager
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - command: "fnm --version"
+  - file: .nvmrc
+  - file: .node-version
+
+step:
+  title: "Set up fnm"
+  description: "Ensure fnm is configured and Node.js version is installed"
+  command: "fnm install && fnm use"
+  requires:
+    - fnm
+  completed_check:
+    type: command_succeeds
+    command: "fnm current 2>&1 | grep -v 'none'"
+  watches:
+    - .nvmrc
+    - .node-version
+
+environment_impact:
+  modifies_path: true
+  shell_files:
+    - ~/.zshrc
+    - ~/.bashrc
+  note: "fnm manages Node.js versions — ensure fnm eval is in your shell config"

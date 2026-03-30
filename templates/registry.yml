@@ -11,7 +11,7 @@ categories:
 
   - name: version_manager
     description: "Runtime version managers"
-    templates: [mise, asdf, volta]
+    templates: [mise, asdf, volta, fnm]
 
   - name: ruby
     description: "Ruby ecosystem tools"
@@ -88,6 +88,7 @@ categories:
       - asdf-php
       - asdf-elixir
       - nvm-node
+      - fnm-node
       - volta-node
       - rbenv-ruby
       - pyenv-python
@@ -113,6 +114,7 @@ detection_order:
   - mise
   - asdf
   - volta
+  - fnm
   - bundler
   - yarn
   - npm
