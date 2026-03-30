@@ -19,6 +19,7 @@ Bivvy provides the following commands:
 | [`bivvy config`](./config.md) | Show configuration |
 | [`bivvy cache`](./cache.md) | Manage template cache |
 | [`bivvy feedback`](./feedback.md) | Capture feedback |
+| [`bivvy update`](./update.md) | Check for and install updates |
 | [`bivvy completions`](./completions.md) | Generate shell completions |
 
 ## Global Flags

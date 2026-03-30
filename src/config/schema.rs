@@ -100,6 +100,14 @@ pub struct Settings {
     /// Named environment configurations
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub environments: HashMap<String, EnvironmentConfig>,
+
+    /// Enable automatic background updates.
+    ///
+    /// When true, bivvy checks for new versions in the background after each
+    /// run and automatically installs updates so the next invocation uses the
+    /// latest version. Set to false to disable (users can still run `bivvy update`).
+    #[serde(default = "default_auto_update")]
+    pub auto_update: bool,
 }
 
 impl Default for Settings {
@@ -116,6 +124,7 @@ impl Default for Settings {
             history_retention: default_history_retention(),
             default_environment: None,
             environments: HashMap::new(),
+            auto_update: default_auto_update(),
         }
     }
 }
@@ -138,6 +147,10 @@ fn default_history_retention() -> usize {
 
 fn is_default_history_retention(v: &usize) -> bool {
     *v == default_history_retention()
+}
+
+fn default_auto_update() -> bool {
+    true
 }
 
 fn is_false(v: &bool) -> bool {

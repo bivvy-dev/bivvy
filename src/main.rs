@@ -5,7 +5,10 @@ use std::process::ExitCode;
 use bivvy::cli::{Cli, CommandDispatcher, Commands};
 use bivvy::shell::is_ci;
 use bivvy::ui::{create_ui, OutputMode};
-use bivvy::updates::{is_notification_suppressed, show_update_notification};
+use bivvy::updates::{
+    apply_staged_update, is_notification_suppressed, perform_background_update,
+    should_spawn_background_update, show_update_notification, spawn_background_update,
+};
 use clap::Parser;
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -29,6 +32,13 @@ fn init_tracing(debug: bool) {
 }
 
 fn main() -> ExitCode {
+    // Background self-update process: when invoked with this env var,
+    // perform the update check/download and exit immediately.
+    if std::env::var("BIVVY_SELF_UPDATE_BG").is_ok() {
+        let _ = perform_background_update();
+        return ExitCode::SUCCESS;
+    }
+
     let cli = Cli::parse();
     init_tracing(cli.debug);
 
@@ -64,20 +74,44 @@ fn main() -> ExitCode {
     // Create UI
     let mut ui = create_ui(is_interactive, output_mode);
 
+    // Apply any previously staged update (manual installs only).
+    // This replaces the current binary before running the command,
+    // so the user gets the new version immediately.
+    match apply_staged_update() {
+        Ok(Some(version)) => {
+            tracing::info!("Auto-updated to v{}", version);
+            ui.message(&format!("bivvy has been auto-updated to v{}", version));
+        }
+        Ok(None) => {} // No staged update
+        Err(e) => {
+            tracing::warn!("Failed to apply staged update: {}", e);
+        }
+    }
+
     // Dispatch command
     let dispatcher = CommandDispatcher::new(project_root);
 
-    match dispatcher.dispatch(&cli, ui.as_mut()) {
+    let exit_code = match dispatcher.dispatch(&cli, ui.as_mut()) {
         Ok(result) => {
             // Show update notification after successful runs
             if result.success && is_interactive && !is_notification_suppressed() {
                 show_update_notification(ui.as_mut());
             }
-            ExitCode::from(result.exit_code as u8)
+            result.exit_code as u8
         }
         Err(e) => {
             ui.error(&format!("Error: {}", e));
-            ExitCode::from(1)
+            1
+        }
+    };
+
+    // Spawn background update check after command completes.
+    // This runs in a detached process so it doesn't delay the CLI exit.
+    if should_spawn_background_update(is_interactive, is_ci()) {
+        if let Err(e) = spawn_background_update() {
+            tracing::debug!("Failed to spawn background update: {}", e);
         }
     }
+
+    ExitCode::from(exit_code)
 }

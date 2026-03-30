@@ -1,10 +1,13 @@
 //! Update command implementation.
 //!
 //! The `bivvy update` command checks for and installs updates.
+//! It also provides flags to enable or disable automatic background updates.
 
 use crate::error::Result;
 use crate::ui::UserInterface;
-use crate::updates::{check_for_updates_fresh, detect_install_method, VERSION};
+use crate::updates::{
+    auto_update::is_auto_update_enabled, check_for_updates_fresh, detect_install_method, VERSION,
+};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -14,6 +17,14 @@ pub struct UpdateArgs {
     /// Check for updates without installing
     #[arg(long)]
     pub check: bool,
+
+    /// Enable automatic background updates
+    #[arg(long, conflicts_with = "disable_auto_update")]
+    pub enable_auto_update: bool,
+
+    /// Disable automatic background updates
+    #[arg(long, conflicts_with = "enable_auto_update")]
+    pub disable_auto_update: bool,
 }
 
 /// The update command implementation.
@@ -30,7 +41,23 @@ impl UpdateCommand {
 
 impl Command for UpdateCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        // Handle auto-update toggle flags
+        if self.args.enable_auto_update {
+            return set_auto_update(ui, true);
+        }
+        if self.args.disable_auto_update {
+            return set_auto_update(ui, false);
+        }
+
         ui.message(&format!("Current version: {}", VERSION));
+
+        // Show auto-update status
+        if is_auto_update_enabled() {
+            ui.message("Auto-update: enabled");
+        } else {
+            ui.message("Auto-update: disabled");
+        }
+
         ui.message("Checking for updates...");
 
         let info = match check_for_updates_fresh() {
@@ -89,6 +116,72 @@ impl Command for UpdateCommand {
     }
 }
 
+/// Write the auto_update setting to the system config at `~/.bivvy/config.yml`.
+fn set_auto_update(ui: &mut dyn UserInterface, enabled: bool) -> Result<CommandResult> {
+    let home = dirs::home_dir().ok_or_else(|| {
+        crate::error::BivvyError::Other(anyhow::anyhow!("Could not determine home directory"))
+    })?;
+
+    let config_dir = home.join(".bivvy");
+    let config_path = config_dir.join("config.yml");
+
+    // Read existing config or start fresh
+    let mut value: serde_yaml::Value = if config_path.exists() {
+        let content = std::fs::read_to_string(&config_path).map_err(|e| {
+            crate::error::BivvyError::Other(anyhow::anyhow!(
+                "Failed to read {}: {}",
+                config_path.display(),
+                e
+            ))
+        })?;
+        serde_yaml::from_str(&content)
+            .unwrap_or(serde_yaml::Value::Mapping(serde_yaml::Mapping::new()))
+    } else {
+        serde_yaml::Value::Mapping(serde_yaml::Mapping::new())
+    };
+
+    // Ensure settings mapping exists
+    let mapping = value.as_mapping_mut().ok_or_else(|| {
+        crate::error::BivvyError::Other(anyhow::anyhow!("System config is not a YAML mapping"))
+    })?;
+
+    let settings_key = serde_yaml::Value::String("settings".to_string());
+    if !mapping.contains_key(&settings_key) {
+        mapping.insert(
+            settings_key.clone(),
+            serde_yaml::Value::Mapping(serde_yaml::Mapping::new()),
+        );
+    }
+
+    let settings = mapping
+        .get_mut(&settings_key)
+        .and_then(|v| v.as_mapping_mut())
+        .ok_or_else(|| {
+            crate::error::BivvyError::Other(anyhow::anyhow!("settings is not a YAML mapping"))
+        })?;
+
+    settings.insert(
+        serde_yaml::Value::String("auto_update".to_string()),
+        serde_yaml::Value::Bool(enabled),
+    );
+
+    // Write back
+    std::fs::create_dir_all(&config_dir)?;
+    let yaml = serde_yaml::to_string(&value).map_err(|e| {
+        crate::error::BivvyError::Other(anyhow::anyhow!("Failed to serialize config: {}", e))
+    })?;
+    std::fs::write(&config_path, yaml)?;
+
+    if enabled {
+        ui.message("Automatic background updates enabled.");
+    } else {
+        ui.message("Automatic background updates disabled.");
+    }
+    ui.message(&format!("Saved to {}", config_path.display()));
+
+    Ok(CommandResult::success())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,11 +190,36 @@ mod tests {
     fn update_command_creation() {
         let cmd = UpdateCommand::new(UpdateArgs::default());
         assert!(!cmd.args.check);
+        assert!(!cmd.args.enable_auto_update);
+        assert!(!cmd.args.disable_auto_update);
     }
 
     #[test]
     fn update_command_check_flag() {
-        let cmd = UpdateCommand::new(UpdateArgs { check: true });
+        let cmd = UpdateCommand::new(UpdateArgs {
+            check: true,
+            ..Default::default()
+        });
         assert!(cmd.args.check);
+    }
+
+    #[test]
+    fn update_command_enable_auto_update_flag() {
+        let cmd = UpdateCommand::new(UpdateArgs {
+            enable_auto_update: true,
+            ..Default::default()
+        });
+        assert!(cmd.args.enable_auto_update);
+        assert!(!cmd.args.disable_auto_update);
+    }
+
+    #[test]
+    fn update_command_disable_auto_update_flag() {
+        let cmd = UpdateCommand::new(UpdateArgs {
+            disable_auto_update: true,
+            ..Default::default()
+        });
+        assert!(cmd.args.disable_auto_update);
+        assert!(!cmd.args.enable_auto_update);
     }
 }

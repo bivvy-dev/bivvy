@@ -124,3 +124,34 @@ Each detect rule checks a single env var. Omit `value` to match on
 presence alone.
 
 See [Environments](environments.md) for the full guide.
+
+## Auto-Update
+
+Bivvy checks for new versions in the background after each run and
+installs updates automatically. This is enabled by default.
+
+```yaml
+settings:
+  auto_update: true  # Enable automatic background updates (default)
+```
+
+To disable:
+
+```yaml
+settings:
+  auto_update: false
+```
+
+This setting is typically placed in the system config (`~/.bivvy/config.yml`)
+since it applies to bivvy itself, not to a specific project. You can also
+toggle it from the command line:
+
+```bash
+bivvy update --disable-auto-update
+bivvy update --enable-auto-update
+```
+
+When disabled, you can still update manually with `bivvy update`.
+
+See [`bivvy update`](../commands/update.md) for details on how background
+updates work.
