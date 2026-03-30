@@ -354,6 +354,36 @@ fn cli_templates_filter_by_category() -> Result<(), Box<dyn std::error::Error>> 
 }
 
 #[test]
+fn cli_templates_filter_by_category_excludes_others() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["templates", "--category", "ruby"]);
+    let output = cmd.output()?;
+    let stdout = String::from_utf8(output.stdout)?;
+
+    // Ruby templates should be present
+    assert!(stdout.contains("bundler"));
+    // Non-ruby templates should be absent
+    assert!(!stdout.contains("yarn"));
+    assert!(!stdout.contains("cargo"));
+    assert!(!stdout.contains("pip"));
+    Ok(())
+}
+
+#[test]
+fn cli_templates_nonexistent_category_shows_zero() -> Result<(), Box<dyn std::error::Error>> {
+    let temp = TempDir::new()?;
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["templates", "--category", "nonexistent"]);
+    cmd.assert()
+        .success()
+        .stdout(predicate::str::contains("0 templates available"));
+    Ok(())
+}
+
+#[test]
 fn cli_templates_help() -> Result<(), Box<dyn std::error::Error>> {
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.args(["templates", "--help"]);
@@ -449,6 +479,58 @@ fn cli_add_fails_for_duplicate_step() -> Result<(), Box<dyn std::error::Error>> 
     cmd2.assert()
         .failure()
         .stderr(predicate::str::contains("already exists"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_with_after_positioning() -> Result<(), Box<dyn std::error::Error>> {
+    let config = r#"
+app_name: Test
+steps:
+  install:
+    command: npm install
+  build:
+    command: npm build
+workflows:
+  default:
+    steps: [install, build]
+"#;
+    let temp = setup_project(config);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler", "--after", "install"]);
+    cmd.assert().success();
+
+    let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
+    // bundler should appear between install and build in the workflow
+    assert!(new_config.contains("steps: [install, bundler, build]"));
+    Ok(())
+}
+
+#[test]
+fn cli_add_to_named_workflow() -> Result<(), Box<dyn std::error::Error>> {
+    let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+  ci:
+    steps: [hello]
+"#;
+    let temp = setup_project(config);
+    let mut cmd = Command::new(cargo_bin("bivvy"));
+    cmd.current_dir(temp.path());
+    cmd.args(["add", "bundler", "--workflow", "ci"]);
+    cmd.assert().success();
+
+    let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml"))?;
+    // bundler should be added to the ci workflow
+    assert!(new_config.contains("steps: [hello, bundler]"));
+    // The default workflow should remain unchanged
+    assert!(new_config.contains("steps: [hello]\n"));
     Ok(())
 }
 
