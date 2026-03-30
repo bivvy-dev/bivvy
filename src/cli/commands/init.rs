@@ -293,7 +293,12 @@ impl Command for InitCommand {
             if let Ok(PromptResult::String(answer)) = ui.prompt(&prompt) {
                 if answer == "yes" {
                     ui.message("");
-                    let run_cmd = RunCommand::new(&self.project_root, RunArgs::default());
+                    let run_args = RunArgs {
+                        force: steps.iter().map(|s| s.to_string()).collect(),
+                        suppress_header: true,
+                        ..RunArgs::default()
+                    };
+                    let run_cmd = RunCommand::new(&self.project_root, run_args);
                     return run_cmd.execute(ui);
                 }
             }

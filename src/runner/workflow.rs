@@ -420,19 +420,22 @@ impl<'a> WorkflowRunner<'a> {
                 ui.message("");
             }
 
-            // Format step display with numbering: "[1/7] name — title" or "[1/7] name"
+            // Format step display with numbering: "[1/7] name" as header line
             let step_number = format!("[{}/{}]", index + 1, total);
+            let step_indent = step_number.len() + 1; // +1 for the space after
+            let step_pad = " ".repeat(step_indent);
+            let step_header = format!(
+                "{} {}",
+                theme.step_number.apply_to(&step_number),
+                theme.step_title.apply_to(step_name)
+            );
+            // Full display includes title if different from name (used for non-prompt contexts)
             let step_display = if *step_name == step.title {
-                format!(
-                    "{} {}",
-                    theme.step_number.apply_to(&step_number),
-                    theme.step_title.apply_to(step_name)
-                )
+                step_header.clone()
             } else {
                 format!(
-                    "{} {} {} {}",
-                    theme.step_number.apply_to(&step_number),
-                    theme.step_title.apply_to(step_name),
+                    "{} {} {}",
+                    step_header,
                     theme.dim.apply_to("—"),
                     theme.dim.apply_to(&step.title)
                 )
@@ -442,7 +445,8 @@ impl<'a> WorkflowRunner<'a> {
             if step.depends_on.iter().any(|dep| failed_steps.contains(dep)) {
                 ui.message(&step_display);
                 ui.message(&format!(
-                    "    {}",
+                    "{}{}",
+                    step_pad,
                     StatusKind::Blocked.format(&theme, "Blocked (dependency failed)")
                 ));
                 ui.show_workflow_progress(index + 1, total, start.elapsed());
@@ -465,7 +469,8 @@ impl<'a> WorkflowRunner<'a> {
                     if !can_proceed {
                         ui.message(&step_display);
                         ui.message(&format!(
-                            "    {}",
+                            "{}{}",
+                            step_pad,
                             StatusKind::Skipped.format(&theme, "Skipped (requirement not met)")
                         ));
                         ui.show_workflow_progress(index + 1, total, start.elapsed());
@@ -501,10 +506,11 @@ impl<'a> WorkflowRunner<'a> {
                     if check_result.complete {
                         if interactive && effective_prompt_if_complete {
                             if step.skippable {
-                                // Ask if they want to re-run (prompt IS the step header)
+                                // Show step header, then ask if they want to re-run
+                                ui.message(&step_header);
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
-                                    question: format!("Already complete. Re-run {}?", step_display),
+                                    question: format!("{}Already complete. Re-run?", step_pad),
                                     prompt_type: PromptType::Select {
                                         options: vec![
                                             PromptOption {
@@ -524,7 +530,8 @@ impl<'a> WorkflowRunner<'a> {
                                 if answer.as_string() != "yes" {
                                     let reason = check_result.short_description();
                                     ui.message(&format!(
-                                        "    {}",
+                                        "{}{}",
+                                        step_pad,
                                         theme.format_skipped(&format!("Skipped ({})", reason))
                                     ));
                                     results.push(StepResult::skipped(&step.name, check_result));
@@ -537,7 +544,7 @@ impl<'a> WorkflowRunner<'a> {
                             } else {
                                 // Not skippable, inform and re-run
                                 ui.message(&step_display);
-                                ui.message("    Re-running (not skippable)");
+                                ui.message(&format!("{}Re-running (not skippable)", step_pad));
                                 needs_force = true;
                             }
                         } else {
@@ -545,7 +552,8 @@ impl<'a> WorkflowRunner<'a> {
                             ui.message(&step_display);
                             let reason = check_result.short_description();
                             ui.message(&format!(
-                                "    {}",
+                                "{}{}",
+                                step_pad,
                                 theme.format_skipped(&format!("Skipped ({})", reason))
                             ));
                             results.push(StepResult::skipped(&step.name, check_result));
@@ -558,9 +566,11 @@ impl<'a> WorkflowRunner<'a> {
             // In interactive mode, prompt before running skippable steps
             // (skip if already prompted by completed check)
             if interactive && step.skippable && !already_prompted {
+                // Show step header, then prompt with indented title
+                ui.message(&step_header);
                 let prompt = Prompt {
                     key: format!("run_{}", step_name),
-                    question: format!("{}?", step_display),
+                    question: format!("{}{}?", step_pad, step.title),
                     prompt_type: PromptType::Select {
                         options: vec![
                             PromptOption {
@@ -577,7 +587,7 @@ impl<'a> WorkflowRunner<'a> {
                 };
                 let answer = ui.prompt(&prompt)?;
                 if answer.as_string() != "yes" {
-                    ui.message(&format!("    {}", theme.format_skipped("Skipped")));
+                    ui.message(&format!("{}{}", step_pad, theme.format_skipped("Skipped")));
                     results.push(StepResult::skipped(
                         &step.name,
                         crate::steps::CheckResult::complete("User declined"),
@@ -616,7 +626,8 @@ impl<'a> WorkflowRunner<'a> {
                 if answer.as_string() != "yes" {
                     if step.skippable {
                         ui.message(&format!(
-                            "    {}",
+                            "{}{}",
+                            step_pad,
                             theme.format_skipped("Skipped (declined sensitive step)")
                         ));
                         results.push(StepResult::skipped(
@@ -634,13 +645,9 @@ impl<'a> WorkflowRunner<'a> {
                         });
                     }
                 }
-                had_prompt = true;
             }
 
-            // Blank line before spinner when a prompt was shown (visual spacing)
-            if had_prompt {
-                ui.message("");
-            }
+            // No extra blank line needed — spinner renders indented below step header
 
             // Execute step-level prompts (template inputs / interactive params)
             if !step.prompts.is_empty() {
@@ -710,7 +717,7 @@ impl<'a> WorkflowRunner<'a> {
                 } else {
                     format!("Running `{}`...", step.command)
                 };
-                let mut spinner = ui.start_spinner_indented(&attempt_label, 4);
+                let mut spinner = ui.start_spinner_indented(&attempt_label, step_indent);
 
                 // Create live output callback:
                 // - Interactive mode: spinner-based ring buffer (3 lines verbose, 2 normal)

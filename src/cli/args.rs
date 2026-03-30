@@ -141,6 +141,10 @@ pub struct RunArgs {
     /// Target environment (e.g., development, ci, staging)
     #[arg(long, value_name = "ENV")]
     pub env: Option<String>,
+
+    /// Suppress run header (used when chaining from init)
+    #[arg(skip)]
+    pub suppress_header: bool,
 }
 
 impl Default for RunArgs {
@@ -157,6 +161,7 @@ impl Default for RunArgs {
             non_interactive: false,
             ci: false,
             env: None,
+            suppress_header: false,
         }
     }
 }

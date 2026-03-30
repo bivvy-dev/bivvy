@@ -143,12 +143,17 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
 
     let mut sel = default_idx;
 
-    // Calculate indent: measure the visible width of the question text
-    // to find where `[n/t] ` ends. We use a heuristic: find the first `]`
-    // and add 2 for `] `.
-    let indent = measure_text_width(&prompt.question)
-        .min(prompt.question.find(']').map(|i| i + 2).unwrap_or(6));
-    let pad = " ".repeat(indent);
+    // Calculate indent from leading whitespace in the question text.
+    // Questions are pre-indented to align with the step header above.
+    let leading_ws = prompt.question.len() - prompt.question.trim_start().len();
+    let pad = if leading_ws > 0 {
+        " ".repeat(leading_ws)
+    } else {
+        // Fallback: find `[n/t] ` bracket pattern and indent to match
+        let indent = measure_text_width(&prompt.question)
+            .min(prompt.question.find(']').map(|i| i + 2).unwrap_or(6));
+        " ".repeat(indent)
+    };
 
     let active_prefix = Style::new().bold();
     let active_style = Style::new().bold();
@@ -256,8 +261,20 @@ fn prompt_multiselect(
         .map(|o| default_values.contains(&o.value.as_str()))
         .collect();
 
-    let selections = MultiSelect::with_theme(&prompt_theme())
-        .with_prompt(&prompt.question)
+    let multiselect_theme = ColorfulTheme {
+        prompt_suffix: style("".to_string()),
+        ..prompt_theme()
+    };
+
+    // Print prompt question and hint text for keyboard controls
+    term.write_line(&prompt.question).map_err(BivvyError::Io)?;
+    term.write_line(&format!(
+        "{}",
+        style("[space] toggle · [a] toggle all · [enter] confirm").dim()
+    ))
+    .map_err(BivvyError::Io)?;
+
+    let selections = MultiSelect::with_theme(&multiselect_theme)
         .items(&labels)
         .defaults(&defaults)
         .interact_on(term)

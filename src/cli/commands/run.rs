@@ -185,25 +185,27 @@ impl Command for RunCommand {
             self.args.workflow.clone()
         };
 
-        // Show header
-        let app_name = config.app_name.as_deref().unwrap_or("project");
-        let step_count = config
-            .workflows
-            .get(workflow_name.as_str())
-            .map(|w| w.steps.len())
-            .unwrap_or(0);
-        ui.show_run_header(
-            app_name,
-            &workflow_name,
-            step_count,
-            crate::updates::version::VERSION,
-        );
+        // Show header (suppressed when chaining from init)
+        if !self.args.suppress_header {
+            let app_name = config.app_name.as_deref().unwrap_or("project");
+            let step_count = config
+                .workflows
+                .get(workflow_name.as_str())
+                .map(|w| w.steps.len())
+                .unwrap_or(0);
+            ui.show_run_header(
+                app_name,
+                &workflow_name,
+                step_count,
+                crate::updates::version::VERSION,
+            );
 
-        // Show environment and config info
-        ui.message(&format!(
-            "  Environment: {} ({})",
-            env_name, resolved_env.source
-        ));
+            // Show environment and config info
+            ui.message(&format!(
+                "  Environment: {} ({})",
+                env_name, resolved_env.source
+            ));
+        }
 
         if self.args.dry_run {
             let paths = ConfigPaths::discover(&self.project_root);
