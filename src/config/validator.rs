@@ -5,10 +5,16 @@
 //! - depends_on must reference existing steps
 //! - Workflows must reference existing steps
 //! - No circular dependencies allowed
+//! - Var names must be valid identifiers
+//! - Var names must not collide with builtin variables
+//! - Computed vars must have non-empty commands
 
-use crate::config::schema::BivvyConfig;
+use crate::config::schema::{BivvyConfig, VarDefinition};
 use crate::error::{BivvyError, Result};
 use std::collections::HashSet;
+
+/// Built-in interpolation variable names that user vars must not shadow.
+const BUILTIN_VAR_NAMES: &[&str] = &["bivvy_version", "project_name", "project_root"];
 
 /// Validation error with context.
 #[derive(Debug, Clone)]
@@ -30,9 +36,76 @@ pub struct ValidationError {
 pub fn validate_config(config: &BivvyConfig) -> Vec<ValidationError> {
     let mut errors = Vec::new();
 
+    errors.extend(validate_vars(config));
     errors.extend(validate_steps(config));
     errors.extend(validate_workflows(config));
     errors.extend(validate_dependencies(config));
+
+    errors
+}
+
+/// Check whether a var name is a valid identifier.
+///
+/// Valid names start with a letter or underscore and contain only
+/// ASCII letters, digits, and underscores.
+fn is_valid_var_name(name: &str) -> bool {
+    if name.is_empty() {
+        return false;
+    }
+    let mut chars = name.chars();
+    let first = chars.next().unwrap();
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return false;
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// Validate user-defined variable declarations.
+fn validate_vars(config: &BivvyConfig) -> Vec<ValidationError> {
+    let mut errors = Vec::new();
+
+    for (name, def) in &config.vars {
+        // Empty or invalid var name
+        if !is_valid_var_name(name) {
+            errors.push(ValidationError {
+                rule: "invalid-var-name".to_string(),
+                message: format!(
+                    "Variable '{}' has an invalid name. \
+                     Names must start with a letter or underscore and \
+                     contain only letters, digits, and underscores.",
+                    name
+                ),
+                step: None,
+                workflow: None,
+            });
+        }
+
+        // Collision with builtin variables
+        if BUILTIN_VAR_NAMES.contains(&name.as_str()) {
+            errors.push(ValidationError {
+                rule: "builtin-var-collision".to_string(),
+                message: format!(
+                    "Variable '{}' collides with a built-in variable. \
+                     Choose a different name.",
+                    name
+                ),
+                step: None,
+                workflow: None,
+            });
+        }
+
+        // Computed vars must have a non-empty command
+        if let VarDefinition::Computed { command } = def {
+            if command.trim().is_empty() {
+                errors.push(ValidationError {
+                    rule: "empty-var-command".to_string(),
+                    message: format!("Computed variable '{}' has an empty command.", name),
+                    step: None,
+                    workflow: None,
+                });
+            }
+        }
+    }
 
     errors
 }
@@ -187,7 +260,7 @@ pub fn validate(config: &BivvyConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::schema::{StepConfig, StepOverride, WorkflowConfig};
+    use crate::config::schema::{StepConfig, StepOverride, VarDefinition, WorkflowConfig};
 
     #[test]
     fn validates_step_has_command_or_template() {
@@ -312,5 +385,174 @@ mod tests {
             .steps
             .insert("empty".to_string(), StepConfig::default());
         assert!(validate(&bad_config).is_err());
+    }
+
+    // --- Var validation tests ---
+
+    #[test]
+    fn validates_empty_var_name() {
+        let mut config = BivvyConfig::default();
+        config
+            .vars
+            .insert("".to_string(), VarDefinition::Static("val".to_string()));
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "invalid-var-name"));
+    }
+
+    #[test]
+    fn validates_var_name_with_spaces() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "my var".to_string(),
+            VarDefinition::Static("val".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "invalid-var-name"));
+    }
+
+    #[test]
+    fn validates_var_name_starting_with_digit() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "9lives".to_string(),
+            VarDefinition::Static("val".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "invalid-var-name"));
+    }
+
+    #[test]
+    fn validates_var_name_with_special_chars() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "my-var".to_string(),
+            VarDefinition::Static("val".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "invalid-var-name"));
+    }
+
+    #[test]
+    fn accepts_valid_var_names() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "my_var".to_string(),
+            VarDefinition::Static("val".to_string()),
+        );
+        config.vars.insert(
+            "_private".to_string(),
+            VarDefinition::Static("val".to_string()),
+        );
+        config.vars.insert(
+            "VERSION2".to_string(),
+            VarDefinition::Static("val".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(!errors.iter().any(|e| e.rule == "invalid-var-name"));
+    }
+
+    #[test]
+    fn validates_builtin_var_collision_bivvy_version() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "bivvy_version".to_string(),
+            VarDefinition::Static("1.0".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "builtin-var-collision"));
+    }
+
+    #[test]
+    fn validates_builtin_var_collision_project_name() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "project_name".to_string(),
+            VarDefinition::Static("test".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "builtin-var-collision"));
+    }
+
+    #[test]
+    fn validates_builtin_var_collision_project_root() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "project_root".to_string(),
+            VarDefinition::Static("/tmp".to_string()),
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "builtin-var-collision"));
+    }
+
+    #[test]
+    fn validates_computed_var_empty_command() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "empty_cmd".to_string(),
+            VarDefinition::Computed {
+                command: "".to_string(),
+            },
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "empty-var-command"));
+    }
+
+    #[test]
+    fn validates_computed_var_whitespace_only_command() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "ws_cmd".to_string(),
+            VarDefinition::Computed {
+                command: "   \t  ".to_string(),
+            },
+        );
+
+        let errors = validate_config(&config);
+        assert!(errors.iter().any(|e| e.rule == "empty-var-command"));
+    }
+
+    #[test]
+    fn accepts_valid_computed_var() {
+        let mut config = BivvyConfig::default();
+        config.vars.insert(
+            "version".to_string(),
+            VarDefinition::Computed {
+                command: "echo 1.0.0".to_string(),
+            },
+        );
+
+        let errors = validate_config(&config);
+        assert!(!errors.iter().any(|e| e.rule == "empty-var-command"));
+        assert!(!errors.iter().any(|e| e.rule == "invalid-var-name"));
+        assert!(!errors.iter().any(|e| e.rule == "builtin-var-collision"));
+    }
+
+    #[test]
+    fn no_var_errors_for_empty_vars() {
+        let config = BivvyConfig::default();
+        let errors = validate_config(&config);
+        assert!(!errors.iter().any(|e| e.rule.contains("var")));
+    }
+
+    #[test]
+    fn is_valid_var_name_helper() {
+        assert!(is_valid_var_name("abc"));
+        assert!(is_valid_var_name("_abc"));
+        assert!(is_valid_var_name("a1"));
+        assert!(is_valid_var_name("A_B_C"));
+        assert!(!is_valid_var_name(""));
+        assert!(!is_valid_var_name("1abc"));
+        assert!(!is_valid_var_name("a b"));
+        assert!(!is_valid_var_name("a-b"));
+        assert!(!is_valid_var_name("a.b"));
     }
 }
