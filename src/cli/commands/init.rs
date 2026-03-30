@@ -141,6 +141,102 @@ impl InitCommand {
         }
     }
 
+    /// Execute `--from`: copy config from another project.
+    fn execute_from(&self, ui: &mut dyn UserInterface, from_path: &str) -> Result<CommandResult> {
+        let source = Path::new(from_path).join(".bivvy/config.yml");
+        if !source.exists() {
+            ui.error(&format!(
+                "No .bivvy/config.yml found at {}",
+                source.display()
+            ));
+            return Ok(CommandResult::failure(1));
+        }
+
+        let bivvy_dir = self.project_root.join(".bivvy");
+        fs::create_dir_all(&bivvy_dir)?;
+        fs::copy(&source, bivvy_dir.join("config.yml"))?;
+
+        self.update_gitignore(ui)?;
+
+        ui.message("");
+        ui.success(&format!("Copied configuration from {}", source.display()));
+
+        ui.show_hint(hints::after_init());
+        Ok(CommandResult::success())
+    }
+
+    /// Execute `--template`: generate config from a specific template or category.
+    fn execute_template(
+        &self,
+        ui: &mut dyn UserInterface,
+        template_name: &str,
+    ) -> Result<CommandResult> {
+        let loader = match BuiltinLoader::new() {
+            Ok(l) => l,
+            Err(e) => {
+                ui.error(&format!("Failed to load templates: {}", e));
+                return Ok(CommandResult::failure(1));
+            }
+        };
+
+        // Collect matching templates: first try as a direct template name,
+        // then try as a category name to find all templates in that category.
+        let mut steps: Vec<(String, Option<&Template>)> = Vec::new();
+
+        if let Some(tmpl) = loader.get(template_name) {
+            // Direct template match
+            steps.push((tmpl.name.clone(), Some(tmpl)));
+        } else {
+            // Try as a category — find all templates in this category
+            for qualified_name in loader.template_names() {
+                if let Some(tmpl) = loader.get(qualified_name) {
+                    if tmpl.category == template_name {
+                        steps.push((tmpl.name.clone(), Some(tmpl)));
+                    }
+                }
+            }
+        }
+
+        if steps.is_empty() {
+            ui.error(&format!(
+                "No template or category found matching '{}'",
+                template_name
+            ));
+            ui.message("Run 'bivvy templates' to see available templates.");
+            return Ok(CommandResult::failure(1));
+        }
+
+        ui.message(&format!("Using template: {}", template_name));
+
+        let steps_with_templates: Vec<(&str, Option<&Template>)> = steps
+            .iter()
+            .map(|(name, tmpl)| (name.as_str(), *tmpl))
+            .collect();
+
+        let config = self.create_config(&steps_with_templates);
+
+        let bivvy_dir = self.project_root.join(".bivvy");
+        fs::create_dir_all(&bivvy_dir)?;
+        fs::write(bivvy_dir.join("config.yml"), &config)?;
+
+        self.update_gitignore(ui)?;
+
+        ui.message("");
+        ui.success("Created .bivvy/config.yml");
+
+        let step_names: Vec<&str> = steps.iter().map(|(n, _)| n.as_str()).collect();
+        ui.message("Workflow: default");
+        ui.message(&format!(
+            "Steps: {} ({})",
+            steps.len(),
+            step_names.join(", ")
+        ));
+        ui.message("");
+
+        ui.show_hint(hints::after_init());
+        Ok(CommandResult::success())
+    }
+
     /// Update gitignore to exclude local overrides.
     fn update_gitignore(&self, ui: &mut dyn UserInterface) -> Result<()> {
         let gitignore_entry = ".bivvy/config.local.yml";
@@ -179,6 +275,16 @@ impl Command for InitCommand {
             console::style(format!("bivvy v{}", version)).dim(),
             console::style("· init").dim(),
         ));
+
+        // Handle --from: copy config from another project
+        if let Some(ref from_path) = self.args.from {
+            return self.execute_from(ui, from_path);
+        }
+
+        // Handle --template: use a specific template instead of detection
+        if let Some(ref template_name) = self.args.template {
+            return self.execute_template(ui, template_name);
+        }
 
         // Run detection
         let detection = DetectionRunner::run(&self.project_root);

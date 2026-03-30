@@ -18,20 +18,20 @@ bivvy init --minimal
 ```
 
 ```bash
-bivvy init --template=rails
+bivvy init --template=ruby
 ```
 
 ```bash
-bivvy init --from=../other
+bivvy init --from=../other-project
 ```
 
 ## Options
 
 | Option | Description |
 |--------|-------------|
-| `--minimal` | Generate config without prompts |
-| `--template` | Start from a specific template |
-| `--from` | Copy configuration from another project |
+| `--minimal` | Generate config without prompts, using only auto-detected templates |
+| `--template <name>` | Start from a specific template or category (skips auto-detection). Accepts a template name (e.g., `bundle-install`) or a category (e.g., `ruby`) to include all templates in that category. |
+| `--from <path>` | Copy `.bivvy/config.yml` from another project directory into the current project |
 | `--force` | Overwrite existing configuration |
 
 ## What It Does
@@ -41,6 +41,9 @@ bivvy init --from=../other
 3. Identifies potential conflicts
 4. Generates `.bivvy/config.yml`
 5. Updates `.gitignore` for local overrides
+6. Offers to run setup immediately (interactive mode only)
+
+When running interactively, after generating the config Bivvy prompts "Run setup now?" with options to run immediately or exit. Choosing "Yes" chains directly into `bivvy run`. Choosing "No" (the default) shows a hint to run `bivvy run` later.
 
 ## Examples
 
@@ -62,45 +65,63 @@ Force overwrite existing config:
 bivvy init --force
 ```
 
+Start from the Ruby template:
+
+```bash
+bivvy init --template=bundle-install
+```
+
+Include all Ruby-category templates:
+
+```bash
+bivvy init --template=ruby
+```
+
+Clone config from a sibling project:
+
+```bash
+bivvy init --from=../other-project
+```
+
 ## Detection
 
 Bivvy automatically detects technologies and maps them to built-in templates:
 
 | Category | Detected via | Template |
 |----------|-------------|----------|
-| System | Brewfile | `brew` |
-| Ruby | Gemfile | `bundler` |
+| System | Brewfile | `brew-bundle` |
+| Ruby | Gemfile | `bundle-install` |
 | Ruby (Rails) | bin/rails, config/routes.rb | `rails-db` |
-| Node.js | yarn.lock, package-lock.json, pnpm-lock.yaml, bun.lockb | `yarn`, `npm`, `pnpm`, `bun` |
-| Node.js (Next.js) | next.config.js, next.config.mjs | `next` |
-| Node.js (Vite) | vite.config.ts, vite.config.js | `vite` |
-| Node.js (Remix) | remix.config.js | `remix` |
-| Python | requirements.txt, poetry.lock, uv.lock | `pip`, `poetry`, `uv` |
-| Python (Django) | manage.py | `django` |
-| Python (Alembic) | alembic.ini | `alembic` |
-| Rust | Cargo.toml | `cargo` |
-| Rust (Diesel) | diesel.toml | `diesel` |
-| Go | go.mod | `go` |
-| Swift | Package.swift | `swift` |
-| Java (Maven) | pom.xml | `maven` |
-| Java (Spring Boot) | application.properties, application.yml | `spring-boot` |
-| .NET | *.sln, *.csproj | `dotnet` |
-| Dart / Flutter | pubspec.yaml | `dart`, `flutter` |
-| Deno | deno.json, deno.jsonc | `deno` |
-| Database (Prisma) | prisma/schema.prisma | `prisma` |
-| Containers | compose.yml, docker-compose.yml | `docker-compose` |
-| Kubernetes | Chart.yaml | `helm` |
-| IaC (Pulumi) | Pulumi.yaml | `pulumi` |
-| IaC (Ansible) | ansible.cfg, playbook.yml | `ansible` |
+| Node.js | yarn.lock, package-lock.json, pnpm-lock.yaml, bun.lockb | `yarn-install`, `npm-install`, `pnpm-install`, `bun-install` |
+| Node.js (Next.js) | next.config.js, next.config.mjs | `nextjs-build` |
+| Node.js (Vite) | vite.config.ts, vite.config.js | `vite-build` |
+| Node.js (Remix) | remix.config.js | `remix-build` |
+| Python | requirements.txt, poetry.lock, uv.lock | `pip-install`, `poetry-install`, `uv-sync` |
+| Python (Django) | manage.py | `django-migrate` |
+| Python (Alembic) | alembic.ini | `alembic-migrate` |
+| Rust | Cargo.toml | `cargo-build` |
+| Rust (Diesel) | diesel.toml | `diesel-migrate` |
+| Go | go.mod | `go-mod-download` |
+| Swift | Package.swift | `swift-resolve` |
+| Java (Maven) | pom.xml | `maven-resolve` |
+| Java (Spring Boot) | application.properties, application.yml | `spring-boot-build` |
+| .NET | *.sln, *.csproj | `dotnet-restore` |
+| Dart / Flutter | pubspec.yaml | `dart-pub-get`, `flutter-pub-get` |
+| Deno | deno.json, deno.jsonc | `deno-install` |
+| Database (Prisma) | prisma/schema.prisma | `prisma-migrate` |
+| Containers | compose.yml, docker-compose.yml | `docker-compose-up` |
+| Kubernetes | Chart.yaml | `helm-deps` |
+| IaC (Pulumi) | Pulumi.yaml | `pulumi-install` |
+| IaC (Ansible) | ansible.cfg, playbook.yml | `ansible-install` |
 | Cross-cutting | .env.example | `env-copy` |
-| Cross-cutting | .pre-commit-config.yaml | `pre-commit` |
-| Monorepo | nx.json | `nx` |
-| Monorepo | turbo.json | `turborepo` |
-| Monorepo | lerna.json | `lerna` |
-| Version managers | .mise.toml, .tool-versions, volta | `mise`, `asdf`, `volta` |
-| Version managers | .nvmrc, .node-version | `nvm`, `fnm` |
-| Version managers | .ruby-version | `rbenv` |
-| Version managers | .python-version | `pyenv` |
+| Cross-cutting | .pre-commit-config.yaml | `pre-commit-install` |
+| Monorepo | nx.json | `nx-build` |
+| Monorepo | turbo.json | `turbo-build` |
+| Monorepo | lerna.json | `lerna-bootstrap` |
+| Version managers | .mise.toml, .tool-versions, volta | `mise-tools`, `asdf-tools`, `volta-setup` |
+| Version managers | .nvmrc, .node-version | `nvm-node`, `fnm-node` |
+| Version managers | .ruby-version | `rbenv-ruby` |
+| Version managers | .python-version | `pyenv-python` |
 
 ## Enriched Output
 
@@ -109,22 +130,46 @@ The generated config includes commented-out template details so you can see what
 ```yaml
 # Bivvy configuration for my-app
 # Docs: https://bivvy.dev/configuration
+#
+# Override any template field per-step:
+#   steps:
+#     example:
+#       template: bundle-install
+#       env:
+#         BUNDLE_WITHOUT: "production"
+#
+# Add custom steps:
+#   steps:
+#     setup_db:
+#       title: "Set up database"
+#       command: "bin/rails db:setup"
+#       completed_check:
+#         type: command_succeeds
+#         command: "bin/rails db:version"
+#
+# Create named workflows:
+#   workflows:
+#     ci:
+#       steps: [bundle-install, yarn-install]
+#       settings:
+#         default_output: quiet
+
 app_name: "my-app"
 
 settings:
   default_output: verbose  # verbose | quiet | silent
 
 steps:
-  bundler:
-    template: bundler
+  bundle-install:
+    template: bundle-install
     # command: bundle install
     # completed_check:
     #   type: command_succeeds
     #   command: "bundle check"
     # watches: [Gemfile, Gemfile.lock]
 
-  yarn:
-    template: yarn
+  yarn-install:
+    template: yarn-install
     # command: yarn install
     # completed_check:
     #   type: command_succeeds
@@ -133,15 +178,7 @@ steps:
 
 workflows:
   default:
-    steps: [bundler, yarn]
-
-# --- Customize further ---
-# Override any template field per-step:
-#   steps:
-#     example:
-#       template: bundler
-#       env:
-#         BUNDLE_WITHOUT: "production"
+    steps: [bundle-install, yarn-install]
 ```
 
 ## Conflicts

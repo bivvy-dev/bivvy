@@ -66,10 +66,10 @@ steps:
   brew:
     template: brew
   ruby:
-    template: bundler
+    template: bundle-install
     watches: [Gemfile.lock]
   node:
-    template: yarn
+    template: yarn-install
     watches: [yarn.lock]
   db:
     command: "rails db:prepare"
@@ -92,17 +92,20 @@ workflows:
 
 | Command | Description |
 |---------|-------------|
-| `bivvy run` | Run setup workflow |
+| `bivvy` / `bivvy run` | Run setup workflow |
 | `bivvy init` | Initialize configuration |
+| `bivvy add <template>` | Add a template step to configuration |
 | `bivvy status` | Show current status |
 | `bivvy list` | List steps and workflows |
 | `bivvy lint` | Validate configuration |
 | `bivvy last` | Show last run info |
 | `bivvy history` | Show execution history |
 | `bivvy config` | Show resolved configuration |
+| `bivvy templates` | List available templates |
 | `bivvy cache` | Manage template cache |
-| `bivvy feedback` | Capture friction points |
+| `bivvy feedback` | Capture and manage feedback |
 | `bivvy completions` | Generate shell completions |
+| `bivvy update` | Check for and install updates |
 
 ## Documentation
 
@@ -128,6 +131,14 @@ bivvy completions zsh > ~/.zfunc/_bivvy
 
 ```bash
 bivvy completions fish > ~/.config/fish/completions/bivvy.fish
+```
+
+```powershell
+bivvy completions powershell > $PROFILE.CurrentUserCurrentHost
+```
+
+```bash
+bivvy completions elvish > ~/.local/share/elvish/lib/bivvy.elv
 ```
 
 ## Supported Platforms

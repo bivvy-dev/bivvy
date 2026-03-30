@@ -35,17 +35,17 @@ Available Templates
     apt   Install Debian/Ubuntu packages
 
   ruby — Ruby ecosystem tools
-    bundler   Install Ruby dependencies using Bundler
+    bundle-install   Install Ruby dependencies using Bundler
     rails-db  Set up Rails database
 
   node — Node.js ecosystem tools
-    yarn  Install Node.js dependencies using Yarn
-    npm   Install Node.js dependencies using npm
+    yarn-install  Install Node.js dependencies using Yarn
+    npm-install   Install Node.js dependencies using npm
     pnpm  Install Node.js dependencies using pnpm
     ...
 
   rust — Rust ecosystem tools
-    cargo  Build Rust project with Cargo
+    cargo-build  Build Rust project with Cargo
     ...
 
   82 templates available. Use `bivvy add <template>` to add one.
@@ -71,10 +71,10 @@ Bivvy ships with templates organized in these categories:
 | `system` | System-level package managers (brew, apt, yum, pacman) |
 | `windows` | Windows package managers (chocolatey, scoop) |
 | `version_manager` | Version managers (mise, asdf, volta, fnm) |
-| `ruby` | Ruby ecosystem (bundler, rails-db) |
-| `node` | Node.js ecosystem (yarn, npm, pnpm, bun, and frameworks) |
+| `ruby` | Ruby ecosystem (bundle-install, rails-db) |
+| `node` | Node.js ecosystem (yarn-install, npm-install, pnpm, bun, and frameworks) |
 | `python` | Python ecosystem (pip, poetry, uv, and frameworks) |
-| `rust` | Rust ecosystem (cargo, diesel-migrate) |
+| `rust` | Rust ecosystem (cargo-build, diesel-migrate) |
 | `go` | Go ecosystem |
 | `php` | PHP ecosystem (composer, laravel) |
 | `swift` | Swift ecosystem |

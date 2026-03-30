@@ -13,39 +13,72 @@ Shows the execution history for your project.
 bivvy history
 ```
 
-```bash
-bivvy history --limit=20
-```
+## Flags
 
-```bash
-bivvy history --step=name
-```
-
-```bash
-bivvy history --json
-```
+| Flag | Description |
+|------|-------------|
+| `--limit <N>` | Number of runs to show (default: 10) |
+| `--since <duration>` | Show runs since a duration ago (supports `m`, `h`, `d`, `w` suffixes) |
+| `--step <name>` | Filter to runs containing the named step |
+| `--detail` | Show steps, skipped steps, and errors for each run |
+| `--json` | Output as JSON |
 
 ## Example Output
 
 ```
-Run History:
-  2024-01-15 14:32 | default | 2m 15s | Success
-  2024-01-14 09:15 | default | 5m 30s | Success
-  2024-01-13 16:45 | ci      | 45s    | Failed
-  2024-01-12 11:20 | default | 3m 10s | Success
+  ⛺ Run History
+
+    ✓  3 minutes ago      default      2 steps  2m 15s
+    ✓  yesterday           default      3 steps  5m 30s
+    ✗  2 days ago          ci           1 step   45s
+    ✓  3 days ago          default      2 steps  3m 10s
+```
+
+## Filtering by Time
+
+Use `--since` with a duration suffix to show only recent runs:
+
+```bash
+# Runs in the last hour
+bivvy history --since 1h
+
+# Runs in the last 7 days
+bivvy history --since 7d
+
+# Runs in the last 30 minutes
+bivvy history --since 30m
+
+# Runs in the last 2 weeks
+bivvy history --since 2w
 ```
 
 ## Step History
 
+Filter to only runs that included a specific step:
+
 ```bash
-bivvy history --step=ruby_deps
+bivvy history --step ruby_deps
+```
+
+This shows only runs where the named step was executed or skipped. When combined with `--detail`, only that step's information is highlighted in context.
+
+## Detailed View
+
+Use `--detail` to see which steps ran, which were skipped, and any errors:
+
+```bash
+bivvy history --detail
 ```
 
 ```
-Step History: ruby_deps
-  2024-01-15 14:32 | Success | default
-  2024-01-14 09:15 | Success | default
-  2024-01-13 16:45 | Failed  | ci
+  ⛺ Run History
+
+    ✓  3 minutes ago      default      2 steps  2m 15s
+        Steps: setup, build
+        Skipped: deploy
+    ✗  yesterday           ci           1 step   45s
+        Steps: setup
+        Error: build step failed
 ```
 
 ## Limiting Results
@@ -53,5 +86,15 @@ Step History: ruby_deps
 By default, the last 10 runs are shown. Use `--limit` to show more:
 
 ```bash
-bivvy history --limit=50
+bivvy history --limit 50
 ```
+
+## JSON Output
+
+Use `--json` for machine-readable output:
+
+```bash
+bivvy history --json
+```
+
+This outputs the filtered run records as a JSON array, suitable for piping to tools like `jq`.

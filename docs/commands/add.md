@@ -14,11 +14,11 @@ bivvy add <template>
 ```
 
 ```bash
-bivvy add bundler --as ruby_deps
+bivvy add bundle-install --as ruby_deps
 ```
 
 ```bash
-bivvy add yarn --after bundler
+bivvy add yarn-install --after bundle-install
 ```
 
 ```bash
@@ -55,8 +55,8 @@ The generated step block matches the format from `bivvy init` — a template ref
 steps:
   # ... existing steps ...
 
-  bundler:
-    template: bundler
+  bundle-install:
+    template: bundle-install
     # command: bundle install
     # completed_check:
     #   type: command_succeeds
@@ -69,26 +69,26 @@ steps:
 ### Add a template with the default step name
 
 ```bash
-bivvy add bundler
+bivvy add bundle-install
 ```
 
-This creates a step named `bundler` using the `bundler` template and adds it to the end of the `default` workflow.
+This creates a step named `bundle-install` using the `bundle-install` template and adds it to the end of the `default` workflow.
 
 ### Add with a custom step name
 
 ```bash
-bivvy add bundler --as ruby_deps
+bivvy add bundle-install --as ruby_deps
 ```
 
-Creates a step named `ruby_deps` that uses the `bundler` template. Useful when you want a more descriptive name, or when you already have a step with the template's default name.
+Creates a step named `ruby_deps` that uses the `bundle-install` template. Useful when you want a more descriptive name, or when you already have a step with the template's default name.
 
 ### Insert at a specific position
 
 ```bash
-bivvy add yarn --after bundler
+bivvy add yarn-install --after bundle-install
 ```
 
-Adds the `yarn` step to the `default` workflow immediately after `bundler`, rather than at the end.
+Adds the `yarn-install` step to the `default` workflow immediately after `bundle-install`, rather than at the end.
 
 ### Add to a specific workflow
 

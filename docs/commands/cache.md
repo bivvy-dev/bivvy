@@ -34,7 +34,7 @@ bivvy cache clear
 ```
 
 ```bash
-bivvy cache clear --force
+bivvy cache clear --force  # or -f
 ```
 
 ```bash

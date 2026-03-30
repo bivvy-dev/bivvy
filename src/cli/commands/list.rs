@@ -4,6 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
+use serde::Serialize;
+
 use crate::cli::args::ListArgs;
 use crate::config::load_merged_config;
 use crate::environment::resolver::ResolvedEnvironment;
@@ -12,6 +14,44 @@ use crate::ui::theme::BivvyTheme;
 use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
+
+/// JSON output for the list command.
+#[derive(Debug, Serialize)]
+struct ListJsonOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    environment: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    steps: Option<Vec<StepJsonEntry>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    workflows: Option<Vec<WorkflowJsonEntry>>,
+}
+
+/// A single step in JSON output.
+#[derive(Debug, Serialize)]
+struct StepJsonEntry {
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    template: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    command: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    title: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    depends_on: Vec<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    skipped: bool,
+}
+
+/// A single workflow in JSON output.
+#[derive(Debug, Serialize)]
+struct WorkflowJsonEntry {
+    name: String,
+    steps: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
+}
 
 /// The list command implementation.
 pub struct ListCommand {
@@ -66,6 +106,63 @@ impl Command for ListCommand {
         // Resolve environment
         let resolved_env = self.resolve_environment(&config);
         let env_name = &resolved_env.name;
+
+        // JSON output mode
+        if self.args.json {
+            let steps = if !self.args.workflows_only {
+                let mut entries: Vec<StepJsonEntry> = config
+                    .steps
+                    .iter()
+                    .map(|(name, step)| {
+                        let skipped = !step.only_environments.is_empty()
+                            && !step.only_environments.iter().any(|e| e == env_name);
+                        StepJsonEntry {
+                            name: name.clone(),
+                            template: step.template.clone(),
+                            command: step.command.clone(),
+                            description: step.description.clone(),
+                            title: step.title.clone(),
+                            depends_on: step.depends_on.clone(),
+                            skipped,
+                        }
+                    })
+                    .collect();
+                entries.sort_by(|a, b| a.name.cmp(&b.name));
+                Some(entries)
+            } else {
+                None
+            };
+
+            let workflows = if !self.args.steps_only {
+                let mut entries: Vec<WorkflowJsonEntry> = config
+                    .workflows
+                    .iter()
+                    .map(|(name, workflow)| WorkflowJsonEntry {
+                        name: name.clone(),
+                        steps: workflow.steps.clone(),
+                        description: workflow.description.clone(),
+                    })
+                    .collect();
+                entries.sort_by(|a, b| a.name.cmp(&b.name));
+                Some(entries)
+            } else {
+                None
+            };
+
+            let output = ListJsonOutput {
+                environment: Some(env_name.clone()),
+                steps,
+                workflows,
+            };
+
+            let json = serde_json::to_string_pretty(&output).map_err(|e| {
+                BivvyError::ConfigValidationError {
+                    message: format!("JSON serialization failed: {}", e),
+                }
+            })?;
+            ui.message(&json);
+            return Ok(CommandResult::success());
+        }
 
         // Show environment info
         ui.message(&format!(
@@ -553,5 +650,134 @@ workflows:
 
         // Should show workflow steps with arrow separators
         assert!(ui.messages().iter().any(|m| m.contains("→")));
+    }
+
+    #[test]
+    fn list_json_output() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+    description: "Says hello"
+  world:
+    command: echo world
+    depends_on: [hello]
+workflows:
+  default:
+    description: "Default workflow"
+    steps: [hello, world]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            json: true,
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        let output = ui.messages().join("\n");
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed["environment"].is_string());
+        assert!(parsed["steps"].is_array());
+        assert!(parsed["workflows"].is_array());
+        assert_eq!(parsed["steps"][0]["name"], "hello");
+        assert_eq!(parsed["steps"][0]["command"], "echo hello");
+        assert_eq!(parsed["steps"][0]["description"], "Says hello");
+        assert_eq!(parsed["steps"][1]["name"], "world");
+        assert_eq!(parsed["steps"][1]["depends_on"][0], "hello");
+        assert_eq!(parsed["workflows"][0]["name"], "default");
+        assert_eq!(parsed["workflows"][0]["description"], "Default workflow");
+    }
+
+    #[test]
+    fn list_json_steps_only() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            json: true,
+            steps_only: true,
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        let output = ui.messages().join("\n");
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed["steps"].is_array());
+        assert!(parsed.get("workflows").is_none());
+    }
+
+    #[test]
+    fn list_json_workflows_only() {
+        let config = r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            json: true,
+            workflows_only: true,
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        let output = ui.messages().join("\n");
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert!(parsed.get("steps").is_none());
+        assert!(parsed["workflows"].is_array());
+    }
+
+    #[test]
+    fn list_json_skipped_step() {
+        let config = r#"
+app_name: Test
+steps:
+  dev_only:
+    command: echo dev
+    only_environments:
+      - development
+workflows:
+  default:
+    steps: [dev_only]
+"#;
+        let temp = setup_project(config);
+        let args = ListArgs {
+            json: true,
+            env: Some("ci".to_string()),
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        let output = ui.messages().join("\n");
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+        assert_eq!(parsed["steps"][0]["skipped"], true);
     }
 }

@@ -139,7 +139,7 @@ pub struct RunArgs {
     pub ci: bool,
 
     /// Target environment (e.g., development, ci, staging)
-    #[arg(long, value_name = "ENV")]
+    #[arg(short, long, value_name = "ENV")]
     pub env: Option<String>,
 
     /// Suppress run header (used when chaining from init)

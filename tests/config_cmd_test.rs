@@ -184,7 +184,7 @@ steps:
 
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.arg("config");
+    cmd.args(["config", "--merged"]);
     // The merged config should have the overridden command
     cmd.assert()
         .success()
@@ -205,7 +205,7 @@ fn config_shows_both_config_file_paths_when_local_exists() -> Result<(), Box<dyn
 
     let mut cmd = Command::new(cargo_bin("bivvy"));
     cmd.current_dir(temp.path());
-    cmd.arg("config");
+    cmd.args(["config", "--merged"]);
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("config.yml"))

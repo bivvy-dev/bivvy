@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+use serde_json::json;
+
 use crate::cli::args::StatusArgs;
 use crate::config::load_merged_config;
 use crate::environment::resolver::ResolvedEnvironment;
@@ -51,6 +53,147 @@ impl StatusCommand {
     }
 }
 
+impl StatusCommand {
+    /// Produce JSON output for the status command.
+    fn execute_json(
+        &self,
+        ui: &mut dyn UserInterface,
+        config: &crate::config::BivvyConfig,
+        state: &StateStore,
+        resolved_env: &ResolvedEnvironment,
+    ) -> Result<CommandResult> {
+        let app_name = config.app_name.as_deref().unwrap_or("Bivvy Setup");
+
+        // Build step statuses
+        let step_names: Vec<&String> = if let Some(ref step_name) = self.args.step {
+            if config.steps.contains_key(step_name) {
+                vec![step_name]
+            } else {
+                let err = json!({ "error": format!("Unknown step: {}", step_name) });
+                ui.message(
+                    &serde_json::to_string_pretty(&err)
+                        .map_err(|e| anyhow::anyhow!("JSON serialization failed: {e}"))?,
+                );
+                return Ok(CommandResult::failure(1));
+            }
+        } else {
+            config.steps.keys().collect()
+        };
+
+        let steps: Vec<serde_json::Value> = step_names
+            .iter()
+            .map(|name| {
+                let step_config = config.steps.get(*name);
+                let skipped = step_config
+                    .map(|s| {
+                        !s.only_environments.is_empty()
+                            && !s.only_environments.iter().any(|e| e == &resolved_env.name)
+                    })
+                    .unwrap_or(false);
+
+                if skipped {
+                    return json!({
+                        "name": name,
+                        "status": "skipped",
+                        "reason": format!("skipped in {}", resolved_env.name),
+                    });
+                }
+
+                let step_state = state.get_step(name);
+                let status = step_state.map(|s| s.status).unwrap_or(StepStatus::NeverRun);
+                let status_str = match status {
+                    StepStatus::Success => "success",
+                    StepStatus::Failed => "failed",
+                    StepStatus::Skipped => "skipped",
+                    StepStatus::NeverRun => "pending",
+                };
+
+                let mut obj = json!({
+                    "name": name,
+                    "status": status_str,
+                });
+
+                if let Some(ss) = step_state {
+                    if let Some(ts) = ss.last_run {
+                        obj["last_run"] = json!(ts.to_rfc3339());
+                    }
+                    if let Some(ms) = ss.duration_ms {
+                        obj["duration_ms"] = json!(ms);
+                    }
+                }
+
+                obj
+            })
+            .collect();
+
+        // Build requirements
+        let all_reqs: HashSet<String> = config
+            .steps
+            .values()
+            .flat_map(|s| s.requires.iter().cloned())
+            .collect();
+
+        let requirements: Vec<serde_json::Value> = if !all_reqs.is_empty() {
+            let probe = EnvironmentProbe::run();
+            let req_registry = RequirementRegistry::new().with_custom(&config.requirements);
+            let mut gap_checker = GapChecker::new(&req_registry, &probe, &self.project_root);
+
+            let mut sorted_reqs: Vec<&str> = all_reqs.iter().map(|s| s.as_str()).collect();
+            sorted_reqs.sort();
+
+            sorted_reqs
+                .iter()
+                .map(|req_name| {
+                    let status = gap_checker.check_one(req_name);
+                    let (status_str, detail) = json_requirement_status(&status);
+                    let mut obj = json!({
+                        "name": req_name,
+                        "status": status_str,
+                    });
+                    if let Some(d) = detail {
+                        obj["detail"] = json!(d);
+                    }
+                    obj
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+
+        // Build last run info
+        let last_run = state.last_run_record().map(|r| {
+            json!({
+                "timestamp": r.timestamp.to_rfc3339(),
+                "workflow": r.workflow,
+            })
+        });
+
+        // Assemble top-level JSON
+        let mut output = json!({
+            "app_name": app_name,
+            "environment": {
+                "name": resolved_env.name,
+                "source": resolved_env.source.to_string(),
+            },
+            "steps": steps,
+        });
+
+        if !requirements.is_empty() {
+            output["requirements"] = json!(requirements);
+        }
+
+        if let Some(lr) = last_run {
+            output["last_run"] = lr;
+        }
+
+        let json_str = serde_json::to_string_pretty(&output)
+            .map_err(|e| anyhow::anyhow!("JSON serialization failed: {e}"))?;
+        ui.message(&json_str);
+
+        Ok(CommandResult::success())
+    }
+}
+
 impl Command for StatusCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         // Load configuration
@@ -74,10 +217,15 @@ impl Command for StatusCommand {
         // Load state
         let state = StateStore::load(&project_id)?;
 
-        let theme = BivvyTheme::new();
-
         // Resolve environment
         let resolved_env = self.resolve_environment(&config);
+
+        // JSON output mode
+        if self.args.json {
+            return self.execute_json(ui, &config, &state, &resolved_env);
+        }
+
+        let theme = BivvyTheme::new();
 
         // Show header: ⛺ AppName — Status
         let app_name = config.app_name.as_deref().unwrap_or("Bivvy Setup");
@@ -245,6 +393,30 @@ impl Command for StatusCommand {
         }
 
         Ok(CommandResult::success())
+    }
+}
+
+/// Convert a requirement status to JSON-friendly strings.
+fn json_requirement_status(status: &RequirementStatus) -> (&'static str, Option<String>) {
+    match status {
+        RequirementStatus::Satisfied => ("satisfied", None),
+        RequirementStatus::SystemOnly { warning, .. } => ("warning", Some(warning.clone())),
+        RequirementStatus::Inactive {
+            manager,
+            activation_hint,
+            ..
+        } => (
+            "warning",
+            Some(format!("{} not activated ({})", manager, activation_hint)),
+        ),
+        RequirementStatus::ServiceDown { start_hint, .. } => ("missing", Some(start_hint.clone())),
+        RequirementStatus::Missing { install_hint, .. } => (
+            "missing",
+            install_hint
+                .clone()
+                .or_else(|| Some("not installed".to_string())),
+        ),
+        RequirementStatus::Unknown => ("unknown", Some("unknown requirement".to_string())),
     }
 }
 

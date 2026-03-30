@@ -43,6 +43,7 @@ bivvy feedback session
 |------|-------|-------------|
 | `--tag` | `-t` | Tags for categorization (comma-separated) |
 | `--session` | | Session ID to attach (defaults to most recent) |
+| `--no-deliver` | | Skip the delivery prompt (save locally only) |
 
 ## Subcommands
 
@@ -50,7 +51,7 @@ bivvy feedback session
 
 | Flag | Description |
 |------|-------------|
-| `--status` | Filter by status: open, resolved, wontfix, inprogress |
+| `--status` | Filter by status: open, resolved, wontfix, inprogress (or in_progress) |
 | `--tag` | Filter by tag |
 | `--all` | Show all entries including resolved |
 
@@ -72,7 +73,31 @@ Running `bivvy feedback` without a message opens an interactive prompt:
 2. Describe the feedback
 3. Add optional tags
 
+## Delivery Workflow
+
+After capturing feedback, bivvy offers to deliver it by opening a GitHub issue or sending an email. Use `--no-deliver` to skip this prompt and save the feedback locally only.
+
 ## Session Correlation
 
 Every feedback entry is automatically linked to the most recent bivvy session,
 making it easy to trace what you were doing when you noticed the issue.
+
+## Examples
+
+### Save feedback without the delivery prompt
+
+```bash
+bivvy feedback --no-deliver "The install step is confusing"
+```
+
+### Attach feedback to a specific session
+
+```bash
+bivvy feedback --session abc123 "Config merge was unexpected"
+```
+
+### List in-progress feedback
+
+```bash
+bivvy feedback list --status inprogress
+```

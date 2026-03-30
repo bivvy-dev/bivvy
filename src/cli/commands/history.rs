@@ -110,15 +110,34 @@ impl Command for HistoryCommand {
 
         // Apply --since filter
         let since_cutoff = self.args.since.as_deref().and_then(Self::parse_since);
-        let filtered_runs: Vec<&RunRecord> = if let Some(duration) = since_cutoff {
+        let mut filtered_runs: Vec<&RunRecord> = if let Some(duration) = since_cutoff {
             let cutoff = chrono::Utc::now() - duration;
             runs.iter().filter(|r| r.timestamp >= cutoff).collect()
         } else {
             runs.iter().collect()
         };
 
+        // Apply --step filter
+        if let Some(ref step_name) = self.args.step {
+            filtered_runs
+                .retain(|r| r.steps_run.contains(step_name) || r.steps_skipped.contains(step_name));
+        }
+
         if filtered_runs.is_empty() {
             ui.message("No run history for this project.");
+            return Ok(CommandResult::success());
+        }
+
+        // JSON output mode
+        if self.args.json {
+            let json = serde_json::to_string_pretty(
+                &filtered_runs
+                    .iter()
+                    .map(|r| (*r).clone())
+                    .collect::<Vec<_>>(),
+            )
+            .map_err(|e| anyhow::anyhow!("JSON serialization failed: {e}"))?;
+            ui.message(&json);
             return Ok(CommandResult::success());
         }
 

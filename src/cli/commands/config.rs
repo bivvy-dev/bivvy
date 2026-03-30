@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::ConfigArgs;
-use crate::config::{load_merged_config, ConfigPaths};
+use crate::config::{load_config_file, load_merged_config, ConfigPaths};
 use crate::error::{BivvyError, Result};
 use crate::ui::{OutputMode, UserInterface};
 
@@ -39,14 +39,27 @@ impl ConfigCommand {
 
 impl Command for ConfigCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        // Load configuration
-        let config = match load_merged_config(&self.project_root) {
-            Ok(c) => c,
-            Err(BivvyError::ConfigNotFound { .. }) => {
-                ui.error("No configuration found. Run 'bivvy init' first.");
-                return Ok(CommandResult::failure(2));
+        let paths = ConfigPaths::discover(&self.project_root);
+
+        // Load configuration: merged (all sources) or project-only
+        let config = if self.args.merged {
+            match load_merged_config(&self.project_root) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(CommandResult::failure(2));
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => return Err(e),
+        } else {
+            // Load only the project config (.bivvy/config.yml) without merging
+            match &paths.project {
+                Some(project_path) => load_config_file(project_path)?,
+                None => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(CommandResult::failure(2));
+                }
+            }
         };
 
         // Apply config default_output when no CLI flag was explicitly set
@@ -55,12 +68,16 @@ impl Command for ConfigCommand {
         }
 
         // Show config file path(s)
-        let paths = ConfigPaths::discover(&self.project_root);
-        let existing: Vec<_> = paths.all_existing();
-        if !existing.is_empty() {
-            for path in &existing {
-                ui.message(&format!("# {}", path.display()));
+        if self.args.merged {
+            let existing: Vec<_> = paths.all_existing();
+            if !existing.is_empty() {
+                for path in &existing {
+                    ui.message(&format!("# {}", path.display()));
+                }
+                ui.message("");
             }
+        } else if let Some(project_path) = &paths.project {
+            ui.message(&format!("# {}", project_path.display()));
             ui.message("");
         }
 
@@ -70,6 +87,7 @@ impl Command for ConfigCommand {
                 serde_json::to_string_pretty(&config).map_err(|e| BivvyError::Other(e.into()))?;
             ui.message(&json);
         } else {
+            // --yaml or default: output as YAML
             let yaml = serde_yaml::to_string(&config).map_err(|e| BivvyError::Other(e.into()))?;
             ui.message(&yaml);
         }

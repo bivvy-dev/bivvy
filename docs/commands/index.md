@@ -38,6 +38,7 @@ These flags work with all commands:
 | `--config` | `-c` | Path to config file |
 | `--project` | `-p` | Project root path |
 | `--debug` | | Enable debug logging |
+| `--trust` | | Trust all remote extends URLs without prompting |
 
 ## Output Modes
 

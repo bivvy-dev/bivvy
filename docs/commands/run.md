@@ -29,13 +29,13 @@ bivvy run -w ci
 | `--only` | | Run only specified steps (comma-separated) |
 | `--skip` | | Skip specified steps (comma-separated) |
 | `--skip-behavior` | | How to handle skipped dependencies |
-| `--force` | `-f` | Force re-run of specified steps |
+| `--force` | `-f` | Force re-run of specified steps (comma-separated) |
 | `--resume` | | Resume interrupted run |
 | `--save-preferences` | | Save prompt answers |
 | `--dry-run` | | Preview without executing |
 | `--env` | `-e` | Set active environment (e.g., `ci`, `staging`) |
 | `--non-interactive` | | Use defaults, no prompts |
-| `--ci` | | Deprecated: use `--non-interactive` instead |
+| `--ci` | | Deprecated: use `--non-interactive` and `--env ci` instead |
 
 ## Skip Behaviors
 

@@ -14,7 +14,7 @@ bivvy lint
 ```
 
 ```bash
-bivvy lint --format=json
+bivvy lint --format=json  # default is "human" if not specified
 ```
 
 ```bash
