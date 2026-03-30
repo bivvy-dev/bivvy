@@ -1,0 +1,19 @@
+name: brew-node
+description: "Install Node.js using Homebrew"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Node.js"
+  description: "Install Node.js using Homebrew"
+  command: "brew install node"
+  requires:
+    - brew
+  completed_check:
+    type: command_succeeds
+    command: "node --version"
+
+environment_impact:
+  modifies_path: true
+  note: "Node.js is installed to Homebrew's prefix"

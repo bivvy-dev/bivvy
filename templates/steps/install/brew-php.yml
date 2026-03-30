@@ -1,0 +1,19 @@
+name: brew-php
+description: "Install PHP using Homebrew"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install PHP"
+  description: "Install PHP using Homebrew"
+  command: "brew install php"
+  requires:
+    - brew
+  completed_check:
+    type: command_succeeds
+    command: "php --version"
+
+environment_impact:
+  modifies_path: true
+  note: "PHP is installed to Homebrew's prefix"

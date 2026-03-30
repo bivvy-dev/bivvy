@@ -1,0 +1,19 @@
+name: brew-ruby
+description: "Install Ruby using Homebrew"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Ruby"
+  description: "Install Ruby using Homebrew"
+  command: "brew install ruby"
+  requires:
+    - brew
+  completed_check:
+    type: command_succeeds
+    command: "ruby --version"
+
+environment_impact:
+  modifies_path: true
+  note: "Ruby is installed to Homebrew's prefix"

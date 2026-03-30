@@ -1,0 +1,19 @@
+name: brew-elixir
+description: "Install Elixir using Homebrew"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Elixir"
+  description: "Install Elixir using Homebrew"
+  command: "brew install elixir"
+  requires:
+    - brew
+  completed_check:
+    type: command_succeeds
+    command: "elixir --version"
+
+environment_impact:
+  modifies_path: true
+  note: "Elixir is installed to Homebrew's prefix"

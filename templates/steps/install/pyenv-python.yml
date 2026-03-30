@@ -1,0 +1,19 @@
+name: pyenv-python
+description: "Install Python using pyenv"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Python"
+  description: "Install the project's Python version using pyenv"
+  command: "pyenv install --skip-existing"
+  requires:
+    - pyenv
+  completed_check:
+    type: command_succeeds
+    command: "pyenv version"
+
+environment_impact:
+  modifies_path: true
+  note: "Python is installed to ~/.pyenv/versions and activated via shims"

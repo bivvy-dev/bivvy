@@ -1,0 +1,19 @@
+name: brew-go
+description: "Install Go using Homebrew"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Go"
+  description: "Install Go using Homebrew"
+  command: "brew install go"
+  requires:
+    - brew
+  completed_check:
+    type: command_succeeds
+    command: "go version"
+
+environment_impact:
+  modifies_path: true
+  note: "Go is installed to Homebrew's prefix"

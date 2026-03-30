@@ -34,6 +34,9 @@ pub enum PackageManager {
     Pip,
     Poetry,
     Uv,
+    Composer,
+    Gradle,
+    Mix,
     Cargo,
     Go,
 }
@@ -152,6 +155,23 @@ impl PackageManagerDetector {
             managers.push(PackageManager::Pip);
         }
 
+        // PHP
+        if file_exists(project_root, "composer.json") {
+            managers.push(PackageManager::Composer);
+        }
+
+        // Kotlin/JVM
+        if file_exists(project_root, "build.gradle.kts")
+            || file_exists(project_root, "build.gradle")
+        {
+            managers.push(PackageManager::Gradle);
+        }
+
+        // Elixir
+        if file_exists(project_root, "mix.exs") {
+            managers.push(PackageManager::Mix);
+        }
+
         // Rust
         if file_exists(project_root, "Cargo.toml") {
             managers.push(PackageManager::Cargo);
@@ -218,6 +238,40 @@ mod tests {
             .contains(&PackageManager::Bundler));
         assert!(detection.language_managers.contains(&PackageManager::Npm));
         assert!(detection.language_managers.contains(&PackageManager::Cargo));
+    }
+
+    #[test]
+    fn detect_language_managers_composer() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("composer.json"), "{}").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection
+            .language_managers
+            .contains(&PackageManager::Composer));
+    }
+
+    #[test]
+    fn detect_language_managers_gradle() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("build.gradle.kts"), "").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection
+            .language_managers
+            .contains(&PackageManager::Gradle));
+    }
+
+    #[test]
+    fn detect_language_managers_mix() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("mix.exs"), "").unwrap();
+
+        let detection = PackageManagerDetector::detect(temp.path());
+
+        assert!(detection.language_managers.contains(&PackageManager::Mix));
     }
 
     #[test]

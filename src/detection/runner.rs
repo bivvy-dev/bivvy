@@ -174,6 +174,89 @@ mod tests {
     }
 
     #[test]
+    fn full_detection_php_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("composer.json"), "{}").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "composer"));
+    }
+
+    #[test]
+    fn full_detection_terraform_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("main.tf"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "terraform"));
+    }
+
+    #[test]
+    fn full_detection_kotlin_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("build.gradle.kts"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "gradle"));
+    }
+
+    #[test]
+    fn full_detection_elixir_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("mix.exs"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "mix"));
+    }
+
+    #[test]
+    fn full_detection_laravel_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("composer.json"), "{}").unwrap();
+        fs::write(temp.path().join("artisan"), "").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "composer"));
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "laravel"));
+    }
+
+    #[test]
+    fn full_detection_aws_cdk_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("cdk.json"), "{}").unwrap();
+
+        let detection = DetectionRunner::run(temp.path());
+
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "aws-cdk"));
+    }
+
+    #[test]
     fn full_detection_multi_language() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile"), "").unwrap();

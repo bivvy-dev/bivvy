@@ -1,0 +1,21 @@
+name: aws-cdk
+description: "Bootstrap and synthesize AWS CDK stacks"
+category: iac
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: cdk.json
+
+step:
+  title: "Synthesize CDK stacks"
+  description: "Synthesize CloudFormation templates from CDK code"
+  command: "cdk synth"
+  completed_check:
+    type: file_exists
+    path: "cdk.out"
+  watches:
+    - cdk.json
+
+environment_impact:
+  note: "CloudFormation templates are generated in the cdk.out directory"

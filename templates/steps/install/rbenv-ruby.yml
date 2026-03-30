@@ -1,0 +1,19 @@
+name: rbenv-ruby
+description: "Install Ruby using rbenv"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Ruby"
+  description: "Install the project's Ruby version using rbenv"
+  command: "rbenv install --skip-existing"
+  requires:
+    - rbenv
+  completed_check:
+    type: command_succeeds
+    command: "rbenv version"
+
+environment_impact:
+  modifies_path: true
+  note: "Ruby is installed to ~/.rbenv/versions and activated via shims"

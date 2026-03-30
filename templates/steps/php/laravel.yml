@@ -1,0 +1,23 @@
+name: laravel
+description: "Set up a Laravel application"
+category: php
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: artisan
+
+step:
+  title: "Set up Laravel"
+  description: "Copy environment config and generate application key"
+  command: "cp -n .env.example .env 2>/dev/null; php artisan key:generate --force"
+  requires:
+    - php
+  completed_check:
+    type: file_exists
+    path: ".env"
+  watches:
+    - .env.example
+
+environment_impact:
+  note: "Creates .env from .env.example and generates APP_KEY"

@@ -13,7 +13,11 @@ pub enum ProjectType {
     Python,
     Rust,
     Go,
+    Php,
+    Kotlin,
+    Elixir,
     Swift,
+    Terraform,
     Unknown,
 }
 
@@ -114,6 +118,47 @@ impl ProjectDetector {
             );
         }
 
+        // PHP
+        if file_exists(project_root, "composer.json") {
+            all_types.push(ProjectType::Php);
+            details.push(
+                DetectionResult::found("PHP")
+                    .with_detail("composer.json found")
+                    .with_template("composer"),
+            );
+
+            // Laravel (detected alongside PHP, not as a separate project type)
+            if file_exists(project_root, "artisan") {
+                details.push(
+                    DetectionResult::found("Laravel")
+                        .with_detail("artisan found")
+                        .with_template("laravel"),
+                );
+            }
+        }
+
+        // Kotlin/JVM
+        if file_exists(project_root, "build.gradle.kts")
+            || file_exists(project_root, "build.gradle")
+        {
+            all_types.push(ProjectType::Kotlin);
+            details.push(
+                DetectionResult::found("Kotlin/JVM")
+                    .with_detail("Gradle build file found")
+                    .with_template("gradle"),
+            );
+        }
+
+        // Elixir
+        if file_exists(project_root, "mix.exs") {
+            all_types.push(ProjectType::Elixir);
+            details.push(
+                DetectionResult::found("Elixir")
+                    .with_detail("mix.exs found")
+                    .with_template("mix"),
+            );
+        }
+
         // Swift
         if file_exists(project_root, "Package.swift") {
             all_types.push(ProjectType::Swift);
@@ -121,6 +166,25 @@ impl ProjectDetector {
                 DetectionResult::found("Swift")
                     .with_detail("Package.swift found")
                     .with_template("swift"),
+            );
+        }
+
+        // Terraform
+        if file_exists(project_root, "main.tf") {
+            all_types.push(ProjectType::Terraform);
+            details.push(
+                DetectionResult::found("Terraform")
+                    .with_detail("main.tf found")
+                    .with_template("terraform"),
+            );
+        }
+
+        // AWS CDK (detected alongside other project types)
+        if file_exists(project_root, "cdk.json") {
+            details.push(
+                DetectionResult::found("AWS CDK")
+                    .with_detail("cdk.json found")
+                    .with_template("aws-cdk"),
             );
         }
 
@@ -184,6 +248,110 @@ mod tests {
             .details
             .iter()
             .any(|d| d.suggested_template == Some("poetry".to_string())));
+    }
+
+    #[test]
+    fn detect_php_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("composer.json"), "{}").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Php);
+        assert!(detection.all_types.contains(&ProjectType::Php));
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("composer".to_string())));
+    }
+
+    #[test]
+    fn detect_terraform_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("main.tf"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Terraform);
+        assert!(detection.all_types.contains(&ProjectType::Terraform));
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("terraform".to_string())));
+    }
+
+    #[test]
+    fn detect_kotlin_project_with_gradle_kts() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("build.gradle.kts"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Kotlin);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("gradle".to_string())));
+    }
+
+    #[test]
+    fn detect_kotlin_project_with_gradle_groovy() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("build.gradle"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Kotlin);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("gradle".to_string())));
+    }
+
+    #[test]
+    fn detect_elixir_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("mix.exs"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Elixir);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("mix".to_string())));
+    }
+
+    #[test]
+    fn detect_laravel_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("composer.json"), "{}").unwrap();
+        fs::write(temp.path().join("artisan"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Php);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("composer".to_string())));
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("laravel".to_string())));
+    }
+
+    #[test]
+    fn detect_aws_cdk_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("cdk.json"), "{}").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("aws-cdk".to_string())));
     }
 
     #[test]

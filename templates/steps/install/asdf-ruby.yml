@@ -1,0 +1,19 @@
+name: asdf-ruby
+description: "Install Ruby using asdf"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Ruby"
+  description: "Install the project's Ruby version using asdf"
+  command: "asdf plugin add ruby 2>/dev/null; asdf install ruby"
+  requires:
+    - asdf
+  completed_check:
+    type: command_succeeds
+    command: "asdf where ruby"
+
+environment_impact:
+  modifies_path: true
+  note: "Ruby is installed to asdf's data directory and activated via shims"

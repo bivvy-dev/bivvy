@@ -1,0 +1,19 @@
+name: brew-python
+description: "Install Python using Homebrew"
+category: install
+version: "1.0.0"
+platforms: [macos, linux]
+
+step:
+  title: "Install Python"
+  description: "Install Python using Homebrew"
+  command: "brew install python"
+  requires:
+    - brew
+  completed_check:
+    type: command_succeeds
+    command: "python3 --version"
+
+environment_impact:
+  modifies_path: true
+  note: "Python is installed to Homebrew's prefix"

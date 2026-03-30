@@ -1,0 +1,19 @@
+name: volta-node
+description: "Install Node.js using Volta"
+category: install
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+step:
+  title: "Install Node.js"
+  description: "Install the project's Node.js version using Volta"
+  command: "volta install node"
+  requires:
+    - volta
+  completed_check:
+    type: command_succeeds
+    command: "node --version"
+
+environment_impact:
+  modifies_path: true
+  note: "Node.js is managed by Volta and activated automatically via shims"
