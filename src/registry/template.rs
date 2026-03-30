@@ -187,6 +187,10 @@ pub struct TemplateStep {
     /// Completed check configuration
     pub completed_check: Option<crate::config::CompletedCheck>,
 
+    /// Precondition that must pass before the step runs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precondition: Option<crate::config::CompletedCheck>,
+
     /// Environment variables
     #[serde(default)]
     pub env: HashMap<String, String>,

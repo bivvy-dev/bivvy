@@ -108,7 +108,10 @@ impl ResolvedStep {
                 .completed_check
                 .clone()
                 .or_else(|| step.completed_check.clone()),
-            precondition: config.precondition.clone(),
+            precondition: config
+                .precondition
+                .clone()
+                .or_else(|| step.precondition.clone()),
             skippable: config.skippable,
             required: config.required,
             prompt_if_complete: config.prompt_if_complete,
@@ -277,6 +280,7 @@ mod tests {
                 description: Some("Template desc".to_string()),
                 command: Some("template command".to_string()),
                 completed_check: None,
+                precondition: None,
                 env: {
                     let mut env = HashMap::new();
                     env.insert("TEMPLATE_VAR".to_string(), "from_template".to_string());
@@ -513,6 +517,60 @@ mod tests {
             assert_eq!(
                 command, "exit 1",
                 "environment override should replace precondition"
+            );
+        } else {
+            panic!("Expected CommandSucceeds precondition");
+        }
+    }
+
+    #[test]
+    fn from_template_inherits_precondition() {
+        let mut template = make_template();
+        template.step.precondition = Some(crate::config::CompletedCheck::CommandSucceeds {
+            command: "test $(git branch --show-current) = main".to_string(),
+        });
+
+        let config = StepConfig::default();
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+
+        assert!(
+            resolved.precondition.is_some(),
+            "precondition from template should be inherited"
+        );
+        if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
+            &resolved.precondition
+        {
+            assert_eq!(command, "test $(git branch --show-current) = main");
+        } else {
+            panic!("Expected CommandSucceeds precondition from template");
+        }
+    }
+
+    #[test]
+    fn from_template_config_precondition_overrides_template() {
+        let mut template = make_template();
+        template.step.precondition = Some(crate::config::CompletedCheck::CommandSucceeds {
+            command: "template check".to_string(),
+        });
+
+        let config = StepConfig {
+            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                command: "config check".to_string(),
+            }),
+            ..Default::default()
+        };
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+
+        if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
+            &resolved.precondition
+        {
+            assert_eq!(
+                command, "config check",
+                "config precondition should override template"
             );
         } else {
             panic!("Expected CommandSucceeds precondition");
