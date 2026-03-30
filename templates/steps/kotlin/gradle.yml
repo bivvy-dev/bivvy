@@ -1,6 +1,6 @@
 name: gradle
 description: "Build project and download dependencies using Gradle"
-category: kotlin
+category: gradle
 version: "1.0.0"
 platforms: [macos, linux, windows]
 
@@ -12,6 +12,8 @@ step:
   title: "Download Gradle dependencies"
   description: "Download project dependencies using the Gradle wrapper"
   command: "./gradlew dependencies"
+  requires:
+    - java
   completed_check:
     type: file_exists
     path: ".gradle"

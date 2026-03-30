@@ -291,6 +291,42 @@ impl RequirementRegistry {
             },
         );
 
+        // Java
+        requirements.insert(
+            "java".to_string(),
+            Requirement {
+                name: "java".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "java -version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install a JDK (e.g., brew install openjdk, or https://adoptium.net)"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Terraform
+        requirements.insert(
+            "terraform".to_string(),
+            Requirement {
+                name: "terraform".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "terraform version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Terraform: brew install terraform, or https://terraform.io/downloads"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
         Self { requirements }
     }
 
@@ -395,6 +431,8 @@ mod tests {
         assert!(names.contains(&"brew"));
         assert!(names.contains(&"mise"));
         assert!(names.contains(&"rust"));
+        assert!(names.contains(&"java"));
+        assert!(names.contains(&"terraform"));
     }
 
     #[test]

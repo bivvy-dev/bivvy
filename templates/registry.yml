@@ -41,8 +41,8 @@ categories:
     description: "Swift ecosystem tools"
     templates: [swift]
 
-  - name: kotlin
-    description: "Kotlin/JVM ecosystem tools"
+  - name: gradle
+    description: "Gradle/JVM ecosystem tools"
     templates: [gradle]
 
   - name: elixir

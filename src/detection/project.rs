@@ -14,7 +14,7 @@ pub enum ProjectType {
     Rust,
     Go,
     Php,
-    Kotlin,
+    Gradle,
     Elixir,
     Swift,
     Terraform,
@@ -141,7 +141,7 @@ impl ProjectDetector {
         if file_exists(project_root, "build.gradle.kts")
             || file_exists(project_root, "build.gradle")
         {
-            all_types.push(ProjectType::Kotlin);
+            all_types.push(ProjectType::Gradle);
             details.push(
                 DetectionResult::found("Kotlin/JVM")
                     .with_detail("Gradle build file found")
@@ -170,11 +170,11 @@ impl ProjectDetector {
         }
 
         // Terraform
-        if file_exists(project_root, "main.tf") {
+        if any_file_exists(project_root, &["main.tf", "terraform.tf", "versions.tf"]).is_some() {
             all_types.push(ProjectType::Terraform);
             details.push(
                 DetectionResult::found("Terraform")
-                    .with_detail("main.tf found")
+                    .with_detail("Terraform files found")
                     .with_template("terraform"),
             );
         }
@@ -281,13 +281,13 @@ mod tests {
     }
 
     #[test]
-    fn detect_kotlin_project_with_gradle_kts() {
+    fn detect_gradle_project_with_kts() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("build.gradle.kts"), "").unwrap();
 
         let detection = ProjectDetector::detect(temp.path());
 
-        assert_eq!(detection.primary_type, ProjectType::Kotlin);
+        assert_eq!(detection.primary_type, ProjectType::Gradle);
         assert!(detection
             .details
             .iter()
@@ -295,17 +295,31 @@ mod tests {
     }
 
     #[test]
-    fn detect_kotlin_project_with_gradle_groovy() {
+    fn detect_gradle_project_with_groovy() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("build.gradle"), "").unwrap();
 
         let detection = ProjectDetector::detect(temp.path());
 
-        assert_eq!(detection.primary_type, ProjectType::Kotlin);
+        assert_eq!(detection.primary_type, ProjectType::Gradle);
         assert!(detection
             .details
             .iter()
             .any(|d| d.suggested_template == Some("gradle".to_string())));
+    }
+
+    #[test]
+    fn detect_terraform_project_with_versions_tf() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("versions.tf"), "").unwrap();
+
+        let detection = ProjectDetector::detect(temp.path());
+
+        assert_eq!(detection.primary_type, ProjectType::Terraform);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("terraform".to_string())));
     }
 
     #[test]

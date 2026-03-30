@@ -6,11 +6,15 @@ platforms: [macos, linux, windows]
 
 detects:
   - file: main.tf
+  - file: terraform.tf
+  - file: versions.tf
 
 step:
   title: "Initialize Terraform"
   description: "Initialize Terraform working directory and download providers"
   command: "terraform init"
+  requires:
+    - terraform
   completed_check:
     type: file_exists
     path: ".terraform"
