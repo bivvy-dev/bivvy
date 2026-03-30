@@ -99,20 +99,8 @@ steps:
     depends_on: [llvm-cov, build]
 
   version-bump:
-    title: "Bump version"
     template: version-bump
     depends_on: [cargo-edit]
-    prompts:
-      - key: bump
-        question: "Version bump type"
-        type: select
-        options:
-          - label: "Patch (x.y.Z)"
-            value: patch
-          - label: "Minor (x.Y.0)"
-            value: minor
-          - label: "Major (X.0.0)"
-            value: major
 
   version-commit:
     title: "Commit version bump"
