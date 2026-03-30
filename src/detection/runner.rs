@@ -74,7 +74,7 @@ impl DetectionRunner {
         // Version manager (priority 20)
         if let Some(ref vm) = pm.version_manager {
             let name = match vm {
-                PackageManager::Mise => "mise",
+                PackageManager::Mise => "mise-tools",
                 PackageManager::Asdf => "asdf",
                 PackageManager::Volta => "volta",
                 PackageManager::Fnm => "fnm",
@@ -137,7 +137,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "bundler"));
+            .any(|t| t.name == "bundle-install"));
     }
 
     #[test]
@@ -167,7 +167,7 @@ mod tests {
         let bundler_pos = detection
             .suggested_templates
             .iter()
-            .position(|t| t.name == "bundler");
+            .position(|t| t.name == "bundle-install");
 
         if let (Some(mise), Some(bundler)) = (mise_pos, bundler_pos) {
             assert!(
@@ -187,7 +187,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "composer"));
+            .any(|t| t.name == "composer-install"));
     }
 
     #[test]
@@ -200,7 +200,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "terraform"));
+            .any(|t| t.name == "terraform-init"));
     }
 
     #[test]
@@ -213,7 +213,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "gradle"));
+            .any(|t| t.name == "gradle-deps"));
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "mix"));
+            .any(|t| t.name == "mix-deps-get"));
     }
 
     #[test]
@@ -240,11 +240,11 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "composer"));
+            .any(|t| t.name == "composer-install"));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "laravel"));
+            .any(|t| t.name == "laravel-setup"));
     }
 
     #[test]
@@ -257,7 +257,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "aws-cdk"));
+            .any(|t| t.name == "cdk-synth"));
     }
 
     #[test]
@@ -270,7 +270,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "docker-compose"));
+            .any(|t| t.name == "docker-compose-up"));
     }
 
     #[test]
@@ -283,7 +283,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "helm"));
+            .any(|t| t.name == "helm-deps"));
     }
 
     #[test]
@@ -296,7 +296,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "pulumi"));
+            .any(|t| t.name == "pulumi-install"));
     }
 
     #[test]
@@ -311,7 +311,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "bundler"));
+            .any(|t| t.name == "bundle-install"));
         assert!(detection
             .suggested_templates
             .iter()
@@ -352,7 +352,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "pre-commit"));
+            .any(|t| t.name == "pre-commit-install"));
     }
 
     #[test]
@@ -360,7 +360,10 @@ mod tests {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("nx.json"), "{}").unwrap();
         let detection = DetectionRunner::run(temp.path());
-        assert!(detection.suggested_templates.iter().any(|t| t.name == "nx"));
+        assert!(detection
+            .suggested_templates
+            .iter()
+            .any(|t| t.name == "nx-build"));
     }
 
     #[test]
@@ -375,15 +378,15 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "bundler"));
+            .any(|t| t.name == "bundle-install"));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "npm"));
+            .any(|t| t.name == "npm-install"));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "cargo"));
+            .any(|t| t.name == "cargo-build"));
     }
 
     #[test]
@@ -396,7 +399,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "maven"));
+            .any(|t| t.name == "maven-resolve"));
     }
 
     #[test]
@@ -409,7 +412,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "dotnet"));
+            .any(|t| t.name == "dotnet-restore"));
     }
 
     #[test]
@@ -422,7 +425,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "deno"));
+            .any(|t| t.name == "deno-install"));
     }
 
     #[test]
@@ -434,7 +437,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "nextjs"));
+            .any(|t| t.name == "nextjs-build"));
     }
 
     #[test]
@@ -446,7 +449,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "django"));
+            .any(|t| t.name == "django-migrate"));
     }
 
     #[test]
@@ -464,6 +467,6 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "spring-boot"));
+            .any(|t| t.name == "spring-boot-build"));
     }
 }

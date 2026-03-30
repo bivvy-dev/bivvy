@@ -44,9 +44,12 @@ impl LintRule for TemplateInputsRule {
                 if let Some(template) = self.registry.get(template_name) {
                     // Check for missing required inputs
                     for (input_name, input_contract) in &template.inputs {
+                        let provided_by_prompt =
+                            step_config.prompts.iter().any(|p| &p.key == input_name);
                         if input_contract.required
                             && input_contract.default.is_none()
                             && !step_config.inputs.contains_key(input_name)
+                            && !provided_by_prompt
                         {
                             diagnostics.push(LintDiagnostic::new(
                                 self.id(),
@@ -94,7 +97,7 @@ impl LintRule for TemplateInputsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::StepConfig;
+    use crate::config::{PromptConfig, PromptType, StepConfig};
     use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
@@ -268,5 +271,47 @@ step:
 
         assert_eq!(diagnostics.len(), 1);
         assert!(diagnostics[0].message.contains("must be a boolean"));
+    }
+
+    #[test]
+    fn passes_when_required_input_satisfied_by_prompt() {
+        let template_yaml = r#"
+name: test-template
+description: "Test template"
+category: test
+inputs:
+  required_input:
+    description: "A required input"
+    type: string
+    required: true
+step:
+  command: "echo ${required_input}"
+"#;
+        let (_temp, registry) = create_test_registry_with_template(template_yaml);
+        let rule = TemplateInputsRule::new(registry);
+
+        let mut steps = HashMap::new();
+        steps.insert(
+            "test".to_string(),
+            StepConfig {
+                template: Some("test-template".to_string()),
+                prompts: vec![PromptConfig {
+                    key: "required_input".to_string(),
+                    question: "Enter value".to_string(),
+                    prompt_type: PromptType::Input,
+                    options: vec![],
+                    default: None,
+                }],
+                ..Default::default()
+            },
+        );
+        let config = BivvyConfig {
+            steps,
+            ..Default::default()
+        };
+
+        let diagnostics = rule.check(&config);
+
+        assert!(diagnostics.is_empty());
     }
 }

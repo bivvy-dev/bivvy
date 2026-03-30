@@ -938,7 +938,7 @@ fn environment_detector_default_trait() -> Result<(), Box<dyn std::error::Error>
 
 #[test]
 fn needs_shell_restart_for_version_managers() -> Result<(), Box<dyn std::error::Error>> {
-    assert!(EnvironmentDetector::needs_shell_restart("mise"));
+    assert!(EnvironmentDetector::needs_shell_restart("mise-tools"));
     assert!(EnvironmentDetector::needs_shell_restart("asdf"));
     assert!(EnvironmentDetector::needs_shell_restart("volta"));
     assert!(EnvironmentDetector::needs_shell_restart("nvm"));

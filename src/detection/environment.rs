@@ -112,7 +112,7 @@ impl EnvironmentDetector {
     pub fn needs_shell_restart(step_template: &str) -> bool {
         matches!(
             step_template,
-            "mise" | "asdf" | "volta" | "nvm" | "rbenv" | "pyenv" | "brew"
+            "mise-tools" | "asdf" | "volta" | "nvm" | "rbenv" | "pyenv" | "brew"
         )
     }
 
@@ -159,7 +159,7 @@ mod tests {
 
     #[test]
     fn needs_shell_restart_for_version_managers() {
-        assert!(EnvironmentDetector::needs_shell_restart("mise"));
+        assert!(EnvironmentDetector::needs_shell_restart("mise-tools"));
         assert!(EnvironmentDetector::needs_shell_restart("asdf"));
         assert!(EnvironmentDetector::needs_shell_restart("volta"));
         assert!(EnvironmentDetector::needs_shell_restart("brew"));
