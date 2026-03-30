@@ -68,6 +68,13 @@ categories:
   - name: deno
     description: "Deno ecosystem tools"
     templates: [deno]
+  - name: iac
+    description: "Infrastructure as Code tools"
+    templates: [pulumi, ansible]
+
+  - name: containers
+    description: "Container and orchestration tools"
+    templates: [docker-compose, helm]
 
   - name: install
     description: "Prerequisite installation templates"
@@ -131,3 +138,7 @@ detection_order:
   - dart
   - flutter
   - deno
+  - docker-compose
+  - helm
+  - pulumi
+  - ansible

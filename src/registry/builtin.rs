@@ -258,6 +258,12 @@ mod tests {
             "dart",
             "flutter",
             "deno",
+            // Container/orchestration templates
+            "docker-compose",
+            "helm",
+            // IaC templates
+            "pulumi",
+            "ansible",
             // Install templates
             "mise-install",
             "mise-ruby",
