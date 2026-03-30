@@ -514,7 +514,7 @@ impl<'a> WorkflowRunner<'a> {
                                     prompt_type: PromptType::Select {
                                         options: vec![
                                             PromptOption {
-                                                label: "No (n)".to_string(),
+                                                label: "No  (n)".to_string(),
                                                 value: "no".to_string(),
                                             },
                                             PromptOption {
@@ -528,6 +528,8 @@ impl<'a> WorkflowRunner<'a> {
 
                                 let answer = ui.prompt(&prompt)?;
                                 if answer.as_string() != "yes" {
+                                    // Clear prompt output (question + answer = 2 lines)
+                                    ui.clear_lines(2);
                                     let reason = check_result.short_description();
                                     ui.message(&format!(
                                         "{}{}",
@@ -537,7 +539,8 @@ impl<'a> WorkflowRunner<'a> {
                                     results.push(StepResult::skipped(&step.name, check_result));
                                     continue;
                                 }
-                                // User wants to re-run
+                                // Clear prompt output so spinner starts below step header
+                                ui.clear_lines(2);
                                 needs_force = true;
                                 already_prompted = true;
                                 had_prompt = true;
@@ -574,19 +577,21 @@ impl<'a> WorkflowRunner<'a> {
                     prompt_type: PromptType::Select {
                         options: vec![
                             PromptOption {
+                                label: "No  (n)".to_string(),
+                                value: "no".to_string(),
+                            },
+                            PromptOption {
                                 label: "Yes (y)".to_string(),
                                 value: "yes".to_string(),
                             },
-                            PromptOption {
-                                label: "No (n)".to_string(),
-                                value: "no".to_string(),
-                            },
                         ],
                     },
-                    default: Some("yes".to_string()),
+                    default: Some("no".to_string()),
                 };
                 let answer = ui.prompt(&prompt)?;
                 if answer.as_string() != "yes" {
+                    // Clear prompt output (question + answer = 2 lines)
+                    ui.clear_lines(2);
                     ui.message(&format!("{}{}", step_pad, theme.format_skipped("Skipped")));
                     results.push(StepResult::skipped(
                         &step.name,
@@ -594,6 +599,9 @@ impl<'a> WorkflowRunner<'a> {
                     ));
                     continue;
                 }
+                // Clear prompt output (question + answer = 2 lines)
+                // so spinner starts directly below step header
+                ui.clear_lines(2);
                 had_prompt = true;
             }
 
@@ -789,6 +797,13 @@ impl<'a> WorkflowRunner<'a> {
                             None
                         };
                         spinner.finish_success(&format!("{} ({})", step_name, duration_str));
+                        // Collapse step header + spinner finish → single line
+                        ui.clear_lines(2);
+                        ui.message(&format!(
+                            "{} {}",
+                            theme.step_number.apply_to(&step_number),
+                            theme.format_success(&format!("{} ({})", step_name, duration_str))
+                        ));
                         let mut r = result;
                         r.recovery_detail = detail;
                         final_result = Some(r);
@@ -1414,6 +1429,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
 
         let result = runner
             .run_with_ui(
@@ -1517,6 +1533,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
 
         let result = runner
             .run_with_ui(
@@ -1790,6 +1807,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         // User confirms both the run prompt (default yes) and sensitive prompt
         ui.set_prompt_response("sensitive_deploy", "yes");
 
@@ -3336,6 +3354,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_flaky", "retry");
 
         let result = runner
@@ -3396,6 +3415,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_failing", "skip");
 
         let result = runner
@@ -3455,6 +3475,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_failing", "abort");
 
         let result = runner
@@ -3512,6 +3533,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_bad", "abort");
 
         let result = runner
@@ -3563,6 +3585,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_flaky", "abort");
 
         let result = runner
@@ -3619,6 +3642,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
 
         let result = runner
             .run_with_ui(
@@ -3676,6 +3700,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
 
         let result = runner
             .run_with_ui(
@@ -3823,6 +3848,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_failing", "skip");
 
         let result = runner
@@ -3874,6 +3900,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_flaky", "retry");
 
         let result = runner
@@ -3996,6 +4023,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         // First recovery prompt: pick custom_fix (since no pattern will match)
         ui.queue_prompt_responses("recovery_bundler", vec!["custom_fix"]);
         // Enter the fix command
@@ -4044,6 +4072,7 @@ mod tests {
 
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         // First: pick custom_fix, then abort on second prompt
         ui.queue_prompt_responses("recovery_broken", vec!["custom_fix", "abort"]);
         ui.set_prompt_response("custom_fix_broken", "some-fix-cmd");

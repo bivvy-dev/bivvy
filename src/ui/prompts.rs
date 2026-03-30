@@ -1,6 +1,6 @@
 //! Interactive prompts.
 
-use console::{measure_text_width, style, Key, Style, Term};
+use console::{style, Key, Style, Term};
 use dialoguer::theme::ColorfulTheme;
 use dialoguer::{Confirm, Input, MultiSelect, Select};
 
@@ -145,14 +145,14 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
 
     // Calculate indent from leading whitespace in the question text.
     // Questions are pre-indented to align with the step header above.
+    // No leading whitespace and no bracket → no indent (e.g., "Run setup now?").
     let leading_ws = prompt.question.len() - prompt.question.trim_start().len();
     let pad = if leading_ws > 0 {
         " ".repeat(leading_ws)
+    } else if let Some(bracket_pos) = prompt.question.find(']') {
+        " ".repeat(bracket_pos + 2)
     } else {
-        // Fallback: find `[n/t] ` bracket pattern and indent to match
-        let indent = measure_text_width(&prompt.question)
-            .min(prompt.question.find(']').map(|i| i + 2).unwrap_or(6));
-        " ".repeat(indent)
+        String::new()
     };
 
     let active_prefix = Style::new().bold();
@@ -221,18 +221,15 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
                 .map_err(BivvyError::Io)?;
             // Clear the prompt question line
             term.clear_last_lines(1).map_err(BivvyError::Io)?;
-            // Re-print prompt with selection (show "yes" or "no")
-            let answer_text = if options[idx].value == "yes" {
-                "yes"
+            // Re-print prompt question, then answer on a new line with indicator
+            let (icon, answer_label) = if options[idx].value == "yes" {
+                (Style::new().green().apply_to("✓"), "Yes")
             } else {
-                "no"
+                (Style::new().dim().apply_to("·"), "No")
             };
-            term.write_line(&format!(
-                "{} {}",
-                prompt.question,
-                Style::new().bold().apply_to(answer_text)
-            ))
-            .map_err(BivvyError::Io)?;
+            term.write_line(&prompt.question).map_err(BivvyError::Io)?;
+            term.write_line(&format!("{}{} {}", pad, icon, answer_label))
+                .map_err(BivvyError::Io)?;
 
             // _cursor_guard is dropped here, restoring the cursor.
             return Ok(PromptResult::String(options[idx].value.clone()));

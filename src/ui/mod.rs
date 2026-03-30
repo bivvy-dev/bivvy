@@ -87,6 +87,12 @@ pub trait UserInterface {
     /// Check if running in interactive mode.
     fn is_interactive(&self) -> bool;
 
+    /// Clear the last `count` lines from terminal output.
+    ///
+    /// Used to collapse step headers and prompt output after a spinner finishes.
+    /// No-op in non-interactive or mock UIs.
+    fn clear_lines(&mut self, _count: usize) {}
+
     /// Change the output mode at runtime.
     fn set_output_mode(&mut self, mode: OutputMode);
 

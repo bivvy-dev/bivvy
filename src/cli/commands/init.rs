@@ -278,7 +278,7 @@ impl Command for InitCommand {
                 prompt_type: PromptType::Select {
                     options: vec![
                         PromptOption {
-                            label: "No (n)".to_string(),
+                            label: "No  (n)".to_string(),
                             value: "no".to_string(),
                         },
                         PromptOption {

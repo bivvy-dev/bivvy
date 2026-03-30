@@ -104,6 +104,10 @@ impl UserInterface for TerminalUI {
         self.term.is_term()
     }
 
+    fn clear_lines(&mut self, count: usize) {
+        self.term.clear_last_lines(count).ok();
+    }
+
     fn set_output_mode(&mut self, mode: OutputMode) {
         self.mode = mode;
     }

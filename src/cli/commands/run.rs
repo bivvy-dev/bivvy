@@ -1132,6 +1132,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_flaky", "retry");
 
         // Clean up marker from any previous test run
@@ -1164,6 +1165,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
         let mut ui = MockUI::new();
         ui.set_interactive(true);
+        ui.set_default_prompt_response("yes");
         ui.set_prompt_response("recovery_broken", "abort");
 
         let result = cmd.execute(&mut ui).unwrap();
