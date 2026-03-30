@@ -89,6 +89,45 @@ impl ProjectDetector {
                     .with_detail("package.json found")
                     .with_template(template),
             );
+
+            // Next.js (detected alongside Node.js)
+            if any_file_exists(
+                project_root,
+                &["next.config.js", "next.config.mjs", "next.config.ts"],
+            )
+            .is_some()
+            {
+                details.push(
+                    DetectionResult::found("Next.js")
+                        .with_detail("Next.js config found")
+                        .with_template("nextjs"),
+                );
+            }
+
+            // Vite (detected alongside Node.js)
+            if any_file_exists(
+                project_root,
+                &["vite.config.js", "vite.config.ts", "vite.config.mjs"],
+            )
+            .is_some()
+            {
+                details.push(
+                    DetectionResult::found("Vite")
+                        .with_detail("Vite config found")
+                        .with_template("vite"),
+                );
+            }
+
+            // Remix (detected alongside Node.js)
+            if any_file_exists(project_root, &["remix.config.js", "remix.config.ts"]).is_some()
+                || file_exists(project_root, "app/root.tsx")
+            {
+                details.push(
+                    DetectionResult::found("Remix")
+                        .with_detail("Remix application detected")
+                        .with_template("remix"),
+                );
+            }
         }
 
         // Python
@@ -120,6 +159,15 @@ impl ProjectDetector {
                     DetectionResult::found("Alembic")
                         .with_detail("Alembic configuration found")
                         .with_template("alembic-migrate"),
+                );
+            }
+
+            // Django (detected alongside Python)
+            if file_exists(project_root, "manage.py") {
+                details.push(
+                    DetectionResult::found("Django")
+                        .with_detail("manage.py found")
+                        .with_template("django"),
                 );
             }
         }
@@ -182,6 +230,17 @@ impl ProjectDetector {
                     .with_detail("Gradle build file found")
                     .with_template("gradle"),
             );
+
+            // Spring Boot (detected alongside Gradle)
+            if file_exists(project_root, "src/main/resources/application.properties")
+                || file_exists(project_root, "src/main/resources/application.yml")
+            {
+                details.push(
+                    DetectionResult::found("Spring Boot")
+                        .with_detail("Spring Boot application detected")
+                        .with_template("spring-boot"),
+                );
+            }
         }
 
         // Elixir
@@ -787,5 +846,105 @@ mod tests {
             .details
             .iter()
             .any(|d| d.suggested_template == Some("ansible".to_string())));
+    }
+
+    #[test]
+    fn detect_nextjs_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::write(temp.path().join("next.config.js"), "module.exports = {}").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert_eq!(detection.primary_type, ProjectType::Node);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("nextjs".to_string())));
+    }
+
+    #[test]
+    fn detect_nextjs_with_ts_config() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::write(temp.path().join("next.config.ts"), "").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("nextjs".to_string())));
+    }
+
+    #[test]
+    fn detect_vite_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::write(temp.path().join("vite.config.ts"), "").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert_eq!(detection.primary_type, ProjectType::Node);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("vite".to_string())));
+    }
+
+    #[test]
+    fn detect_remix_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::write(temp.path().join("remix.config.js"), "").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert_eq!(detection.primary_type, ProjectType::Node);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("remix".to_string())));
+    }
+
+    #[test]
+    fn detect_remix_project_via_root_tsx() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("package.json"), "{}").unwrap();
+        fs::create_dir_all(temp.path().join("app")).unwrap();
+        fs::write(temp.path().join("app/root.tsx"), "").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("remix".to_string())));
+    }
+
+    #[test]
+    fn detect_django_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("pyproject.toml"), "").unwrap();
+        fs::write(temp.path().join("manage.py"), "#!/usr/bin/env python").unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert_eq!(detection.primary_type, ProjectType::Python);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("django".to_string())));
+    }
+
+    #[test]
+    fn detect_spring_boot_project() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("build.gradle.kts"), "").unwrap();
+        fs::create_dir_all(temp.path().join("src/main/resources")).unwrap();
+        fs::write(
+            temp.path()
+                .join("src/main/resources/application.properties"),
+            "",
+        )
+        .unwrap();
+        let detection = ProjectDetector::detect(temp.path());
+        assert_eq!(detection.primary_type, ProjectType::Gradle);
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("gradle".to_string())));
+        assert!(detection
+            .details
+            .iter()
+            .any(|d| d.suggested_template == Some("spring-boot".to_string())));
     }
 }

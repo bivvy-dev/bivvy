@@ -19,11 +19,11 @@ categories:
 
   - name: node
     description: "Node.js ecosystem tools"
-    templates: [yarn, npm, pnpm, bun, prisma-migrate]
+    templates: [yarn, npm, pnpm, bun, prisma-migrate, nextjs, vite, remix]
 
   - name: python
     description: "Python ecosystem tools"
-    templates: [pip, poetry, uv, alembic-migrate]
+    templates: [pip, poetry, uv, alembic-migrate, django]
 
   - name: rust
     description: "Rust ecosystem tools"
@@ -43,7 +43,7 @@ categories:
 
   - name: gradle
     description: "Gradle/JVM ecosystem tools"
-    templates: [gradle]
+    templates: [gradle, spring-boot]
 
   - name: elixir
     description: "Elixir ecosystem tools"
@@ -51,7 +51,7 @@ categories:
 
   - name: iac
     description: "Infrastructure as Code tools"
-    templates: [terraform, aws-cdk]
+    templates: [terraform, aws-cdk, pulumi, ansible]
 
   - name: java
     description: "Java ecosystem tools"
@@ -68,9 +68,6 @@ categories:
   - name: deno
     description: "Deno ecosystem tools"
     templates: [deno]
-  - name: iac
-    description: "Infrastructure as Code tools"
-    templates: [pulumi, ansible]
 
   - name: containers
     description: "Container and orchestration tools"
@@ -146,3 +143,8 @@ detection_order:
   - prisma-migrate
   - diesel-migrate
   - alembic-migrate
+  - nextjs
+  - vite
+  - remix
+  - django
+  - spring-boot

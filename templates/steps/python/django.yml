@@ -1,0 +1,27 @@
+name: django
+description: "Set up a Django application"
+category: python
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detects:
+  - file: manage.py
+
+step:
+  title: "Run Django migrations"
+  description: "Apply database migrations and collect static files"
+  command: "python manage.py migrate"
+  requires:
+    - python
+  precondition:
+    type: file_exists
+    path: "manage.py"
+  completed_check:
+    type: command_succeeds
+    command: "python manage.py showmigrations 2>&1 | grep -v '\\[ \\]' | grep -q '\\[X\\]'"
+  watches:
+    - manage.py
+    - "*/migrations"
+
+environment_impact:
+  note: "Applies pending database migrations"
