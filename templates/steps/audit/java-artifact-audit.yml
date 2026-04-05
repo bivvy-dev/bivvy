@@ -1,0 +1,120 @@
+name: java-artifact-audit
+description: "Audit Java/JVM build artifacts for debug info, secrets, and source leaks"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [pom-xml-present.file]
+
+inputs:
+  build_dir:
+    description: "Build output directory to audit"
+    type: string
+    required: false
+    default: "target"
+    prompt:
+      question: "Which build directory should be audited?"
+      type: input
+
+step:
+  title: "Audit Java build artifacts"
+  description: >
+    Checks JAR/WAR files for included source code, debug symbols,
+    leaked configuration with secrets, and files that should not
+    be in production artifacts.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    BUILD="${build_dir}"
+    ISSUES=0
+
+    if [ ! -d "$BUILD" ]; then
+      echo "Build directory '$BUILD' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Java Artifact Audit: $BUILD ==="
+
+    # Find JAR/WAR files
+    ARCHIVES=$(find "$BUILD" -maxdepth 2 -type f \( -name "*.jar" -o -name "*.war" -o -name "*.ear" \) ! -name "*-sources.jar" ! -name "*-javadoc.jar" 2>/dev/null || true)
+
+    if [ -z "$ARCHIVES" ]; then
+      echo "No JAR/WAR/EAR files found — nothing to audit."
+      exit 0
+    fi
+
+    while IFS= read -r ARCHIVE; do
+      echo "--- Auditing: $(basename "$ARCHIVE") ---"
+
+      CONTENTS=$(jar tf "$ARCHIVE" 2>/dev/null || unzip -l "$ARCHIVE" 2>/dev/null || echo "")
+
+      # 1. Check for Java source files in artifact
+      if echo "$CONTENTS" | grep -qE '\.java$'; then
+        echo "FAIL: Archive contains .java source files"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No source files in archive"
+      fi
+
+      # 2. Check for .env or secrets files
+      if echo "$CONTENTS" | grep -qE '\.env$|credentials|secrets\.properties'; then
+        echo "FAIL: Archive contains potential secrets files"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No secrets files in archive"
+      fi
+
+      # 3. Check for debug compilation (line number table present)
+      if command -v javap &>/dev/null; then
+        SAMPLE_CLASS=$(echo "$CONTENTS" | grep -m1 '\.class$' | sed 's/\.class$//' | tr '/' '.' || true)
+        if [ -n "$SAMPLE_CLASS" ]; then
+          if jar xf "$ARCHIVE" "$(echo "$CONTENTS" | grep -m1 '\.class$')" -C /tmp 2>/dev/null; then
+            if javap -v "/tmp/$(echo "$CONTENTS" | grep -m1 '\.class$')" 2>/dev/null | grep -q "LocalVariableTable"; then
+              echo "WARN: Classes compiled with full debug info (variable names visible)"
+            fi
+            rm -f "/tmp/$(echo "$CONTENTS" | grep -m1 '\.class$')" 2>/dev/null
+          fi
+        fi
+      fi
+
+      # 4. Check for .git directory
+      if echo "$CONTENTS" | grep -q '\.git/'; then
+        echo "FAIL: Archive contains .git directory"
+        ISSUES=$((ISSUES + 1))
+      fi
+
+      # 5. Check for application config with hardcoded secrets
+      if echo "$CONTENTS" | grep -qE 'application\.(properties|yml|yaml)$'; then
+        TEMP_DIR=$(mktemp -d)
+        CONFIG_FILE=$(echo "$CONTENTS" | grep -m1 -E 'application\.(properties|yml|yaml)$')
+        if unzip -p "$ARCHIVE" "$CONFIG_FILE" 2>/dev/null | grep -iqE '(password|secret|token|api.?key)\s*[=:]\s*[^$\{]'; then
+          echo "FAIL: Application config may contain hardcoded secrets"
+          ISSUES=$((ISSUES + 1))
+        else
+          echo "PASS: No hardcoded secrets in application config"
+        fi
+        rm -rf "$TEMP_DIR"
+      fi
+
+    done <<< "$ARCHIVES"
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - java
+  precondition:
+    type: command_succeeds
+    command: "test -d ${build_dir}"
+  watches:
+    - pom.xml
+    - build.gradle
+    - build.gradle.kts
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"

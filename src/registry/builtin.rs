@@ -372,6 +372,18 @@ mod tests {
             "install/postgres-install",
             "install/redis-install",
             "install/docker-install",
+            // Audit
+            "audit/node-artifact-audit",
+            "audit/rust-artifact-audit",
+            "audit/python-artifact-audit",
+            "audit/go-artifact-audit",
+            "audit/java-artifact-audit",
+            "audit/dotnet-artifact-audit",
+            "audit/docker-artifact-audit",
+            "audit/ruby-artifact-audit",
+            "audit/php-artifact-audit",
+            "audit/elixir-artifact-audit",
+            "audit/swift-artifact-audit",
             // Common
             "common/env-copy",
             "common/pre-commit-install",

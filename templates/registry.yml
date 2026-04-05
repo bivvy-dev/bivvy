@@ -77,6 +77,21 @@ categories:
     description: "Container and orchestration tools"
     templates: [docker-compose-up, helm-deps]
 
+  - name: audit
+    description: "Build artifact security audits"
+    templates:
+      - node-artifact-audit
+      - rust-artifact-audit
+      - python-artifact-audit
+      - go-artifact-audit
+      - java-artifact-audit
+      - dotnet-artifact-audit
+      - docker-artifact-audit
+      - ruby-artifact-audit
+      - php-artifact-audit
+      - elixir-artifact-audit
+      - swift-artifact-audit
+
   - name: common
     description: "Cross-cutting project setup tools"
     templates: [env-copy, pre-commit-install]
@@ -162,6 +177,17 @@ detection_order:
   - remix-build
   - django-migrate
   - spring-boot-build
+  - node-artifact-audit
+  - rust-artifact-audit
+  - python-artifact-audit
+  - go-artifact-audit
+  - java-artifact-audit
+  - dotnet-artifact-audit
+  - docker-artifact-audit
+  - ruby-artifact-audit
+  - php-artifact-audit
+  - elixir-artifact-audit
+  - swift-artifact-audit
   - env-copy
   - pre-commit-install
   - nx-build

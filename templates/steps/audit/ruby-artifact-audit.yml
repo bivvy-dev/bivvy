@@ -1,0 +1,118 @@
+name: ruby-artifact-audit
+description: "Audit Ruby gem artifacts for secrets, credentials, and unnecessary files"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [gemfile-present.file]
+
+inputs:
+  pkg_dir:
+    description: "Directory containing built gem files"
+    type: string
+    required: false
+    default: "pkg"
+    prompt:
+      question: "Which directory contains built gem files?"
+      type: input
+
+step:
+  title: "Audit Ruby gem artifacts"
+  description: >
+    Checks built .gem files for leaked secrets, .env files,
+    credentials, test fixtures with real data, and files that
+    should be excluded via .gemspec.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PKG="${pkg_dir}"
+    ISSUES=0
+
+    if [ ! -d "$PKG" ]; then
+      echo "Package directory '$PKG' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Ruby Artifact Audit: $PKG ==="
+
+    GEMS=$(find "$PKG" -maxdepth 1 -type f -name "*.gem" 2>/dev/null || true)
+
+    if [ -z "$GEMS" ]; then
+      echo "No .gem files found — nothing to audit."
+      exit 0
+    fi
+
+    while IFS= read -r GEM; do
+      echo "--- Auditing: $(basename "$GEM") ---"
+
+      # Extract gem contents listing
+      CONTENTS=$(gem spec "$GEM" --ruby 2>/dev/null | grep -A1000 'files =' | head -200 || true)
+      FILE_LIST=$(tar tf "$GEM" 2>/dev/null || true)
+
+      # 1. Check for .env files
+      if echo "$CONTENTS" | grep -qE '\.env$|\.env\.'; then
+        echo "FAIL: Gem contains .env file(s)"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No .env files in gem"
+      fi
+
+      # 2. Check for credential files
+      if echo "$CONTENTS" | grep -qiE 'credentials|secrets\.yml|master\.key|\.key$'; then
+        echo "FAIL: Gem may contain credential files"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No credential files found"
+      fi
+
+      # 3. Check for .git directory
+      if echo "$CONTENTS" | grep -q '\.git/'; then
+        echo "FAIL: Gem contains .git directory"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No .git directory in gem"
+      fi
+
+      # 4. Check for test fixtures that might contain real data
+      if echo "$CONTENTS" | grep -qiE 'fixtures/.*\.(yml|yaml|json)$'; then
+        echo "WARN: Gem contains test fixtures — verify no real credentials"
+      fi
+
+      # 5. Check for vendored dependencies
+      if echo "$CONTENTS" | grep -q 'vendor/'; then
+        echo "WARN: Gem contains vendored dependencies"
+      fi
+
+    done <<< "$GEMS"
+
+    # 6. Check gemspec for overly broad file inclusion
+    GEMSPEC=$(find . -maxdepth 1 -name "*.gemspec" | head -1)
+    if [ -n "$GEMSPEC" ]; then
+      if grep -qE 'git ls-files' "$GEMSPEC" 2>/dev/null; then
+        echo "INFO: Gemspec uses git ls-files — ensure .gitignore excludes secrets"
+      fi
+      if grep -qE "Dir\['\*\*/\*'\]|Dir\.glob" "$GEMSPEC" 2>/dev/null; then
+        echo "WARN: Gemspec uses broad glob — may include unintended files"
+      fi
+    fi
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - ruby
+  precondition:
+    type: command_succeeds
+    command: "test -d ${pkg_dir}"
+  watches:
+    - "*.gemspec"
+    - Gemfile
+    - Gemfile.lock
+
+environment_impact:
+  note: "Read-only audit — does not modify gem artifacts"

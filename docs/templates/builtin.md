@@ -156,6 +156,26 @@ steps:
 | `pulumi` | macOS, Linux, Windows | `Pulumi.yaml` | `pulumi up` |
 | `ansible` | macOS, Linux | `ansible.cfg`, `playbook.yml` | `ansible-playbook playbook.yml` |
 
+## Artifact Audits
+
+Post-build security audits that scan for source maps, secrets, debug symbols,
+and other files that should not ship to production. See the
+[Artifact Audits guide](../guides/artifact-audits.md) for usage examples.
+
+| Template | Platforms | Detects | Checks |
+|----------|-----------|---------|--------|
+| `node-artifact-audit` | macOS, Linux, Windows | `package.json` | Source maps, `.env`, secrets in JS, `node_modules` in dist |
+| `rust-artifact-audit` | macOS, Linux, Windows | `Cargo.toml` | Debug symbols, `.pdb` files, debug profile config |
+| `python-artifact-audit` | macOS, Linux, Windows | `pyproject.toml` | Secrets in wheels/sdists, `.env`, `__pycache__`, test files |
+| `go-artifact-audit` | macOS, Linux, Windows | `go.mod` | DWARF symbols, embedded paths, embedded secrets |
+| `java-artifact-audit` | macOS, Linux, Windows | `pom.xml` | Source in JARs, debug info, hardcoded secrets |
+| `dotnet-artifact-audit` | macOS, Linux, Windows | `*.sln`, `*.csproj` | `.pdb` files, Development config, `web.config debug=true` |
+| `docker-artifact-audit` | macOS, Linux | `compose.yml` | `.env`, `.git`, SSH keys, source maps in images |
+| `ruby-artifact-audit` | macOS, Linux, Windows | `Gemfile` | Credentials in gems, `master.key`, broad globs |
+| `php-artifact-audit` | macOS, Linux, Windows | `composer.json` | `APP_DEBUG=true`, dev deps, `phpinfo()` |
+| `elixir-artifact-audit` | macOS, Linux | `mix.exs` | Hardcoded secrets, dev/test config in release |
+| `swift-artifact-audit` | macOS, Linux | `Package.swift` | Debug symbols, dSYM bundles, embedded secrets |
+
 ## Cross-cutting Tools
 
 | Template | Platforms | Detects | Command |

@@ -1,0 +1,113 @@
+name: docker-artifact-audit
+description: "Audit Docker images for secrets, unnecessary files, and security issues"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux]
+
+detectors: [docker-compose-project.files]
+
+inputs:
+  image_name:
+    description: "Docker image name to audit"
+    type: string
+    required: true
+    prompt:
+      question: "Which Docker image should be audited?"
+      type: input
+
+step:
+  title: "Audit Docker image"
+  description: >
+    Inspects a Docker image for leaked secrets, .env files,
+    .git directories, source maps, SSH keys, and other artifacts
+    that should not ship in production containers.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    IMAGE="${image_name}"
+    ISSUES=0
+
+    echo "=== Docker Artifact Audit: $IMAGE ==="
+
+    # Verify image exists
+    if ! docker image inspect "$IMAGE" &>/dev/null; then
+      echo "Image '$IMAGE' not found — nothing to audit."
+      exit 0
+    fi
+
+    # 1. Check for .env files
+    ENVFILES=$(docker run --rm --entrypoint="" "$IMAGE" find / -maxdepth 4 -name ".env" -o -name ".env.*" 2>/dev/null | grep -v "proc\|sys" || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "FAIL: .env file(s) found in image:"
+      echo "$ENVFILES"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .env files found"
+    fi
+
+    # 2. Check for .git directory
+    GITDIR=$(docker run --rm --entrypoint="" "$IMAGE" find / -maxdepth 4 -type d -name ".git" 2>/dev/null | grep -v "proc\|sys" || true)
+    if [ -n "$GITDIR" ]; then
+      echo "FAIL: .git directory found in image"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .git directory found"
+    fi
+
+    # 3. Check for SSH keys
+    SSHKEYS=$(docker run --rm --entrypoint="" "$IMAGE" find / -maxdepth 4 -name "id_rsa" -o -name "id_ed25519" -o -name "*.pem" 2>/dev/null | grep -v "proc\|sys" || true)
+    if [ -n "$SSHKEYS" ]; then
+      echo "FAIL: SSH keys or PEM files found in image:"
+      echo "$SSHKEYS"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No SSH keys found"
+    fi
+
+    # 4. Check for source maps
+    MAPS=$(docker run --rm --entrypoint="" "$IMAGE" find / -maxdepth 6 -name "*.map" -path "*/dist/*" -o -name "*.map" -path "*/build/*" -o -name "*.map" -path "*/public/*" 2>/dev/null | head -20 || true)
+    if [ -n "$MAPS" ]; then
+      COUNT=$(echo "$MAPS" | wc -l | tr -d ' ')
+      echo "FAIL: Found $COUNT source map file(s) in image:"
+      echo "$MAPS" | head -10
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No source maps found"
+    fi
+
+    # 5. Check for node_modules (if not needed at runtime)
+    NODE_MODULES=$(docker run --rm --entrypoint="" "$IMAGE" find / -maxdepth 4 -type d -name "node_modules" 2>/dev/null | grep -v "proc\|sys" || true)
+    if [ -n "$NODE_MODULES" ]; then
+      echo "WARN: node_modules found in image — verify this is intentional"
+    fi
+
+    # 6. Check image size
+    SIZE=$(docker image inspect "$IMAGE" --format '{{.Size}}' 2>/dev/null || echo 0)
+    SIZE_MB=$((SIZE / 1048576))
+    echo "INFO: Image size: ${SIZE_MB}MB"
+    if [ "$SIZE_MB" -gt 1000 ]; then
+      echo "WARN: Image exceeds 1GB — consider using multi-stage builds"
+    fi
+
+    # 7. Check image layer count
+    LAYERS=$(docker image inspect "$IMAGE" --format '{{len .RootFS.Layers}}' 2>/dev/null || echo 0)
+    echo "INFO: Image layers: $LAYERS"
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - docker
+  watches:
+    - Dockerfile
+    - docker-compose.yml
+    - compose.yml
+    - .dockerignore
+
+environment_impact:
+  note: "Read-only audit — runs containers with --rm, does not modify images"

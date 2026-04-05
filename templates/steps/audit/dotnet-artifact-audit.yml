@@ -1,0 +1,115 @@
+name: dotnet-artifact-audit
+description: "Audit .NET publish artifacts for debug symbols, secrets, and config leaks"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [dotnet-project.files]
+
+inputs:
+  publish_dir:
+    description: "Publish output directory to audit"
+    type: string
+    required: false
+    default: "bin/Release/net8.0/publish"
+    prompt:
+      question: "Which publish directory should be audited?"
+      type: input
+
+step:
+  title: "Audit .NET build artifacts"
+  description: >
+    Checks .NET publish output for .pdb debug symbol files,
+    Development appsettings, leaked secrets in configuration,
+    and web.config debug mode.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PUBLISH="${publish_dir}"
+    ISSUES=0
+
+    if [ ! -d "$PUBLISH" ]; then
+      echo "Publish directory '$PUBLISH' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== .NET Artifact Audit: $PUBLISH ==="
+
+    # 1. Check for .pdb debug symbol files
+    PDBS=$(find "$PUBLISH" -type f -name "*.pdb" 2>/dev/null || true)
+    if [ -n "$PDBS" ]; then
+      COUNT=$(echo "$PDBS" | wc -l | tr -d ' ')
+      echo "FAIL: Found $COUNT .pdb debug symbol file(s):"
+      echo "$PDBS" | head -10
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .pdb files found"
+    fi
+
+    # 2. Check for Development appsettings
+    if [ -f "$PUBLISH/appsettings.Development.json" ]; then
+      echo "FAIL: Development appsettings found in publish output"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No Development appsettings in publish output"
+    fi
+
+    # 3. Check for hardcoded secrets in appsettings
+    for CONFIG in "$PUBLISH"/appsettings*.json; do
+      if [ -f "$CONFIG" ]; then
+        if grep -iqE '(password|secret|connectionstring|apikey).*:\s*"[^"$\{]' "$CONFIG" 2>/dev/null; then
+          echo "FAIL: $(basename "$CONFIG") may contain hardcoded secrets"
+          ISSUES=$((ISSUES + 1))
+        fi
+      fi
+    done
+
+    # 4. Check for web.config with debug=true
+    if [ -f "$PUBLISH/web.config" ]; then
+      if grep -qi 'debug="true"' "$PUBLISH/web.config" 2>/dev/null; then
+        echo "FAIL: web.config has debug mode enabled"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: web.config debug mode disabled"
+      fi
+    fi
+
+    # 5. Check for .env files
+    ENVFILES=$(find "$PUBLISH" -maxdepth 1 -type f \( -name ".env" -o -name ".env.*" \) ! -name ".env.example" 2>/dev/null || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "FAIL: Found .env file(s) in publish output:"
+      echo "$ENVFILES"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .env files found"
+    fi
+
+    # 6. Check for source files leaked into publish
+    SOURCES=$(find "$PUBLISH" -type f \( -name "*.cs" -o -name "*.csproj" -o -name "*.sln" \) 2>/dev/null || true)
+    if [ -n "$SOURCES" ]; then
+      echo "FAIL: Source files found in publish output"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No source files in publish output"
+    fi
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - dotnet
+  precondition:
+    type: command_succeeds
+    command: "test -d ${publish_dir}"
+  watches:
+    - "*.csproj"
+    - "*.sln"
+    - appsettings.json
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"

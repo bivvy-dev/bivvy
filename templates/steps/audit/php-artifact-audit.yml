@@ -1,0 +1,108 @@
+name: php-artifact-audit
+description: "Audit PHP deployment artifacts for debug config, secrets, and exposed files"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [composer-json-present.file]
+
+inputs:
+  deploy_dir:
+    description: "Deployment directory to audit (defaults to current directory)"
+    type: string
+    required: false
+    default: "."
+    prompt:
+      question: "Which directory should be audited for deployment readiness?"
+      type: input
+
+step:
+  title: "Audit PHP deployment artifacts"
+  description: >
+    Checks PHP projects for exposed .env files, debug mode enabled,
+    APP_DEBUG=true in config, exposed storage/log directories, and
+    Composer dev dependencies included in production.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    DEPLOY="${deploy_dir}"
+    ISSUES=0
+
+    echo "=== PHP Artifact Audit: $DEPLOY ==="
+
+    # 1. Check for .env with real secrets
+    if [ -f "$DEPLOY/.env" ]; then
+      if grep -qE 'APP_DEBUG\s*=\s*true' "$DEPLOY/.env" 2>/dev/null; then
+        echo "FAIL: APP_DEBUG=true in .env"
+        ISSUES=$((ISSUES + 1))
+      fi
+      if grep -qiE '(DB_PASSWORD|APP_KEY|API_KEY|SECRET)\s*=\s*[^$\{]' "$DEPLOY/.env" 2>/dev/null; then
+        echo "WARN: .env contains hardcoded credentials — ensure not committed"
+      fi
+    fi
+
+    # 2. Check for debug mode in config files
+    DEBUG_FILES=$(grep -rlE "('debug'|\"debug\")\s*=>\s*true" "$DEPLOY" --include="*.php" 2>/dev/null || true)
+    if [ -n "$DEBUG_FILES" ]; then
+      echo "WARN: Debug mode may be enabled in PHP config:"
+      echo "$DEBUG_FILES" | head -5
+    fi
+
+    # 3. Check for Composer dev dependencies
+    if [ -f "$DEPLOY/composer.lock" ]; then
+      if grep -q '"dev-package-names"' "$DEPLOY/composer.lock" 2>/dev/null; then
+        DEV_COUNT=$(grep -c '"dev-package-names"' "$DEPLOY/composer.lock" 2>/dev/null || echo 0)
+        if [ -d "$DEPLOY/vendor/phpunit" ] || [ -d "$DEPLOY/vendor/mockery" ]; then
+          echo "FAIL: Dev dependencies (phpunit/mockery) found in vendor — run 'composer install --no-dev'"
+          ISSUES=$((ISSUES + 1))
+        fi
+      fi
+    fi
+
+    # 4. Check for exposed sensitive directories
+    for DIR in storage/logs storage/framework/sessions .git tests; do
+      if [ -d "$DEPLOY/$DIR" ]; then
+        if [ "$DIR" = ".git" ]; then
+          echo "FAIL: .git directory present in deployment"
+          ISSUES=$((ISSUES + 1))
+        elif [ "$DIR" = "tests" ]; then
+          echo "WARN: Test directory present in deployment"
+        fi
+      fi
+    done
+
+    # 5. Check for phpinfo() calls
+    PHPINFO=$(grep -rl 'phpinfo()' "$DEPLOY" --include="*.php" 2>/dev/null | grep -v vendor || true)
+    if [ -n "$PHPINFO" ]; then
+      echo "FAIL: phpinfo() calls found — exposes server configuration:"
+      echo "$PHPINFO"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No phpinfo() calls found"
+    fi
+
+    # 6. Check for exposed config files via web
+    for FILE in ".env" ".env.backup" "composer.json" "composer.lock" "phpunit.xml"; do
+      if [ -f "$DEPLOY/public/$FILE" ] 2>/dev/null; then
+        echo "FAIL: $FILE is in public directory"
+        ISSUES=$((ISSUES + 1))
+      fi
+    done
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - php
+  watches:
+    - composer.json
+    - composer.lock
+    - .env.example
+
+environment_impact:
+  note: "Read-only audit — does not modify deployment artifacts"

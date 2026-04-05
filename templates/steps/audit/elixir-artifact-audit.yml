@@ -1,0 +1,100 @@
+name: elixir-artifact-audit
+description: "Audit Elixir release artifacts for secrets, debug info, and config leaks"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux]
+
+detectors: [mix-exs-present.file]
+
+inputs:
+  release_dir:
+    description: "Release output directory to audit"
+    type: string
+    required: false
+    default: "_build/prod/rel"
+    prompt:
+      question: "Which release directory should be audited?"
+      type: input
+
+step:
+  title: "Audit Elixir release artifacts"
+  description: >
+    Checks Elixir/OTP releases for hardcoded secrets in config,
+    dev/test configs included in release, .env files, and source
+    code leaked into the release bundle.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    RELEASE="${release_dir}"
+    ISSUES=0
+
+    if [ ! -d "$RELEASE" ]; then
+      echo "Release directory '$RELEASE' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Elixir Artifact Audit: $RELEASE ==="
+
+    # 1. Check for .env files in release
+    ENVFILES=$(find "$RELEASE" -type f \( -name ".env" -o -name ".env.*" \) 2>/dev/null || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "FAIL: .env file(s) found in release:"
+      echo "$ENVFILES"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .env files found"
+    fi
+
+    # 2. Check for hardcoded secrets in release config
+    SECRETS=$(grep -rlE '(secret_key_base|password|api_key|secret):\s*"[^"]+' "$RELEASE" --include="*.exs" --include="*.ex" --include="*.config" 2>/dev/null || true)
+    if [ -n "$SECRETS" ]; then
+      echo "FAIL: Potential hardcoded secrets in release config:"
+      echo "$SECRETS" | head -10
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No hardcoded secrets in config"
+    fi
+
+    # 3. Check for dev/test runtime configs
+    DEV_CONFIGS=$(find "$RELEASE" -type f \( -name "dev.exs" -o -name "test.exs" \) 2>/dev/null || true)
+    if [ -n "$DEV_CONFIGS" ]; then
+      echo "WARN: Dev/test config files found in release"
+    fi
+
+    # 4. Check for Erlang source files (.erl) in release
+    ERL_SOURCES=$(find "$RELEASE" -type f -name "*.erl" 2>/dev/null || true)
+    if [ -n "$ERL_SOURCES" ]; then
+      COUNT=$(echo "$ERL_SOURCES" | wc -l | tr -d ' ')
+      echo "WARN: Found $COUNT Erlang source file(s) in release"
+    fi
+
+    # 5. Check that runtime.exs uses environment variables
+    RUNTIME=$(find "$RELEASE" -type f -name "runtime.exs" 2>/dev/null | head -1 || true)
+    if [ -n "$RUNTIME" ]; then
+      if grep -qE '(secret_key_base|password):\s*"[^S]' "$RUNTIME" 2>/dev/null; then
+        echo "FAIL: runtime.exs has hardcoded secrets instead of System.get_env/1"
+        ISSUES=$((ISSUES + 1))
+      fi
+    fi
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - elixir
+  precondition:
+    type: command_succeeds
+    command: "test -d ${release_dir}"
+  watches:
+    - mix.exs
+    - mix.lock
+    - config/runtime.exs
+    - config/prod.exs
+
+environment_impact:
+  note: "Read-only audit — does not modify release artifacts"

@@ -1,0 +1,114 @@
+name: rust-artifact-audit
+description: "Audit Rust release artifacts for debug symbols and unintended content"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [cargo-toml-present.file]
+
+inputs:
+  profile:
+    description: "Cargo build profile to audit"
+    type: string
+    required: false
+    default: "release"
+    prompt:
+      question: "Which build profile should be audited?"
+      type: select
+      options:
+        - label: "Release"
+          value: release
+        - label: "Debug"
+          value: debug
+
+step:
+  title: "Audit Rust build artifacts"
+  description: >
+    Checks release binaries for debug symbols (DWARF info), .pdb files
+    on Windows, unexpectedly large binaries, and leaked environment
+    variables baked into the build.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    PROFILE="${profile}"
+    TARGET_DIR="target/$PROFILE"
+    ISSUES=0
+
+    if [ ! -d "$TARGET_DIR" ]; then
+      echo "Target directory '$TARGET_DIR' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Rust Artifact Audit: $TARGET_DIR ==="
+
+    # 1. Check for debug info in release binaries (macOS/Linux)
+    if [ "$PROFILE" = "release" ]; then
+      for BIN in "$TARGET_DIR"/*; do
+        if [ -f "$BIN" ] && file "$BIN" | grep -q "executable\|shared object\|Mach-O"; then
+          if file "$BIN" | grep -q "with debug_info\|not stripped"; then
+            echo "FAIL: Binary has debug symbols: $(basename "$BIN")"
+            ISSUES=$((ISSUES + 1))
+          else
+            echo "PASS: No debug symbols: $(basename "$BIN")"
+          fi
+        fi
+      done
+    fi
+
+    # 2. Check for .pdb files (Windows debug symbols)
+    PDBS=$(find "$TARGET_DIR" -maxdepth 1 -type f -name "*.pdb" 2>/dev/null || true)
+    if [ -n "$PDBS" ]; then
+      COUNT=$(echo "$PDBS" | wc -l | tr -d ' ')
+      echo "WARN: Found $COUNT .pdb debug symbol file(s)"
+      echo "$PDBS"
+    else
+      echo "PASS: No .pdb files found"
+    fi
+
+    # 3. Check for .env or secrets in build directory
+    ENVFILES=$(find "$TARGET_DIR" -maxdepth 2 -type f \( -name ".env" -o -name ".env.*" \) 2>/dev/null || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "FAIL: Found .env file(s) in build output:"
+      echo "$ENVFILES"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .env files found"
+    fi
+
+    # 4. Check Cargo.toml for debug=true in release profile
+    if grep -qE '^\[profile\.release\]' Cargo.toml 2>/dev/null; then
+      if grep -A5 '^\[profile\.release\]' Cargo.toml | grep -qE 'debug\s*=\s*(true|2|"full")'; then
+        echo "WARN: Cargo.toml has debug symbols enabled in [profile.release]"
+      fi
+    fi
+
+    # 5. Binary size check (warn if release binary > 100MB)
+    for BIN in "$TARGET_DIR"/*; do
+      if [ -f "$BIN" ] && file "$BIN" | grep -q "executable\|shared object\|Mach-O"; then
+        SIZE=$(stat -f%z "$BIN" 2>/dev/null || stat -c%s "$BIN" 2>/dev/null || echo 0)
+        SIZE_MB=$((SIZE / 1048576))
+        if [ "$SIZE_MB" -gt 100 ]; then
+          echo "WARN: Large binary $(basename "$BIN"): ${SIZE_MB}MB"
+        fi
+      fi
+    done
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - rust
+  precondition:
+    type: command_succeeds
+    command: "test -d target/${profile}"
+  watches:
+    - Cargo.toml
+    - Cargo.lock
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"

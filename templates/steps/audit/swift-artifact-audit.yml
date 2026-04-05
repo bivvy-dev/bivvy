@@ -1,0 +1,106 @@
+name: swift-artifact-audit
+description: "Audit Swift build artifacts for debug symbols and embedded secrets"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux]
+
+detectors: [package-swift-present.file]
+
+inputs:
+  build_config:
+    description: "Build configuration to audit"
+    type: string
+    required: false
+    default: "release"
+    prompt:
+      question: "Which build configuration should be audited?"
+      type: select
+      options:
+        - label: "Release"
+          value: release
+        - label: "Debug"
+          value: debug
+
+step:
+  title: "Audit Swift build artifacts"
+  description: >
+    Checks Swift build output for dSYM debug symbols in release builds,
+    embedded secrets in binaries, and Info.plist configuration issues.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    CONFIG="${build_config}"
+    BUILD_DIR=".build/$CONFIG"
+    ISSUES=0
+
+    if [ ! -d "$BUILD_DIR" ]; then
+      echo "Build directory '$BUILD_DIR' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Swift Artifact Audit: $BUILD_DIR ==="
+
+    # 1. Check for debug symbols in release binaries
+    if [ "$CONFIG" = "release" ]; then
+      for BIN in "$BUILD_DIR"/*; do
+        if [ -f "$BIN" ] && file "$BIN" | grep -q "Mach-O\|executable"; then
+          if file "$BIN" | grep -q "not stripped\|with debug_info"; then
+            echo "FAIL: Binary has debug symbols: $(basename "$BIN")"
+            ISSUES=$((ISSUES + 1))
+          else
+            echo "PASS: No debug symbols: $(basename "$BIN")"
+          fi
+        fi
+      done
+    fi
+
+    # 2. Check for dSYM bundles (should be archived separately, not shipped)
+    DSYMS=$(find "$BUILD_DIR" -type d -name "*.dSYM" 2>/dev/null || true)
+    if [ -n "$DSYMS" ]; then
+      echo "WARN: dSYM bundles found — archive separately, do not ship with binary"
+      echo "$DSYMS"
+    fi
+
+    # 3. Check for embedded secrets in binaries
+    for BIN in "$BUILD_DIR"/*; do
+      if [ -f "$BIN" ] && file "$BIN" | grep -q "Mach-O\|executable"; then
+        SECRETS=$(strings "$BIN" 2>/dev/null | grep -iE '(api[_-]?key|private.?key|secret.?key|password|token)=' | head -5 || true)
+        if [ -n "$SECRETS" ]; then
+          echo "FAIL: Binary $(basename "$BIN") may contain embedded secrets"
+          ISSUES=$((ISSUES + 1))
+        else
+          echo "PASS: No embedded secrets: $(basename "$BIN")"
+        fi
+      fi
+    done
+
+    # 4. Binary size check
+    for BIN in "$BUILD_DIR"/*; do
+      if [ -f "$BIN" ] && file "$BIN" | grep -q "Mach-O\|executable"; then
+        SIZE=$(stat -f%z "$BIN" 2>/dev/null || stat -c%s "$BIN" 2>/dev/null || echo 0)
+        SIZE_MB=$((SIZE / 1048576))
+        if [ "$SIZE_MB" -gt 100 ]; then
+          echo "WARN: Large binary $(basename "$BIN"): ${SIZE_MB}MB"
+        fi
+      fi
+    done
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - swift
+  precondition:
+    type: command_succeeds
+    command: "test -d .build/${build_config}"
+  watches:
+    - Package.swift
+    - Package.resolved
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"

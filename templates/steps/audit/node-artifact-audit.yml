@@ -1,0 +1,131 @@
+name: node-artifact-audit
+description: "Audit Node.js build artifacts for source maps, secrets, and debug leaks"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [package-json-present.file]
+
+inputs:
+  dist_dir:
+    description: "Build output directory to audit"
+    type: string
+    required: false
+    default: "dist"
+    prompt:
+      question: "Which build output directory should be audited?"
+      type: input
+  fail_on_sourcemaps:
+    description: "Fail the audit if source map files are found"
+    type: boolean
+    required: false
+    default: true
+  fail_on_secrets:
+    description: "Fail the audit if potential secrets are found"
+    type: boolean
+    required: false
+    default: true
+
+step:
+  title: "Audit Node.js build artifacts"
+  description: >
+    Scans the build output directory for source maps (.map files),
+    leaked secrets, .env files, and other artifacts that should not
+    ship to production. Inspired by the Claude Code source map leak.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    DIST="${dist_dir}"
+    ISSUES=0
+
+    if [ ! -d "$DIST" ]; then
+      echo "Build directory '$DIST' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Node.js Artifact Audit: $DIST ==="
+
+    # 1. Source maps
+    MAPS=$(find "$DIST" -type f -name "*.map" 2>/dev/null || true)
+    if [ -n "$MAPS" ]; then
+      COUNT=$(echo "$MAPS" | wc -l | tr -d ' ')
+      echo "FAIL: Found $COUNT source map file(s):"
+      echo "$MAPS" | head -20
+      if [ "${fail_on_sourcemaps}" = "true" ]; then
+        ISSUES=$((ISSUES + 1))
+      fi
+    else
+      echo "PASS: No source map files found"
+    fi
+
+    # 2. Leaked .env / dotenv files
+    ENVFILES=$(find "$DIST" -type f \( -name ".env" -o -name ".env.*" -o -name "*.env" \) ! -name ".env.example" ! -name ".env.sample" ! -name ".env.template" 2>/dev/null || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "FAIL: Found .env file(s) in build output:"
+      echo "$ENVFILES"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .env files found"
+    fi
+
+    # 3. Secrets patterns in JS/JSON files
+    SECRETS=$(grep -rlE '(PRIVATE_KEY|_SECRET=|_TOKEN=|_PASSWORD=|api[_-]?key|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' "$DIST" --include="*.js" --include="*.json" --include="*.mjs" --include="*.cjs" 2>/dev/null || true)
+    if [ -n "$SECRETS" ]; then
+      COUNT=$(echo "$SECRETS" | wc -l | tr -d ' ')
+      echo "FAIL: Found $COUNT file(s) with potential secrets:"
+      echo "$SECRETS" | head -20
+      if [ "${fail_on_secrets}" = "true" ]; then
+        ISSUES=$((ISSUES + 1))
+      fi
+    else
+      echo "PASS: No secret patterns detected"
+    fi
+
+    # 4. node_modules leaked into build
+    if [ -d "$DIST/node_modules" ]; then
+      echo "FAIL: node_modules directory found in build output"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No node_modules in build output"
+    fi
+
+    # 5. .git directory leaked into build
+    if [ -d "$DIST/.git" ]; then
+      echo "FAIL: .git directory found in build output"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .git directory in build output"
+    fi
+
+    # 6. TypeScript source files in build output
+    TSFILES=$(find "$DIST" -type f -name "*.ts" ! -name "*.d.ts" 2>/dev/null || true)
+    if [ -n "$TSFILES" ]; then
+      COUNT=$(echo "$TSFILES" | wc -l | tr -d ' ')
+      echo "WARN: Found $COUNT TypeScript source file(s) in build output"
+    fi
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - node
+  precondition:
+    type: command_succeeds
+    command: "test -d ${dist_dir}"
+  watches:
+    - package.json
+    - vite.config.js
+    - vite.config.ts
+    - webpack.config.js
+    - next.config.js
+    - next.config.mjs
+    - next.config.ts
+    - tsconfig.json
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"

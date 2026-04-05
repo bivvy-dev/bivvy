@@ -34,6 +34,7 @@ When you run `bivvy init`, templates are auto-detected based on files in your pr
 | Database migrations | `rails-db`, `prisma`, `diesel`, `alembic` |
 | Containers | `docker-compose`, `helm` |
 | Infrastructure as Code | `pulumi`, `ansible` |
+| Artifact audits | `node-artifact-audit`, `rust-artifact-audit`, `python-artifact-audit`, `go-artifact-audit`, `java-artifact-audit`, `dotnet-artifact-audit`, `docker-artifact-audit`, `ruby-artifact-audit`, `php-artifact-audit`, `elixir-artifact-audit`, `swift-artifact-audit` |
 | Cross-cutting | `env-copy`, `pre-commit` |
 | Monorepo / Workspace | `nx`, `turborepo`, `lerna` |
 

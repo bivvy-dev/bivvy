@@ -1,0 +1,110 @@
+name: go-artifact-audit
+description: "Audit Go build artifacts for debug symbols, secrets, and binary bloat"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [go-mod-present.file]
+
+inputs:
+  binary_path:
+    description: "Path to the compiled Go binary"
+    type: string
+    required: false
+    default: ""
+    prompt:
+      question: "Path to the Go binary to audit (leave empty to scan current directory)"
+      type: input
+
+step:
+  title: "Audit Go build artifacts"
+  description: >
+    Checks Go binaries for embedded debug info (DWARF symbols),
+    leaked build paths, embedded secrets, and unexpectedly large
+    binary sizes.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    ISSUES=0
+    BIN_PATH="${binary_path}"
+
+    echo "=== Go Artifact Audit ==="
+
+    # Find binaries to audit
+    if [ -n "$BIN_PATH" ] && [ -f "$BIN_PATH" ]; then
+      BINARIES="$BIN_PATH"
+    else
+      BINARIES=$(find . -maxdepth 2 -type f -perm +111 ! -path "*/.*" ! -path "*/vendor/*" ! -name "*.go" ! -name "*.sh" 2>/dev/null | while read -r f; do
+        if file "$f" | grep -q "executable\|Mach-O\|ELF"; then
+          echo "$f"
+        fi
+      done || true)
+    fi
+
+    if [ -z "$BINARIES" ]; then
+      echo "No Go binaries found — nothing to audit."
+      exit 0
+    fi
+
+    while IFS= read -r BIN; do
+      echo "--- Auditing: $BIN ---"
+
+      # 1. Check for DWARF debug info
+      if command -v go &>/dev/null && go tool nm "$BIN" 2>/dev/null | grep -q "runtime.debugCallV2"; then
+        echo "PASS: Binary appears to be a Go binary"
+      fi
+
+      if file "$BIN" | grep -q "not stripped\|with debug_info"; then
+        echo "FAIL: Binary contains debug symbols (build with -ldflags='-s -w')"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No debug symbols found"
+      fi
+
+      # 2. Check for embedded build paths
+      if strings "$BIN" 2>/dev/null | grep -qE "/home/|/Users/|/root/|C:\\\\Users"; then
+        echo "WARN: Binary contains local filesystem paths (build with -trimpath)"
+      else
+        echo "PASS: No local paths embedded"
+      fi
+
+      # 3. Check for embedded secrets patterns
+      SECRETS=$(strings "$BIN" 2>/dev/null | grep -iE '(api[_-]?key|private.?key|secret.?key|password|token)=' | head -5 || true)
+      if [ -n "$SECRETS" ]; then
+        echo "FAIL: Binary may contain embedded secrets"
+        ISSUES=$((ISSUES + 1))
+      else
+        echo "PASS: No embedded secret patterns found"
+      fi
+
+      # 4. Binary size check (warn if > 100MB)
+      SIZE=$(stat -f%z "$BIN" 2>/dev/null || stat -c%s "$BIN" 2>/dev/null || echo 0)
+      SIZE_MB=$((SIZE / 1048576))
+      if [ "$SIZE_MB" -gt 100 ]; then
+        echo "WARN: Large binary: ${SIZE_MB}MB"
+      fi
+
+    done <<< "$BINARIES"
+
+    # 5. Check for .env files in project root
+    ENVFILES=$(find . -maxdepth 1 -name ".env" -o -name ".env.*" 2>/dev/null | grep -v ".env.example\|.env.sample" || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "WARN: .env files found in project — ensure they are not embedded via go:embed"
+    fi
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - go
+  watches:
+    - go.mod
+    - go.sum
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"

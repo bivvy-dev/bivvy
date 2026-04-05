@@ -1,0 +1,123 @@
+name: python-artifact-audit
+description: "Audit Python build artifacts for secrets, debug info, and packaging leaks"
+category: audit
+version: "1.0.0"
+platforms: [macos, linux, windows]
+
+detectors: [pyproject-present.file]
+
+inputs:
+  dist_dir:
+    description: "Build output directory to audit"
+    type: string
+    required: false
+    default: "dist"
+    prompt:
+      question: "Which build output directory should be audited?"
+      type: input
+
+step:
+  title: "Audit Python build artifacts"
+  description: >
+    Checks Python distribution artifacts (wheels, sdists) for leaked
+    secrets, .env files, __pycache__ directories, and source files
+    that should not be published.
+  command: |
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    DIST="${dist_dir}"
+    ISSUES=0
+
+    if [ ! -d "$DIST" ]; then
+      echo "Build directory '$DIST' does not exist — nothing to audit."
+      exit 0
+    fi
+
+    echo "=== Python Artifact Audit: $DIST ==="
+
+    # 1. Check for .env files in sdist/wheel
+    ENVFILES=$(find "$DIST" -type f \( -name ".env" -o -name ".env.*" \) ! -name ".env.example" ! -name ".env.sample" 2>/dev/null || true)
+    if [ -n "$ENVFILES" ]; then
+      echo "FAIL: Found .env file(s) in build output:"
+      echo "$ENVFILES"
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No .env files found"
+    fi
+
+    # 2. Check for secrets in source files
+    SECRETS=$(grep -rlE '(PRIVATE_KEY|_SECRET=|_TOKEN=|_PASSWORD=|api[_-]?key|-----BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY)' "$DIST" --include="*.py" --include="*.cfg" --include="*.ini" --include="*.json" 2>/dev/null || true)
+    if [ -n "$SECRETS" ]; then
+      COUNT=$(echo "$SECRETS" | wc -l | tr -d ' ')
+      echo "FAIL: Found $COUNT file(s) with potential secrets:"
+      echo "$SECRETS" | head -20
+      ISSUES=$((ISSUES + 1))
+    else
+      echo "PASS: No secret patterns detected"
+    fi
+
+    # 3. Inspect wheel contents for unexpected files
+    for WHL in "$DIST"/*.whl; do
+      if [ -f "$WHL" ]; then
+        echo "--- Inspecting wheel: $(basename "$WHL") ---"
+        CONTENTS=$(python3 -m zipfile -l "$WHL" 2>/dev/null || unzip -l "$WHL" 2>/dev/null || echo "")
+        if echo "$CONTENTS" | grep -qE '\.env$|\.env\.'; then
+          echo "FAIL: Wheel contains .env file(s)"
+          ISSUES=$((ISSUES + 1))
+        fi
+        if echo "$CONTENTS" | grep -q '__pycache__'; then
+          echo "WARN: Wheel contains __pycache__ directories"
+        fi
+        if echo "$CONTENTS" | grep -qE '\.pyc$'; then
+          echo "WARN: Wheel contains compiled .pyc files"
+        fi
+        if echo "$CONTENTS" | grep -qE 'test_.*\.py$|.*_test\.py$|tests/'; then
+          echo "WARN: Wheel may contain test files"
+        fi
+      fi
+    done
+
+    # 4. Inspect sdist for .git or secrets
+    for TAR in "$DIST"/*.tar.gz; do
+      if [ -f "$TAR" ]; then
+        echo "--- Inspecting sdist: $(basename "$TAR") ---"
+        CONTENTS=$(tar -tzf "$TAR" 2>/dev/null || echo "")
+        if echo "$CONTENTS" | grep -q '\.git/'; then
+          echo "FAIL: sdist contains .git directory"
+          ISSUES=$((ISSUES + 1))
+        fi
+        if echo "$CONTENTS" | grep -qE '\.env$'; then
+          echo "FAIL: sdist contains .env file"
+          ISSUES=$((ISSUES + 1))
+        fi
+      fi
+    done
+
+    # 5. Check MANIFEST.in for overly broad includes
+    if [ -f "MANIFEST.in" ]; then
+      if grep -qE '^graft \.' MANIFEST.in; then
+        echo "WARN: MANIFEST.in uses broad 'graft .' — may include unintended files"
+      fi
+    fi
+
+    echo ""
+    if [ "$ISSUES" -gt 0 ]; then
+      echo "AUDIT FAILED: $ISSUES issue(s) found"
+      exit 1
+    else
+      echo "AUDIT PASSED: No issues found"
+    fi
+  requires:
+    - python
+  precondition:
+    type: command_succeeds
+    command: "test -d ${dist_dir}"
+  watches:
+    - pyproject.toml
+    - setup.py
+    - setup.cfg
+    - MANIFEST.in
+
+environment_impact:
+  note: "Read-only audit — does not modify build artifacts"
