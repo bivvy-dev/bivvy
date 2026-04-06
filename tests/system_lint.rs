@@ -31,10 +31,10 @@ app_name: "LintTest"
 steps:
   deps:
     title: "Install dependencies"
-    command: "echo deps"
+    command: "cargo --version"
   build:
     title: "Build project"
-    command: "echo build"
+    command: "rustc --version"
     depends_on: [deps]
 workflows:
   default:
@@ -46,9 +46,9 @@ fn lint_valid_config() {
     let temp = setup_project(VALID_CONFIG);
     let mut s = spawn_bivvy(&["lint"], temp.path());
 
-    s.expect("Configuration is valid")
+    s.expect("Configuration is valid!")
         .expect("Should report valid config");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -57,10 +57,10 @@ fn lint_circular_dependency_detected() {
 app_name: "BadApp"
 steps:
   a:
-    command: "echo a"
+    command: "git --version"
     depends_on: [b]
   b:
-    command: "echo b"
+    command: "cargo --version"
     depends_on: [a]
 workflows:
   default:
@@ -69,9 +69,9 @@ workflows:
     let temp = setup_project(bad_config);
     let mut s = spawn_bivvy(&["lint"], temp.path());
 
-    s.expect("circular")
+    s.expect("Circular dependency detected:")
         .expect("Should detect circular dependency");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -79,7 +79,13 @@ fn lint_json_format_flag() {
     let temp = setup_project(VALID_CONFIG);
     let mut s = spawn_bivvy(&["lint", "--format", "json"], temp.path());
 
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    assert!(
+        text.contains("{") || text.contains("valid") || text.contains("ok"),
+        "JSON format should produce structured output, got: {}",
+        &text[..text.len().min(300)]
+    );
 }
 
 #[test]
@@ -87,7 +93,13 @@ fn lint_sarif_format_flag() {
     let temp = setup_project(VALID_CONFIG);
     let mut s = spawn_bivvy(&["lint", "--format", "sarif"], temp.path());
 
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    assert!(
+        text.contains("{") || text.contains("sarif") || text.contains("valid"),
+        "SARIF format should produce structured output, got: {}",
+        &text[..text.len().min(300)]
+    );
 }
 
 #[test]
@@ -95,8 +107,8 @@ fn lint_strict_flag() {
     let temp = setup_project(VALID_CONFIG);
     let mut s = spawn_bivvy(&["lint", "--strict"], temp.path());
 
-    s.expect("Configuration is valid").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Configuration is valid!").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -105,5 +117,5 @@ fn lint_no_config_fails() {
     let mut s = spawn_bivvy(&["lint"], temp.path());
 
     s.expect("No configuration found").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }

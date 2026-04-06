@@ -137,12 +137,13 @@ impl<'a> WorkflowRunner<'a> {
 
         // Build dependency graph
         let graph = self.build_graph(workflow_name)?;
+        let workflow_steps = &self.config.workflows[workflow_name].steps;
 
         // Compute skips
         let skipped = graph.compute_skips(&options.skip, options.skip_behavior);
 
-        // Get execution order
-        let order = graph.topological_order()?;
+        // Get execution order (stable: preserves workflow declaration order for siblings)
+        let order = graph.topological_order_stable(workflow_steps)?;
 
         // Filter by only_environments and --only/--skip
         let mut env_skipped: Vec<String> = Vec::new();
@@ -349,12 +350,13 @@ impl<'a> WorkflowRunner<'a> {
 
         // Build dependency graph
         let graph = self.build_graph(workflow_name)?;
+        let workflow_steps = &self.config.workflows[workflow_name].steps;
 
         // Compute skips
         let skipped = graph.compute_skips(&options.skip, options.skip_behavior);
 
-        // Get execution order
-        let order = graph.topological_order()?;
+        // Get execution order (stable: preserves workflow declaration order for siblings)
+        let order = graph.topological_order_stable(workflow_steps)?;
 
         // Filter by only_environments
         let mut env_skipped: Vec<String> = Vec::new();
@@ -405,6 +407,7 @@ impl<'a> WorkflowRunner<'a> {
         let mut results = Vec::new();
         let mut all_success = true;
         let mut failed_steps: HashSet<String> = HashSet::new();
+        let mut user_skipped_steps: HashSet<String> = HashSet::new();
         let mut workflow_aborted = false;
 
         for (index, step_name) in steps_to_run.iter().enumerate() {
@@ -452,6 +455,27 @@ impl<'a> WorkflowRunner<'a> {
                 ui.show_workflow_progress(index + 1, total, start.elapsed());
                 all_success = false;
                 failed_steps.insert(step_name.clone());
+                continue;
+            }
+
+            // Auto-skip if any dependency was user-skipped
+            if step
+                .depends_on
+                .iter()
+                .any(|dep| user_skipped_steps.contains(dep))
+            {
+                ui.message(&step_display);
+                ui.message(&format!(
+                    "{}{}",
+                    step_pad,
+                    StatusKind::Skipped.format(&theme, "Skipped (dependency skipped)")
+                ));
+                ui.show_workflow_progress(index + 1, total, start.elapsed());
+                user_skipped_steps.insert(step_name.clone());
+                results.push(StepResult::skipped(
+                    &step.name,
+                    crate::steps::CheckResult::complete("Dependency skipped"),
+                ));
                 continue;
             }
 
@@ -510,7 +534,11 @@ impl<'a> WorkflowRunner<'a> {
                                 ui.message(&step_header);
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
-                                    question: format!("{}Already complete. Re-run?", step_pad),
+                                    question: format!(
+                                        "{}Already complete ({}). Re-run?",
+                                        step_pad,
+                                        check_result.short_description()
+                                    ),
                                     prompt_type: PromptType::Select {
                                         options: vec![
                                             PromptOption {
@@ -536,6 +564,7 @@ impl<'a> WorkflowRunner<'a> {
                                         step_pad,
                                         theme.format_skipped(&format!("Skipped ({})", reason))
                                     ));
+                                    user_skipped_steps.insert(step_name.clone());
                                     results.push(StepResult::skipped(&step.name, check_result));
                                     continue;
                                 }
@@ -593,6 +622,7 @@ impl<'a> WorkflowRunner<'a> {
                     // Clear prompt output (question + answer = 2 lines)
                     ui.clear_lines(2);
                     ui.message(&format!("{}{}", step_pad, theme.format_skipped("Skipped")));
+                    user_skipped_steps.insert(step_name.clone());
                     results.push(StepResult::skipped(
                         &step.name,
                         crate::steps::CheckResult::complete("User declined"),
@@ -610,8 +640,8 @@ impl<'a> WorkflowRunner<'a> {
                 ui.message(&step_display);
             }
 
-            // Sensitive confirmation
-            if step.sensitive && interactive {
+            // Sensitive confirmation (skip in dry-run — nothing will actually execute)
+            if step.sensitive && interactive && !options.dry_run {
                 let prompt = Prompt {
                     key: format!("sensitive_{}", step_name),
                     question: "Handles sensitive data. Continue?".to_string(),
@@ -714,16 +744,21 @@ impl<'a> WorkflowRunner<'a> {
 
             // Outer loop: step execution (retry/fix re-enter here)
             'step_execution: loop {
-                // Fresh spinner per attempt
+                // Fresh spinner per attempt — hide command text for sensitive steps
+                let display_command = if step.sensitive {
+                    "[SENSITIVE]".to_string()
+                } else {
+                    step.command.clone()
+                };
                 let attempt_label = if retry_count > 0 {
                     format!(
                         "Running `{}`... (attempt {}/{})",
-                        step.command,
+                        display_command,
                         retry_count + 1,
                         step.retry + 1
                     )
                 } else {
-                    format!("Running `{}`...", step.command)
+                    format!("Running `{}`...", display_command)
                 };
                 let mut spinner = ui.start_spinner_indented(&attempt_label, step_indent);
 
@@ -1107,6 +1142,8 @@ mod tests {
             only_environments: vec![],
             inputs: HashMap::new(),
             prompts: vec![],
+            env_file: None,
+            env_file_optional: false,
         }
     }
 
@@ -1402,6 +1439,8 @@ mod tests {
             only_environments: vec![],
             inputs: HashMap::new(),
             prompts: vec![],
+            env_file: None,
+            env_file_optional: false,
         }
     }
 

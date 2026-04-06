@@ -59,12 +59,22 @@ impl CommandResult {
 /// Dispatches CLI commands to their implementations.
 pub struct CommandDispatcher {
     project_root: PathBuf,
+    config_override: Option<PathBuf>,
 }
 
 impl CommandDispatcher {
     /// Create a new dispatcher for the given project root.
     pub fn new(project_root: PathBuf) -> Self {
-        Self { project_root }
+        Self {
+            project_root,
+            config_override: None,
+        }
+    }
+
+    /// Set an override config path (from `--config` flag).
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
+        self
     }
 
     /// Get the project root path.
@@ -86,10 +96,13 @@ impl CommandDispatcher {
             TrustPolicy::Reject
         };
 
+        let config_override = self.config_override.clone().or_else(|| cli.config.clone());
+
         match &cli.command {
             Some(Commands::Run(args)) => {
                 let cmd = super::run::RunCommand::new(&self.project_root, args.clone())
-                    .with_trust_policy(trust_policy);
+                    .with_trust_policy(trust_policy)
+                    .with_config_override(config_override);
                 cmd.execute(ui)
             }
             Some(Commands::Init(args)) => {
@@ -97,7 +110,8 @@ impl CommandDispatcher {
                 cmd.execute(ui)
             }
             Some(Commands::Add(args)) => {
-                let cmd = super::add::AddCommand::new(&self.project_root, args.clone());
+                let cmd = super::add::AddCommand::new(&self.project_root, args.clone())
+                    .with_config_override(config_override);
                 cmd.execute(ui)
             }
             Some(Commands::Templates(args)) => {
@@ -105,11 +119,13 @@ impl CommandDispatcher {
                 cmd.execute(ui)
             }
             Some(Commands::Status(args)) => {
-                let cmd = super::status::StatusCommand::new(&self.project_root, args.clone());
+                let cmd = super::status::StatusCommand::new(&self.project_root, args.clone())
+                    .with_config_override(config_override);
                 cmd.execute(ui)
             }
             Some(Commands::List(args)) => {
-                let cmd = super::list::ListCommand::new(&self.project_root, args.clone());
+                let cmd = super::list::ListCommand::new(&self.project_root, args.clone())
+                    .with_config_override(config_override);
                 cmd.execute(ui)
             }
             Some(Commands::Last(args)) => {
@@ -121,11 +137,13 @@ impl CommandDispatcher {
                 cmd.execute(ui)
             }
             Some(Commands::Lint(args)) => {
-                let cmd = super::lint::LintCommand::new(&self.project_root, args.clone());
+                let cmd = super::lint::LintCommand::new(&self.project_root, args.clone())
+                    .with_config_override(config_override);
                 cmd.execute(ui)
             }
             Some(Commands::Config(args)) => {
-                let cmd = super::config::ConfigCommand::new(&self.project_root, args.clone());
+                let cmd = super::config::ConfigCommand::new(&self.project_root, args.clone())
+                    .with_config_override(config_override);
                 cmd.execute(ui)
             }
             Some(Commands::Cache(args)) => {
@@ -150,7 +168,8 @@ impl CommandDispatcher {
                     &self.project_root,
                     crate::cli::args::RunArgs::default(),
                 )
-                .with_trust_policy(trust_policy);
+                .with_trust_policy(trust_policy)
+                .with_config_override(config_override);
                 cmd.execute(ui)
             }
         }

@@ -30,8 +30,8 @@ const SIMPLE_CONFIG: &str = r#"
 app_name: "LastTest"
 steps:
   greet:
-    title: "Say hello"
-    command: "echo hello"
+    title: "Check git"
+    command: "git --version"
 workflows:
   default:
     steps: [greet]
@@ -58,7 +58,7 @@ fn last_no_runs_shows_message() {
 
     s.expect("No runs recorded")
         .expect("Should indicate no runs");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn last_after_run_shows_details() {
     s.expect("Last Run").expect("Should show last run header");
     s.expect("Workflow:").expect("Should show workflow");
     s.expect("default").expect("Should show workflow name");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn last_json_flag() {
     let mut s = spawn_bivvy(&["last", "--json"], temp.path());
 
     s.expect("workflow").expect("Should output JSON");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -92,8 +92,8 @@ fn last_all_flag() {
 
     let mut s = spawn_bivvy(&["last", "--all"], temp.path());
 
-    s.expect("Last Run").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Last Run").expect("Should show last run header");
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -103,6 +103,6 @@ fn last_output_flag() {
 
     let mut s = spawn_bivvy(&["last", "--output"], temp.path());
 
-    s.expect("Last Run").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Last Run").expect("Should show last run header");
+    s.expect(expectrl::Eof).unwrap();
 }

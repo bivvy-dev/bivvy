@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::cli::args::StatusArgs;
-use crate::config::load_merged_config;
+use crate::config::load_config;
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
@@ -26,6 +26,7 @@ use super::dispatcher::{Command, CommandResult};
 pub struct StatusCommand {
     project_root: PathBuf,
     args: StatusArgs,
+    config_override: Option<PathBuf>,
 }
 
 impl StatusCommand {
@@ -34,7 +35,14 @@ impl StatusCommand {
         Self {
             project_root: project_root.to_path_buf(),
             args,
+            config_override: None,
         }
+    }
+
+    /// Set an override config path.
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
+        self
     }
 
     /// Get the project root path.
@@ -197,7 +205,7 @@ impl StatusCommand {
 impl Command for StatusCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         // Load configuration
-        let config = match load_merged_config(&self.project_root) {
+        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
             Ok(c) => c,
             Err(BivvyError::ConfigNotFound { .. }) => {
                 ui.error("No configuration found. Run 'bivvy init' first.");

@@ -252,17 +252,36 @@ pub fn execute_step(
 
     // Dry run mode
     if options.dry_run {
-        let command = resolve_string(&step.command, context)?;
+        let display = if step.sensitive {
+            "Would run: [SENSITIVE]".to_string()
+        } else {
+            let command = resolve_string(&step.command, context)?;
+            format!("Would run: {}", command)
+        };
         return Ok(StepResult::success(
             &step.name,
             Duration::ZERO,
             None,
-            Some(format!("Would run: {}", command)),
+            Some(display),
         ));
     }
 
     // Build environment
     let mut env = global_env.clone();
+
+    // Load env_file if specified
+    if let Some(ref env_file_path) = step.env_file {
+        let resolved_path = project_root.join(env_file_path);
+        if step.env_file_optional {
+            let file_env = crate::config::load_env_file_optional(&resolved_path);
+            env.extend(file_env);
+        } else {
+            let file_env = crate::config::load_env_file(&resolved_path)?;
+            env.extend(file_env);
+        }
+    }
+
+    // Step-level env vars override env_file values
     env.extend(step.env.iter().map(|(k, v)| (k.clone(), v.clone())));
 
     // Resolve command with interpolation
@@ -288,6 +307,7 @@ pub fn execute_step(
         env: env.clone(),
         capture_stdout: options.capture_output || output_callback.is_none(),
         capture_stderr: options.capture_output || output_callback.is_none(),
+        stdin_null: true,
         ..Default::default()
     };
 
@@ -376,6 +396,8 @@ mod tests {
             only_environments: vec![],
             inputs: HashMap::new(),
             prompts: vec![],
+            env_file: None,
+            env_file_optional: false,
         }
     }
 

@@ -41,8 +41,8 @@ fn init_interactive_shows_detected_technologies() {
     s.send_line("").unwrap();
 
     // Should eventually create config
-    s.expect("Created .bivvy/config.yml").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Created .bivvy/config.yml").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
@@ -59,16 +59,16 @@ fn init_interactive_rust_project_offers_run() {
     let mut s = spawn_bivvy(&["init"], temp.path());
 
     // Accept detected templates
-    s.expect("Select steps").ok();
+    s.expect("Select steps").unwrap();
     s.send_line("").unwrap();
 
     // After config creation, should ask "Run setup now?"
-    s.expect("Run setup now").ok();
+    s.expect("Run setup now").unwrap();
 
     // Decline — press 'n'
     s.send("n").unwrap();
 
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
 
@@ -88,14 +88,13 @@ fn init_interactive_node_project() {
 
     // Accept defaults
     s.send_line("").unwrap();
-    s.expect("Created .bivvy/config.yml").ok();
+    s.expect("Created .bivvy/config.yml").unwrap();
 
     // Decline run
-    if s.expect("Run setup now").is_ok() {
-        s.send("n").unwrap();
-    }
+    s.expect("Run setup now").unwrap();
+    s.send("n").unwrap();
 
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
 
@@ -109,7 +108,7 @@ fn init_minimal_flag_skips_prompts() {
     let mut s = spawn_bivvy(&["init", "--minimal"], temp.path());
 
     s.expect("Created .bivvy/config.yml").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
 
@@ -123,7 +122,7 @@ fn init_force_overwrites_existing() {
     let mut s = spawn_bivvy(&["init", "--force", "--minimal"], temp.path());
 
     s.expect("Created .bivvy/config.yml").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 
     let config = fs::read_to_string(bivvy_dir.join("config.yml")).unwrap();
     assert!(!config.contains("OldConfig"));
@@ -140,7 +139,7 @@ fn init_refuses_existing_config() {
 
     s.expect("already exists")
         .expect("Should refuse overwrite without --force");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -149,7 +148,7 @@ fn init_verbose_flag() {
     let mut s = spawn_bivvy(&["init", "--minimal", "--verbose"], temp.path());
 
     s.expect("Created").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -157,6 +156,9 @@ fn init_quiet_flag() {
     let temp = TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["init", "--minimal", "--quiet"], temp.path());
 
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    // Quiet mode should produce minimal output
+    assert!(text.len() < 2000, "Quiet mode should produce minimal output");
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }

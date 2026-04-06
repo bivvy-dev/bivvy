@@ -7,6 +7,7 @@ use crate::config::schema::{PromptConfig, StepEnvironmentOverride};
 use crate::config::{CompletedCheck, StepConfig};
 use crate::registry::template::Template;
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 /// A fully resolved step ready for execution.
 #[derive(Debug, Clone)]
@@ -77,6 +78,12 @@ pub struct ResolvedStep {
 
     /// Interactive prompts to execute before this step runs.
     pub prompts: Vec<PromptConfig>,
+
+    /// Path to env file to load before executing this step.
+    pub env_file: Option<PathBuf>,
+
+    /// Don't fail if env_file is missing.
+    pub env_file_optional: bool,
 }
 
 impl ResolvedStep {
@@ -140,6 +147,8 @@ impl ResolvedStep {
             only_environments: config.only_environments.clone(),
             inputs: resolved_inputs.clone(),
             prompts: merge_template_prompts(&config.prompts, &template.inputs, &resolved_inputs),
+            env_file: config.env_file.clone(),
+            env_file_optional: config.env_file_optional,
         };
 
         if let Some(env_name) = environment {
@@ -179,6 +188,8 @@ impl ResolvedStep {
             only_environments: config.only_environments.clone(),
             inputs: HashMap::new(),
             prompts: config.prompts.clone(),
+            env_file: config.env_file.clone(),
+            env_file_optional: config.env_file_optional,
         };
 
         if let Some(env_name) = environment {

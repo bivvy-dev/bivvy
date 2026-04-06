@@ -32,42 +32,22 @@ fn init_tracing(debug: bool) {
 }
 
 fn main() -> ExitCode {
-    // Claim the foreground process group so terminal reads/writes work.
+    // Safety net: claim the foreground process group for terminal I/O.
     //
-    // When `cargo run` (or other launchers) spawn bivvy, the child may not
-    // be the terminal's foreground process group. Without this:
-    //   - `tcsetattr` (raw-mode setup) → SIGTTOU → "suspended (tty output)"
-    //   - `read()` on terminal (read_key) → SIGTTIN → "suspended (tty input)"
-    //   - Even with signals ignored, reads return EIO (os error 5)
+    // When `cargo run` (or other launchers) spawn bivvy, the child may
+    // not be the terminal's foreground process group. We ignore SIGTTOU
+    // (so tcsetpgrp doesn't suspend us) and claim the foreground.
     //
-    // The fix: first ignore SIGTTOU (so tcsetpgrp doesn't suspend us),
-    // then call tcsetpgrp to become the foreground group. After that,
-    // all terminal I/O works normally — both our custom prompt_yes_no
-    // (which calls term.read_key() directly for y/n shortcuts) and
-    // dialoguer's Select/Confirm widgets.
-    //
-    // DO NOT REMOVE: Without this, the run command's interactive prompts
-    // will either suspend or crash with EIO when launched via cargo run
-    // or any wrapper that doesn't set the child as foreground.
-    // See regression tests in `ui/prompts.rs`.
+    // The primary defense against SIGTTOU is using `-lc` (not `-lic`)
+    // for child shell commands — see shell/command.rs. Without `-i`,
+    // child shells don't set up job control and don't steal the
+    // foreground group. These signal ignores and tcsetpgrp call are a
+    // safety net for edge cases (e.g., `cargo run` wrappers).
     #[cfg(unix)]
     unsafe {
-        // Ignore SIGTTOU so tcsetpgrp doesn't suspend us, and SIGTTIN
-        // as a safety net for reads before we claim the foreground.
         libc::signal(libc::SIGTTOU, libc::SIG_IGN);
         libc::signal(libc::SIGTTIN, libc::SIG_IGN);
 
-        // Claim the terminal foreground process group.
-        // When `cargo run` (or other launchers) spawn bivvy, cargo may
-        // put bivvy in its own process group but NOT make it foreground.
-        // Without this, terminal reads (read_key) return EIO because
-        // only the foreground group can read from the TTY.
-        //
-        // DO NOT REMOVE: The custom yes/no prompt in `ui/prompts.rs`
-        // (`prompt_yes_no`) and dialoguer both call term.read_key(),
-        // which requires foreground group access. Without this, ALL
-        // interactive prompts fail when launched via cargo run.
-        // See regression tests in `ui/prompts.rs`.
         let tty_fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR);
         if tty_fd >= 0 {
             libc::tcsetpgrp(tty_fd, libc::getpgrp());

@@ -34,7 +34,7 @@ fn templates_category_filter_rust() {
     let mut s = spawn_bivvy(&["templates", "--category", "rust"]);
 
     s.expect("cargo-build").expect("Should show Rust templates");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -42,7 +42,7 @@ fn templates_category_filter_node() {
     let mut s = spawn_bivvy(&["templates", "--category", "node"]);
 
     s.expect("npm-install").expect("Should show Node templates");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -51,7 +51,7 @@ fn templates_category_filter_ruby() {
 
     s.expect("bundle-install")
         .expect("Should show Ruby templates");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -60,7 +60,7 @@ fn templates_nonexistent_category_shows_zero() {
 
     s.expect("0 templates available")
         .expect("Should show zero templates");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -68,5 +68,5 @@ fn templates_verbose_flag() {
     let mut s = spawn_bivvy(&["templates", "--verbose"]);
 
     s.expect("cargo-build").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }

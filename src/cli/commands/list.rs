@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use serde::Serialize;
 
 use crate::cli::args::ListArgs;
-use crate::config::load_merged_config;
+use crate::config::load_config;
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::ui::theme::BivvyTheme;
@@ -57,6 +57,7 @@ struct WorkflowJsonEntry {
 pub struct ListCommand {
     project_root: PathBuf,
     args: ListArgs,
+    config_override: Option<PathBuf>,
 }
 
 impl ListCommand {
@@ -65,7 +66,14 @@ impl ListCommand {
         Self {
             project_root: project_root.to_path_buf(),
             args,
+            config_override: None,
         }
+    }
+
+    /// Set an override config path.
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
+        self
     }
 
     /// Get the project root path.
@@ -87,7 +95,7 @@ impl ListCommand {
 impl Command for ListCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         // Load configuration
-        let config = match load_merged_config(&self.project_root) {
+        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
             Ok(c) => c,
             Err(BivvyError::ConfigNotFound { .. }) => {
                 ui.error("No configuration found. Run 'bivvy init' first.");

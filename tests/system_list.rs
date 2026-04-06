@@ -31,15 +31,15 @@ app_name: "ListTest"
 steps:
   deps:
     title: "Install dependencies"
-    command: "echo deps"
+    command: "cargo --version"
     description: "Install all project dependencies"
   build:
     title: "Build project"
-    command: "echo build"
+    command: "rustc --version"
     depends_on: [deps]
   test:
     title: "Run tests"
-    command: "echo test"
+    command: "cargo fmt --version"
     depends_on: [build]
 workflows:
   default:
@@ -73,7 +73,7 @@ fn list_steps_only_flag() {
 
     s.expect("Steps:").unwrap();
     s.expect("deps").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -94,7 +94,7 @@ fn list_json_flag() {
     let mut s = spawn_bivvy(&["list", "--json"], temp.path());
 
     s.expect("deps").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -102,8 +102,8 @@ fn list_env_flag() {
     let temp = setup_project(CONFIG);
     let mut s = spawn_bivvy(&["list", "--env", "ci"], temp.path());
 
-    s.expect("Environment:").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Environment:").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -112,7 +112,7 @@ fn list_no_config_fails() {
     let mut s = spawn_bivvy(&["list"], temp.path());
 
     s.expect("No configuration found").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -121,5 +121,5 @@ fn list_shows_dependency_info() {
     let mut s = spawn_bivvy(&["list"], temp.path());
 
     s.expect("depends on").expect("Should show dependencies");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }

@@ -30,7 +30,7 @@ const BASE_CONFIG: &str = r#"
 app_name: "AddTest"
 steps:
   existing:
-    command: "echo existing"
+    command: "rustc --version"
 workflows:
   default:
     steps: [existing]
@@ -46,7 +46,7 @@ fn add_template_to_config() {
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
     s.expect("Added").expect("Should confirm addition");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("template: bundle-install"));
@@ -62,7 +62,7 @@ fn add_with_custom_name() {
     let mut s = spawn_bivvy(&["add", "cargo-build", "--as", "my_build"], temp.path());
 
     s.expect("Added").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("my_build:"));
@@ -75,7 +75,7 @@ fn add_to_named_workflow() {
 app_name: "AddTest"
 steps:
   existing:
-    command: "echo existing"
+    command: "rustc --version"
 workflows:
   default:
     steps: [existing]
@@ -86,7 +86,7 @@ workflows:
     let mut s = spawn_bivvy(&["add", "bundle-install", "--workflow", "ci"], temp.path());
 
     s.expect("Added").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -98,7 +98,7 @@ fn add_after_step() {
     );
 
     s.expect("Added").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -107,7 +107,7 @@ fn add_no_workflow_flag() {
     let mut s = spawn_bivvy(&["add", "bundle-install", "--no-workflow"], temp.path());
 
     s.expect("Added").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("template: bundle-install"));
@@ -122,8 +122,8 @@ fn add_unknown_template_fails() {
     let temp = setup_project(BASE_CONFIG);
     let mut s = spawn_bivvy(&["add", "nonexistent-template-xyz"], temp.path());
 
-    s.expect("not found").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Unknown template: nonexistent-template-xyz").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -133,12 +133,12 @@ fn add_duplicate_fails() {
     // First add
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
     s.expect("Added").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 
     // Second add should fail
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
-    s.expect("already exists").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Step 'bundle-install' already exists in configuration. Use a different name with --as.").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -146,6 +146,6 @@ fn add_without_config_fails() {
     let temp = TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
-    s.expect("bivvy init").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("bivvy init").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }

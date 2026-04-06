@@ -33,7 +33,7 @@ settings:
 steps:
   deps:
     title: "Install dependencies"
-    command: "echo deps"
+    command: "cargo --version"
 workflows:
   default:
     steps: [deps]
@@ -46,7 +46,7 @@ fn config_shows_yaml() {
 
     s.expect("app_name").expect("Should show app_name");
     s.expect("ConfigTest").expect("Should show app name value");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -55,7 +55,7 @@ fn config_json_flag() {
     let mut s = spawn_bivvy(&["config", "--json"], temp.path());
 
     s.expect("ConfigTest").expect("Should show config in JSON");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn config_yaml_flag() {
     let mut s = spawn_bivvy(&["config", "--yaml"], temp.path());
 
     s.expect("app_name").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -73,7 +73,7 @@ fn config_merged_flag() {
     let mut s = spawn_bivvy(&["config", "--merged"], temp.path());
 
     s.expect("app_name").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -81,6 +81,6 @@ fn config_no_config_fails() {
     let temp = TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["config"], temp.path());
 
-    s.expect("No configuration found").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("No configuration found").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }

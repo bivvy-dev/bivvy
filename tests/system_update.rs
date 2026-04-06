@@ -20,8 +20,9 @@ fn update_check_flag() {
     let mut s = spawn_bivvy(&["update", "--check"]);
 
     // Should show current version info (may or may not reach network)
-    s.expect("version").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("version")
+        .expect("Should show version info with --check");
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -35,5 +36,5 @@ fn update_help() {
         .expect("Should list auto-update flag");
     s.expect("--disable-auto-update")
         .expect("Should list disable flag");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }

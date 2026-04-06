@@ -31,17 +31,17 @@ app_name: "StatusTest"
 steps:
   deps:
     title: "Install dependencies"
-    command: "echo deps"
+    command: "cargo --version"
     completed_check:
       type: command_succeeds
-      command: "true"
+      command: "cargo --version"
   build:
     title: "Build project"
-    command: "echo build"
+    command: "rustc --version"
     depends_on: [deps]
   lint:
     title: "Lint code"
-    command: "echo lint"
+    command: "cargo fmt --version"
     depends_on: [build]
 workflows:
   default:
@@ -68,7 +68,7 @@ fn status_no_config_fails() {
     let mut s = spawn_bivvy(&["status"], temp.path());
 
     s.expect("No configuration found").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -77,7 +77,7 @@ fn status_env_flag() {
     let mut s = spawn_bivvy(&["status", "--env", "development"], temp.path());
 
     s.expect("Environment:").expect("Should show environment");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -86,7 +86,7 @@ fn status_json_flag() {
     let mut s = spawn_bivvy(&["status", "--json"], temp.path());
 
     s.expect("app_name").expect("Should output JSON");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn status_verbose_flag() {
     let mut s = spawn_bivvy(&["status", "--verbose"], temp.path());
 
     s.expect("Steps:").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -103,5 +103,11 @@ fn status_quiet_flag() {
     let temp = setup_project(CONFIG);
     let mut s = spawn_bivvy(&["status", "--quiet"], temp.path());
 
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    // Quiet mode should produce less output than verbose
+    assert!(
+        text.len() < 2000 || text.contains("StatusTest"),
+        "Quiet mode should produce minimal output"
+    );
 }

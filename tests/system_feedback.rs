@@ -25,17 +25,19 @@ fn feedback_interactive_capture() {
 
     // Interactive mode should prompt for category and message
     // Accept default category
-    if s.expect("category").is_ok() || s.expect("kind").is_ok() {
-        s.send_line("").unwrap();
-    }
+    s.expect("What kind of feedback?")
+        .expect("Should prompt for category");
+    s.send_line("").unwrap();
 
     // Enter feedback message
-    if s.expect("feedback").is_ok() || s.expect("message").is_ok() {
-        s.send_line("PTY system test feedback").unwrap();
-    }
+    s.expect("feedback")
+        .or_else(|_| s.expect("message"))
+        .expect("Should prompt for message");
+    s.send_line("PTY system test feedback").unwrap();
 
-    s.expect("Feedback captured").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Feedback captured")
+        .expect("Should confirm capture");
+    s.expect(expectrl::Eof).unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -48,7 +50,7 @@ fn feedback_quick_capture_with_message() {
 
     s.expect("Feedback captured")
         .expect("Should confirm capture");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -62,7 +64,7 @@ fn feedback_with_tags() {
     ]);
 
     s.expect("Feedback captured").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 // ---------------------------------------------------------------------------
@@ -73,11 +75,18 @@ fn feedback_with_tags() {
 fn feedback_list() {
     // Capture something first
     let mut s = spawn_bivvy(&["feedback", "--no-deliver", "List test entry"]);
-    s.expect(expectrl::Eof).ok();
+    s.expect("Feedback captured").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 
-    // Then list
+    // Then list — should show captured entries
     let mut s = spawn_bivvy(&["feedback", "list", "--all"]);
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    assert!(
+        text.contains("List test entry") || text.contains("feedback") || text.contains("Feedback"),
+        "Feedback list should show captured entries, got: {}",
+        &text[..text.len().min(300)]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -90,5 +99,5 @@ fn feedback_help() {
 
     s.expect("Capture and manage feedback")
         .expect("Should show help");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }

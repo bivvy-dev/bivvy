@@ -60,6 +60,7 @@ Bivvy is a CLI tool that replaces ad-hoc `bin/setup` scripts with a declarative 
   <behavior>Large commits with multiple unrelated changes</behavior>
   <behavior>Straying from the implementation plan without explicit approval</behavior>
   <behavior>Filtering tests when not debugging (e.g., `cargo test config` instead of `cargo test`)</behavior>
+  <behavior>Using partial strings in expect() calls instead of the actual user-facing messages</behavior>
 </prohibited-behaviors>
 
 ## Architecture
@@ -331,6 +332,127 @@ pub fn setup_project(config: &str) -> Result<TempDir, Box<dyn std::error::Error>
     Ok(temp)
 }
 ```
+
+### System Test Quality Standards
+
+These rules apply to all PTY-based system tests (`tests/system_*.rs`). They exist
+because a prior audit (`SYSTEM-TEST-AUDIT.md`) found that ~40-50% of system tests
+were functionally vacuous — they could not fail unless the binary panicked.
+
+<system-test-anti-patterns>
+  <anti-pattern name="silent-swallow">
+    NEVER use `.ok()` on expect/assertion results. This silently discards failures
+    and makes the test pass regardless of output. Every `expect()` must propagate
+    or `unwrap()`.
+
+    ```rust
+    // WRONG — test passes even if "Step completed" never appears
+    session.expect("Step completed").ok();
+
+    // CORRECT — test fails if pattern is missing
+    session.expect("Step completed").unwrap();
+    ```
+  </anti-pattern>
+
+  <anti-pattern name="eof-only">
+    A test that only asserts `expect(Eof)` verifies nothing beyond "the process
+    eventually exits." Always assert on specific output content before checking EOF.
+
+    ```rust
+    // WRONG — proves nothing about behavior
+    session.expect(Eof).unwrap();
+
+    // CORRECT — verify behavior, then clean exit
+    session.expect("3 steps passed").unwrap();
+    session.expect(Eof).unwrap();
+    ```
+  </anti-pattern>
+
+  <anti-pattern name="no-exit-code">
+    Always verify exit codes for commands that document them. Bivvy defines exit
+    codes 0, 1, 2, and 130 — these must be tested.
+
+    ```rust
+    // CORRECT — verify the process exit status
+    let status = session.wait().unwrap();
+    assert_eq!(status.code(), Some(0));
+    ```
+  </anti-pattern>
+
+  <anti-pattern name="dead-test-data">
+    Do not define config constants or test fixtures that are never used or only
+    partially exercised. If a constant exists, it should be meaningfully tested.
+  </anti-pattern>
+</system-test-anti-patterns>
+
+<system-test-goals>
+  <goal name="assert-on-content">
+    Every test must make at least one assertion on specific output content — a
+    string, pattern, or structured value. A test with no content assertion is not
+    a test.
+  </goal>
+
+  <goal name="doc-coverage">
+    System tests should cover documented behavior. When docs describe flags,
+    output formats, exit codes, error messages, or config options, there should
+    be a corresponding test. Reference `SYSTEM-TEST-AUDIT.md` for current gaps.
+  </goal>
+
+  <goal name="sad-paths">
+    Test error conditions, not just happy paths. Invalid configs, missing files,
+    failed commands, and malformed input should produce specific, documented error
+    messages and correct exit codes.
+  </goal>
+
+  <goal name="side-effect-verification">
+    For commands that create files, modify state, or produce structured output
+    (JSON, YAML), read the output back and verify its content — don't just check
+    that the process exited.
+  </goal>
+
+  <goal name="interactive-workflows">
+    PTY tests should exercise real interactive flows: send keystrokes, verify
+    prompts appear, confirm the right options are presented, and check that
+    selections produce the expected result. Don't just spawn and wait for EOF.
+  </goal>
+
+  <goal name="real-commands">
+    Test with real-world commands that exercise actual tool behavior — `git`,
+    `rustc`, `cargo`, `node`, `python`, etc. Never use `echo`, `ls`, `cat`,
+    `true`, or other shell builtins as stand-ins for real step commands. Bivvy
+    orchestrates development environment setup; tests should reflect that. A step
+    running `echo hello` proves nothing about how Bivvy handles real tool output,
+    exit codes, timing, or failure modes.
+  </goal>
+
+  <goal name="realistic-configs">
+    Use configs that exercise the features under test: dependencies, watches,
+    completed checks, templates, environment constraints, workflows with multiple
+    steps. Trivial single-step configs miss the interesting behavior.
+  </goal>
+</system-test-goals>
+
+<rust-cli-testing-norms>
+  Community-established patterns for testing Rust CLI tools:
+
+  <norm>Use `assert_cmd` + `predicates` for integration tests — assert on stdout,
+  stderr, and exit code in a single chain</norm>
+  <norm>Use `tempfile::TempDir` for all filesystem side effects — never write to
+  the real filesystem or rely on cwd</norm>
+  <norm>Use `insta` for snapshot testing output formats — catches unintended
+  regressions in human-readable output</norm>
+  <norm>Test the CLI binary as a subprocess (`Command::cargo_bin`), not by calling
+  internal functions — this catches arg parsing, output formatting, and exit code
+  bugs that unit tests miss</norm>
+  <norm>For PTY/interactive tests, use `rexpect` or `expectrl` and always set
+  timeouts — a missing prompt should fail fast, not hang forever</norm>
+  <norm>Isolate tests from user environment: set `HOME` to a temp dir, clear
+  interfering env vars, don't depend on global state</norm>
+  <norm>Test `--help` output with snapshots — flag renames and description changes
+  are regressions too</norm>
+  <norm>For commands with `--json` output, parse the JSON and assert on structure
+  and values, not string matching</norm>
+</rust-cli-testing-norms>
 
 ## Git Workflow
 

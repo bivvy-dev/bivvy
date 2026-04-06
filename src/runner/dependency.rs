@@ -65,8 +65,45 @@ impl DependencyGraph {
 
     /// Returns steps in topological order (dependencies before dependents).
     ///
+    /// Uses alphabetical ordering as tie-breaker for determinism.
+    /// Prefer `topological_order_stable` when a workflow step list is available.
+    ///
     /// Returns an error if a cycle is detected.
     pub fn topological_order(&self) -> Result<Vec<String>> {
+        self.topological_order_with_hint(None)
+    }
+
+    /// Returns steps in topological order, using `preferred_order` to break
+    /// ties among sibling steps (same dependency level). Falls back to
+    /// alphabetical ordering for steps not in the preferred list.
+    pub fn topological_order_stable(&self, preferred_order: &[String]) -> Result<Vec<String>> {
+        self.topological_order_with_hint(Some(preferred_order))
+    }
+
+    fn topological_order_with_hint(
+        &self,
+        preferred_order: Option<&[String]>,
+    ) -> Result<Vec<String>> {
+        // Build a position map for tie-breaking. Steps in preferred_order
+        // sort by their position; unknown steps sort after all known ones,
+        // then alphabetically among themselves.
+        let position: HashMap<&str, usize> = preferred_order
+            .map(|order| {
+                order
+                    .iter()
+                    .enumerate()
+                    .map(|(i, s)| (s.as_str(), i))
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        let sort_key = |name: &String| -> (usize, String) {
+            match position.get(name.as_str()) {
+                Some(&pos) => (pos, String::new()),
+                None => (usize::MAX, name.clone()),
+            }
+        };
+
         // Count incoming edges for each node
         let mut in_degree: HashMap<String, usize> = HashMap::new();
         for step in &self.steps {
@@ -76,27 +113,35 @@ impl DependencyGraph {
             );
         }
 
-        // Start with nodes that have no dependencies
-        let mut queue: VecDeque<String> = in_degree
+        // Start with nodes that have no dependencies, sorted for determinism.
+        let mut ready: Vec<String> = in_degree
             .iter()
             .filter(|(_, &degree)| degree == 0)
             .map(|(step, _)| step.clone())
             .collect();
+        ready.sort_by_key(|s| sort_key(s));
+        let mut queue: VecDeque<String> = ready.into_iter().collect();
 
         let mut result = Vec::with_capacity(self.steps.len());
 
         while let Some(step) = queue.pop_front() {
             result.push(step.clone());
 
-            // Reduce in-degree for all dependents
+            // Reduce in-degree for all dependents, collecting newly-ready
+            // ones in preferred/alphabetical order for determinism.
             if let Some(dependents) = self.dependents.get(&step) {
+                let mut newly_ready = Vec::new();
                 for dependent in dependents {
                     if let Some(degree) = in_degree.get_mut(dependent) {
                         *degree -= 1;
                         if *degree == 0 {
-                            queue.push_back(dependent.clone());
+                            newly_ready.push(dependent.clone());
                         }
                     }
+                }
+                newly_ready.sort_by_key(|s| sort_key(s));
+                for dep in newly_ready {
+                    queue.push_back(dep);
                 }
             }
         }

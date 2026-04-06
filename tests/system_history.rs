@@ -31,7 +31,7 @@ app_name: "HistoryTest"
 steps:
   greet:
     title: "Say hello"
-    command: "echo hello"
+    command: "git --version"
 workflows:
   default:
     steps: [greet]
@@ -59,7 +59,7 @@ fn history_no_runs() {
 
     s.expect("No run history")
         .expect("Should indicate no history");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -71,7 +71,7 @@ fn history_after_run() {
 
     s.expect("Run History").expect("Should show history header");
     s.expect("default").expect("Should show workflow name");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -82,7 +82,7 @@ fn history_limit_flag() {
     let mut s = spawn_bivvy(&["history", "--limit", "1"], temp.path());
 
     s.expect("Run History").unwrap();
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -93,7 +93,7 @@ fn history_detail_flag() {
     let mut s = spawn_bivvy(&["history", "--detail"], temp.path());
 
     s.expect("Steps:").expect("Should show step details");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -106,7 +106,7 @@ fn history_json_flag() {
     // --json must produce actual JSON output with workflow data
     s.expect("workflow")
         .expect("Should output JSON with workflow key");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -116,8 +116,8 @@ fn history_since_flag() {
 
     let mut s = spawn_bivvy(&["history", "--since", "1h"], temp.path());
 
-    s.expect("Run History").ok();
-    s.expect(expectrl::Eof).ok();
+    s.expect("Run History").unwrap();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -127,5 +127,11 @@ fn history_step_flag() {
 
     let mut s = spawn_bivvy(&["history", "--step", "greet"], temp.path());
 
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    assert!(
+        text.contains("greet") || text.contains("Run History") || text.contains("No"),
+        "Step filter should show greet step info, got: {}",
+        &text[..text.len().min(300)]
+    );
 }

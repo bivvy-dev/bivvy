@@ -5,7 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::LintArgs;
-use crate::config::{load_merged_config, ConfigPaths};
+use crate::config::{load_config, ConfigPaths};
 use crate::error::{BivvyError, Result};
 use crate::lint::{
     CircularRequirementDepRule, Fix, FixEngine, HumanFormatter, InstallTemplateMissingRule,
@@ -23,6 +23,7 @@ use super::dispatcher::{Command, CommandResult};
 pub struct LintCommand {
     project_root: PathBuf,
     args: LintArgs,
+    config_override: Option<PathBuf>,
 }
 
 impl LintCommand {
@@ -31,7 +32,14 @@ impl LintCommand {
         Self {
             project_root: project_root.to_path_buf(),
             args,
+            config_override: None,
         }
+    }
+
+    /// Set an override config path.
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
+        self
     }
 
     /// Get the project root path.
@@ -82,15 +90,17 @@ impl LintCommand {
 
 impl Command for LintCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        // Check if config exists
-        let paths = ConfigPaths::discover(&self.project_root);
-        if !paths.has_project_config() {
-            ui.error("No configuration found. Run 'bivvy init' first.");
-            return Ok(CommandResult::failure(2));
+        // Check if config exists (skip check when override is provided)
+        if self.config_override.is_none() {
+            let paths = ConfigPaths::discover(&self.project_root);
+            if !paths.has_project_config() {
+                ui.error("No configuration found. Run 'bivvy init' first.");
+                return Ok(CommandResult::failure(2));
+            }
         }
 
         // Load configuration
-        let config = match load_merged_config(&self.project_root) {
+        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
             Ok(c) => c,
             Err(BivvyError::ConfigParseError { path, message }) => {
                 ui.error(&format!("Parse error in {}: {}", path.display(), message));

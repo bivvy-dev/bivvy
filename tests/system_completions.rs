@@ -21,7 +21,7 @@ fn completions_bash() {
 
     s.expect("bivvy")
         .expect("Bash completions should reference bivvy");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -30,7 +30,7 @@ fn completions_zsh() {
 
     s.expect("bivvy")
         .expect("Zsh completions should reference bivvy");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -39,7 +39,7 @@ fn completions_fish() {
 
     s.expect("bivvy")
         .expect("Fish completions should reference bivvy");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -48,5 +48,5 @@ fn completions_help() {
 
     s.expect("Generate shell completions")
         .expect("Should show help");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }

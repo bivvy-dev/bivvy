@@ -163,6 +163,71 @@ impl Drop for CursorGuard<'_> {
     }
 }
 
+/// RAII guard that sets the terminal to raw mode and restores on drop.
+///
+/// On macOS, characters that arrive while the terminal is in canonical
+/// (cooked) mode are stored in the canonical editing buffer. When
+/// `tcsetattr` switches to raw mode (ICANON off), macOS does NOT make
+/// those buffered characters available for non-canonical reads — they
+/// are effectively lost. This is a macOS kernel behavior difference
+/// from Linux.
+///
+/// By setting raw mode before any prompt output, keystrokes that arrive
+/// at any point during the prompt are always in the raw input queue and
+/// immediately available for `read_key()`.
+#[cfg(unix)]
+struct RawModeGuard {
+    fd: i32,
+    original: libc::termios,
+}
+
+#[cfg(unix)]
+impl RawModeGuard {
+    fn enter(term: &Term) -> std::io::Result<Self> {
+        use std::os::unix::io::AsRawFd;
+        let fd = term.as_raw_fd();
+
+        unsafe {
+            let mut original = std::mem::MaybeUninit::<libc::termios>::uninit();
+            if libc::tcgetattr(fd, original.as_mut_ptr()) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            let original = original.assume_init();
+
+            let mut raw = original;
+            libc::cfmakeraw(&mut raw);
+            // Preserve output processing so \n maps to \r\n in prompt text.
+            raw.c_oflag = original.c_oflag;
+
+            if libc::tcsetattr(fd, libc::TCSADRAIN, &raw) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+
+            Ok(Self { fd, original })
+        }
+    }
+}
+
+#[cfg(unix)]
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::tcsetattr(self.fd, libc::TCSADRAIN, &self.original);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+struct RawModeGuard;
+
+#[cfg(not(unix))]
+impl RawModeGuard {
+    fn enter(_term: &Term) -> std::io::Result<Self> {
+        Ok(Self)
+    }
+}
+
+
 /// Custom yes/no prompt with `›`/`·` indicators and `y`/`n` keyboard shortcuts.
 ///
 /// Renders options below the prompt question, indented to align with
@@ -213,6 +278,17 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
     let inactive_prefix = Style::new().dim();
     let inactive_style = Style::new().dim();
 
+    // Enter raw mode BEFORE writing any prompt output. On macOS,
+    // keystrokes that arrive while in canonical (cooked) mode are lost
+    // when tcsetattr switches to raw mode — the canonical buffer is not
+    // drained into the non-canonical read queue. By setting raw mode
+    // first, any keystroke (from user or PTY test harness) lands
+    // directly in the raw input queue and is immediately available.
+    //
+    // Guard is dropped after the selection, restoring cooked mode for
+    // normal output.
+    let _raw_guard = RawModeGuard::enter(term).map_err(BivvyError::Io)?;
+
     // Write prompt question
     term.write_line(&prompt.question).map_err(BivvyError::Io)?;
 
@@ -241,7 +317,8 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
         }
         term.flush().map_err(BivvyError::Io)?;
 
-        // Read key
+        // Read key — terminal is already in raw mode so read_key() is a
+        // no-op mode switch (raw→raw). Characters are available immediately.
         let key = term.read_key().map_err(BivvyError::Io)?;
 
         let chosen = match key {
@@ -269,6 +346,10 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
         };
 
         if let Some(idx) = chosen {
+            // Drop raw mode before writing answer text — restores output
+            // processing (OPOST) so \n maps to \r\n correctly.
+            drop(_raw_guard);
+
             // Clear option lines
             term.clear_last_lines(options.len())
                 .map_err(BivvyError::Io)?;

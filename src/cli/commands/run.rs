@@ -30,6 +30,7 @@ pub struct RunCommand {
     project_root: PathBuf,
     args: RunArgs,
     trust_policy: TrustPolicy,
+    config_override: Option<PathBuf>,
 }
 
 impl RunCommand {
@@ -39,12 +40,19 @@ impl RunCommand {
             project_root: project_root.to_path_buf(),
             args,
             trust_policy: TrustPolicy::Prompt,
+            config_override: None,
         }
     }
 
     /// Create a new run command with a specific trust policy.
     pub fn with_trust_policy(mut self, policy: TrustPolicy) -> Self {
         self.trust_policy = policy;
+        self
+    }
+
+    /// Set an override config path.
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
         self
     }
 
@@ -121,22 +129,33 @@ impl RunCommand {
 
 impl Command for RunCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        // Load configuration with trust verification for remote extends
-        let trust_store_path = TrustStore::default_path();
-        let resolver = ExtendsResolver::default();
-        let config = match load_merged_config_with_trust(
-            &self.project_root,
-            &resolver,
-            self.trust_policy,
-            &trust_store_path,
-            ui,
-        ) {
-            Ok(c) => c,
-            Err(BivvyError::ConfigNotFound { .. }) => {
-                ui.error("No configuration found. Run 'bivvy init' first.");
-                return Ok(CommandResult::failure(2));
+        // Load configuration — use override path if provided, otherwise
+        // discover and merge with trust verification for remote extends.
+        let config = if let Some(ref override_path) = self.config_override {
+            match crate::config::load_config_file(override_path) {
+                Ok(c) => c,
+                Err(e) => {
+                    ui.error(&format!("Failed to load config from {}: {}", override_path.display(), e));
+                    return Ok(CommandResult::failure(2));
+                }
             }
-            Err(e) => return Err(e),
+        } else {
+            let trust_store_path = TrustStore::default_path();
+            let resolver = ExtendsResolver::default();
+            match load_merged_config_with_trust(
+                &self.project_root,
+                &resolver,
+                self.trust_policy,
+                &trust_store_path,
+                ui,
+            ) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(CommandResult::failure(2));
+                }
+                Err(e) => return Err(e),
+            }
         };
 
         // Deprecation warning for --ci flag

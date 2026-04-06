@@ -72,6 +72,13 @@ pub struct CommandOptions {
     /// Capture stderr (if false, inherits from parent).
     pub capture_stderr: bool,
 
+    /// Redirect stdin from /dev/null instead of inheriting the terminal.
+    ///
+    /// Use this for commands that don't need interactive input (e.g.,
+    /// variable evaluation, completed checks). Prevents child processes
+    /// from accessing the terminal and interfering with process groups.
+    pub stdin_null: bool,
+
     /// Timeout in seconds (None = no timeout).
     pub timeout: Option<u64>,
 }
@@ -108,6 +115,10 @@ pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult>
     }
 
     // Configure stdio
+    if options.stdin_null {
+        cmd.stdin(Stdio::null());
+    }
+
     if options.capture_stdout {
         cmd.stdout(Stdio::piped());
     } else {
@@ -153,11 +164,15 @@ pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult>
 }
 
 /// Execute a command and return success/failure.
+///
+/// Stdin is redirected from `/dev/null` — check commands should not
+/// interact with the terminal.
 pub fn execute_check(command: &str, cwd: Option<&Path>) -> bool {
     let options = CommandOptions {
         cwd: cwd.map(|p| p.to_path_buf()),
         capture_stdout: true,
         capture_stderr: true,
+        stdin_null: true,
         ..Default::default()
     };
 
@@ -187,6 +202,10 @@ pub fn execute_streaming(
 
     for (key, value) in &options.env {
         cmd.env(key, value);
+    }
+
+    if options.stdin_null {
+        cmd.stdin(Stdio::null());
     }
 
     cmd.stdout(Stdio::piped());
@@ -259,11 +278,15 @@ pub fn execute_streaming(
 }
 
 /// Execute a command and collect output without streaming.
+///
+/// Stdin is redirected from `/dev/null` — these commands run silently
+/// and should not interact with the terminal.
 pub fn execute_quiet(command: &str, cwd: Option<&Path>) -> Result<CommandResult> {
     let options = CommandOptions {
         cwd: cwd.map(|p| p.to_path_buf()),
         capture_stdout: true,
         capture_stderr: true,
+        stdin_null: true,
         ..Default::default()
     };
     execute(command, &options)
@@ -280,22 +303,29 @@ fn detect_shell() -> String {
 
 /// Get the flag to pass commands to the shell.
 ///
-/// Uses `-lic` (interactive login shell) on Unix so that the user's
-/// full shell environment is available. Tools like mise, asdf, nvm,
-/// and rbenv are typically activated in `.zshrc`/`.bashrc` (interactive)
-/// or `.zprofile`/`.bash_profile` (login). Without `-lic`, these tools
-/// aren't in PATH and step commands fail with "command not found".
+/// Uses `-lc` (login, non-interactive) on Unix so that the user's
+/// login shell environment is available. Login shells source
+/// `.zprofile`/`.bash_profile`/`.zshenv`, which is where most tools
+/// (mise, asdf, homebrew, rbenv, pyenv) install their PATH additions.
 ///
-/// In CI environments, uses `-lc` (login, non-interactive) to avoid
-/// `bash: cannot set terminal process group` errors caused by `-i`
-/// trying to set up job control without a TTY.
+/// **Why not `-lic` (interactive)?**  The `-i` flag makes the child
+/// shell set up job control: it calls `setpgid`/`tcsetpgrp` to create
+/// its own process group and steal the terminal foreground. This causes:
+///   - **SIGTTOU** — bivvy becomes a background process; terminal
+///     writes trigger "zsh: suspended (tty output)"
+///   - **Ctrl+C/Ctrl+Z broken** — signals go to the child's process
+///     group, not bivvy's, so the user can't interrupt or suspend
+///   - **Prompt hangs** — after the child exits, bivvy is background;
+///     `read_key()` returns EIO or blocks
+///
+/// Tools that only activate in `.zshrc`/`.bashrc` (interactive-only
+/// configs) won't be available. Users who need this should move their
+/// PATH additions to `.zshenv` (zsh) or `.bash_profile` (bash).
 fn shell_flag(_shell: &str) -> &'static str {
     if cfg!(target_os = "windows") {
         "/C"
-    } else if super::is_ci() {
-        "-lc"
     } else {
-        "-lic"
+        "-lc"
     }
 }
 
@@ -445,35 +475,11 @@ mod tests {
     }
 
     #[test]
-    fn shell_flag_uses_non_interactive_in_ci() {
-        // When CI env var is set, shell_flag should use -lc (non-interactive)
-        // to avoid "cannot set terminal process group" errors
-        std::env::set_var("CI", "true");
+    fn shell_flag_uses_non_interactive_login_shell() {
+        // shell_flag always uses -lc (login, non-interactive) to avoid
+        // the child shell stealing the terminal foreground group via
+        // job control setup, which causes SIGTTOU and breaks Ctrl+C/Z.
         let flag = shell_flag("/bin/bash");
-        std::env::remove_var("CI");
         assert_eq!(flag, "-lc");
-    }
-
-    #[test]
-    fn shell_flag_uses_interactive_outside_ci() {
-        // Ensure no CI env vars are set for this test
-        let ci_vars = ["CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "TRAVIS"];
-        let saved: Vec<_> = ci_vars
-            .iter()
-            .map(|k| (*k, std::env::var(k).ok()))
-            .collect();
-        for k in &ci_vars {
-            std::env::remove_var(k);
-        }
-
-        let flag = shell_flag("/bin/bash");
-
-        // Restore env vars
-        for (k, v) in &saved {
-            if let Some(val) = v {
-                std::env::set_var(k, val);
-            }
-        }
-        assert_eq!(flag, "-lic");
     }
 }

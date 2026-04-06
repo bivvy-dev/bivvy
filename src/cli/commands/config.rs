@@ -15,6 +15,7 @@ use super::dispatcher::{Command, CommandResult};
 pub struct ConfigCommand {
     project_root: PathBuf,
     args: ConfigArgs,
+    config_override: Option<PathBuf>,
 }
 
 impl ConfigCommand {
@@ -23,7 +24,14 @@ impl ConfigCommand {
         Self {
             project_root: project_root.to_path_buf(),
             args,
+            config_override: None,
         }
+    }
+
+    /// Set an override config path.
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
+        self
     }
 
     /// Get the project root path.
@@ -41,8 +49,10 @@ impl Command for ConfigCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         let paths = ConfigPaths::discover(&self.project_root);
 
-        // Load configuration: merged (all sources) or project-only
-        let config = if self.args.merged {
+        // Load configuration: override path, merged (all sources), or project-only
+        let config = if let Some(ref override_path) = self.config_override {
+            load_config_file(override_path)?
+        } else if self.args.merged {
             match load_merged_config(&self.project_root) {
                 Ok(c) => c,
                 Err(BivvyError::ConfigNotFound { .. }) => {

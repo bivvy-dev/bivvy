@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::AddArgs;
-use crate::config::{load_merged_config, CompletedCheck};
+use crate::config::{load_config, CompletedCheck};
 use crate::error::{BivvyError, Result};
 use crate::registry::resolver::Registry;
 use crate::registry::template::Template;
@@ -20,6 +20,7 @@ use super::dispatcher::{Command, CommandResult};
 pub struct AddCommand {
     project_root: PathBuf,
     args: AddArgs,
+    config_override: Option<PathBuf>,
 }
 
 impl AddCommand {
@@ -28,7 +29,14 @@ impl AddCommand {
         Self {
             project_root: project_root.to_path_buf(),
             args,
+            config_override: None,
         }
+    }
+
+    /// Set an override config path.
+    pub fn with_config_override(mut self, config_override: Option<PathBuf>) -> Self {
+        self.config_override = config_override;
+        self
     }
 
     /// Get the project root path.
@@ -292,7 +300,7 @@ impl Command for AddCommand {
             .unwrap_or(template_name.as_str());
 
         // Validate step doesn't already exist
-        let config = load_merged_config(&self.project_root)?;
+        let config = load_config(&self.project_root, self.config_override.as_deref())?;
         if config.steps.contains_key(step_name) {
             ui.error(&format!(
                 "Step '{}' already exists in configuration. Use a different name with --as.",

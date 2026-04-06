@@ -20,7 +20,14 @@ fn cache_list() {
     let mut s = spawn_bivvy(&["cache", "list"]);
 
     // May show entries or be empty — either way should succeed
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    assert!(
+        text.contains("Cache") || text.contains("entries") || text.contains("empty")
+            || text.contains("cached") || text.contains("0"),
+        "Cache list should show cache info, got: {}",
+        &text[..text.len().min(300)]
+    );
 }
 
 #[test]
@@ -31,7 +38,7 @@ fn cache_stats() {
         .expect("Should show stats header");
     s.expect("Total entries:").expect("Should show entry count");
     s.expect("Total size:").expect("Should show total size");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
@@ -39,14 +46,21 @@ fn cache_clear_expired() {
     let mut s = spawn_bivvy(&["cache", "clear", "--expired"]);
 
     s.expect("Cleared").expect("Should confirm clearing");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
 
 #[test]
 fn cache_clear_force() {
     let mut s = spawn_bivvy(&["cache", "clear", "--force"]);
 
-    s.expect(expectrl::Eof).ok();
+    let output = s.expect(expectrl::Eof).unwrap();
+    let text = String::from_utf8_lossy(output.as_bytes());
+    assert!(
+        text.contains("Cleared") || text.contains("cleared") || text.contains("empty")
+            || text.contains("Cache"),
+        "Cache clear --force should confirm clearing, got: {}",
+        &text[..text.len().min(300)]
+    );
 }
 
 #[test]
@@ -55,5 +69,5 @@ fn cache_help() {
 
     s.expect("Manage template cache")
         .expect("Should show cache help");
-    s.expect(expectrl::Eof).ok();
+    s.expect(expectrl::Eof).unwrap();
 }
