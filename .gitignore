@@ -11,6 +11,7 @@ Cargo.lock
 *.local
 *.local.*
 
+.claude/local
 .claude/plans
 .claude/tasks
 .claude/notes
