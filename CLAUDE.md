@@ -345,12 +345,28 @@ were functionally vacuous — they could not fail unless the binary panicked.
     and makes the test pass regardless of output. Every `expect()` must propagate
     or `unwrap()`.
 
+    NEVER use `if s.expect(...).is_ok()` to conditionally execute test logic.
+    This makes the entire block optional — if the expected output never appears,
+    the test silently skips the interaction and passes vacuously. If the prompt
+    is expected, use `.unwrap()`. If the prompt is genuinely conditional, assert
+    on the alternative path too.
+
     ```rust
     // WRONG — test passes even if "Step completed" never appears
     session.expect("Step completed").ok();
 
+    // WRONG — if "Run setup now" never appears, the send("y") is skipped
+    // and the test passes without ever testing the run path
+    if s.expect("Run setup now").is_ok() {
+        s.send("y").unwrap();
+    }
+
     // CORRECT — test fails if pattern is missing
     session.expect("Step completed").unwrap();
+
+    // CORRECT — prompt must appear, and the response is tested
+    s.expect("Run setup now").unwrap();
+    s.send("y").unwrap();
     ```
   </anti-pattern>
 
@@ -414,6 +430,35 @@ were functionally vacuous — they could not fail unless the binary panicked.
     PTY tests should exercise real interactive flows: send keystrokes, verify
     prompts appear, confirm the right options are presented, and check that
     selections produce the expected result. Don't just spawn and wait for EOF.
+
+    When a test accepts a prompt that triggers a follow-up action (e.g., "Run
+    setup now?" → "y"), the test MUST assert on the outcome of that action —
+    success output, error messages, exit code, or side effects. Accepting a
+    prompt and then only checking EOF proves nothing about whether the triggered
+    action worked.
+  </goal>
+
+  <goal name="multi-phase-commands">
+    Some commands have multiple phases (e.g., `init` creates config then
+    optionally runs setup; `add` modifies config then optionally runs the step).
+    Each phase that executes must be independently verified. Asserting on phase
+    1 output does not cover phase 2 — if a test triggers phase 2, it must assert
+    on phase 2's outcome (success, failure, output, exit code, side effects).
+
+    ```rust
+    // WRONG — verifies init but not the run it triggered
+    s.expect("Created .bivvy/config.yml").unwrap();
+    s.expect("Run setup now").unwrap();
+    s.send("y").unwrap();
+    s.expect(expectrl::Eof).unwrap(); // ← run could have failed
+
+    // CORRECT — verifies both phases
+    s.expect("Created .bivvy/config.yml").unwrap();
+    s.expect("Run setup now").unwrap();
+    s.send("y").unwrap();
+    s.expect("steps passed").unwrap(); // ← phase 2 outcome
+    s.expect(expectrl::Eof).unwrap();
+    ```
   </goal>
 
   <goal name="real-commands">
