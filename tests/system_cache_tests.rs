@@ -1,381 +1,564 @@
 //! Comprehensive system tests for `bivvy cache`.
 //!
-//! Tests cache management subcommands: list, stats, clear, and their
-//! flag variants.  Cache is seeded by running a workflow that triggers
-//! template resolution before testing cache state.
+//! Tests cache management subcommands: `list`, `stats`, `clear`, and their
+//! flag variants.  Each test is isolated by setting `HOME` and
+//! `XDG_CACHE_HOME` to a temp directory so the cache is deterministic.
+//!
+//! When a test needs a non-empty cache, it seeds entries directly through
+//! `bivvy::cache::CacheStore` pointing at the same isolated directory the
+//! spawned binary will read from.
 #![cfg(unix)]
 
 mod system;
 
-use std::fs;
+use assert_cmd::cargo::cargo_bin;
+use bivvy::cache::CacheStore;
+use expectrl::Session;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
 use system::helpers::*;
+use tempfile::TempDir;
 
 // ─────────────────────────────────────────────────────────────────────
-// Configs
+// Helpers
 // ─────────────────────────────────────────────────────────────────────
 
-/// A simple config that uses a template — running this workflow will
-/// populate the cache with at least one entry.
-const TEMPLATE_CONFIG: &str = r#"
-app_name: "CacheTest"
-steps:
-  greet:
-    command: "git --version"
-workflows:
-  default:
-    steps: [greet]
-"#;
+/// Compute the cache directory that a child `bivvy` process will use when
+/// spawned with the given `HOME` and `XDG_CACHE_HOME` set to `home`.
+///
+/// This mirrors `bivvy::cache::default_cache_dir()` on both macOS and
+/// Linux so tests can seed entries the binary will actually read.
+fn isolated_cache_dir(home: &Path) -> PathBuf {
+    // On macOS `dirs::cache_dir()` returns `$HOME/Library/Caches`; on Linux
+    // it reads `$XDG_CACHE_HOME` first, falling back to `$HOME/.cache`.
+    // We set both env vars in `spawn_cache_isolated`, and since
+    // `XDG_CACHE_HOME` takes precedence on Linux, we use it as the base
+    // there.  On macOS `XDG_CACHE_HOME` is ignored, so we use
+    // `Library/Caches` directly.
+    #[cfg(target_os = "macos")]
+    {
+        home.join("Library")
+            .join("Caches")
+            .join("bivvy")
+            .join("templates")
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        home.join("bivvy").join("templates")
+    }
+}
+
+/// Build a `CacheStore` pointing at the isolated cache dir for `home`.
+fn isolated_store(home: &Path) -> CacheStore {
+    let dir = isolated_cache_dir(home);
+    std::fs::create_dir_all(&dir).unwrap();
+    CacheStore::new(dir)
+}
+
+/// Spawn `bivvy` in a PTY with `HOME` and `XDG_CACHE_HOME` overridden.
+///
+/// This isolates the cache from the user's real `~/.cache/bivvy/` (or
+/// `~/Library/Caches/bivvy/` on macOS), giving each test a
+/// deterministically empty cache — or a deterministically seeded one
+/// when combined with [`isolated_store`].
+fn spawn_cache_isolated(args: &[&str], home: &Path) -> Session {
+    let bin = cargo_bin("bivvy");
+    let mut cmd = Command::new(bin);
+    cmd.args(args);
+    cmd.env("HOME", home);
+    // On Linux, `dirs::cache_dir()` honours XDG_CACHE_HOME first. Point it
+    // directly at the temp home so Linux tests are as isolated as macOS.
+    cmd.env("XDG_CACHE_HOME", home);
+    // Clear anything that could leak the real user's cache.
+    cmd.env_remove("XDG_DATA_HOME");
+    let mut session = Session::spawn(cmd).expect("Failed to spawn bivvy");
+    session.set_expect_timeout(Some(Duration::from_secs(30)));
+    session
+}
+
+/// Run `bivvy cache <subcommand>` non-interactively under the isolated
+/// environment and return `(stdout, stderr, exit_code)`.
+///
+/// Used for help / error tests where we want deterministic captured
+/// output suitable for snapshotting.
+fn run_cache_isolated(args: &[&str], home: &Path) -> (String, String, i32) {
+    let bin = cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(args)
+        .env("HOME", home)
+        .env("XDG_CACHE_HOME", home)
+        .env_remove("XDG_DATA_HOME")
+        .output()
+        .expect("Failed to run bivvy");
+    let stdout = strip_ansi(&String::from_utf8_lossy(&output.stdout));
+    let stderr = strip_ansi(&String::from_utf8_lossy(&output.stderr));
+    let code = output.status.code().unwrap_or(-1);
+    (stdout, stderr, code)
+}
 
 // =====================================================================
-// HAPPY PATH — cache stats
+// HAPPY PATH — cache stats (empty)
 // =====================================================================
 
-/// cache stats shows header and all expected detail fields.
+/// `cache stats` on an empty isolated cache prints the header, every
+/// documented field with zero values, a location line, and exits 0.
 #[test]
-fn cache_stats_shows_all_fields() {
-    let mut s = spawn_bivvy_global(&["cache", "stats"]);
+fn cache_stats_empty_shows_all_fields_and_exits_zero() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "stats"], home.path());
 
-    s.expect("Cache Statistics")
-        .expect("Should show stats header");
-    s.expect("Total entries:")
-        .expect("Should show entry count");
-    s.expect("Fresh:")
-        .expect("Should show fresh count");
-    s.expect("Expired:")
-        .expect("Should show expired count");
-    s.expect("Total size:")
-        .expect("Should show total size");
-    s.expect("Location:")
-        .expect("Should show cache directory location");
+    // Full strings as emitted by `show_stats` in src/cli/commands/cache.rs.
+    s.expect("Cache Statistics:").unwrap();
+    s.expect("  Total entries: 0").unwrap();
+    s.expect("  Fresh: 0").unwrap();
+    s.expect("  Expired: 0").unwrap();
+    s.expect("  Total size: 0 bytes").unwrap();
+    s.expect("  Location: ").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // =====================================================================
-// HAPPY PATH — cache list
+// HAPPY PATH — cache stats (seeded)
 // =====================================================================
 
-/// cache list on a potentially empty cache produces output without error.
+/// `cache stats` on a cache seeded with one fresh and one expired entry
+/// reports both correctly, reports the combined byte total, and exits 0.
 #[test]
-fn cache_list_runs_without_error() {
-    let mut s = spawn_bivvy_global(&["cache", "list"]);
+fn cache_stats_with_fresh_and_expired_entries() {
+    let home = TempDir::new().unwrap();
 
-    let output = read_to_eof(&mut s);
-    // Should either show "Cache is empty" or list entries — either is valid
-    assert!(
-        output.contains("empty") || output.contains("cached entries"),
-        "Should show either empty message or entry list, got: {}",
-        output
-    );
+    // Seed: one fresh (TTL 3600), one expired (TTL 0).
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "rust-fresh", "12345", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "rust-old", "abc", 0)
+        .unwrap();
+
+    let mut s = spawn_cache_isolated(&["cache", "stats"], home.path());
+
+    s.expect("Cache Statistics:").unwrap();
+    s.expect("  Total entries: 2").unwrap();
+    s.expect("  Fresh: 1").unwrap();
+    s.expect("  Expired: 1").unwrap();
+    // 5 + 3 = 8 bytes.
+    s.expect("  Total size: 8 bytes").unwrap();
+    s.expect("  Location: ").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
-/// cache list --verbose shows detailed entry information.
-#[test]
-fn cache_list_verbose() {
-    let mut s = spawn_bivvy_global(&["cache", "list", "--verbose"]);
+// =====================================================================
+// HAPPY PATH — cache list (empty)
+// =====================================================================
 
-    let output = read_to_eof(&mut s);
-    // If cache is non-empty, verbose should show Status/TTL/Size fields
-    if !output.contains("empty") {
-        assert!(
-            output.contains("Status:"),
-            "Verbose list should show Status field, got: {}",
-            output
-        );
-        assert!(
-            output.contains("TTL:"),
-            "Verbose list should show TTL field, got: {}",
-            output
-        );
-        assert!(
-            output.contains("Size:"),
-            "Verbose list should show Size field, got: {}",
-            output
-        );
-    }
-    // Either way, the command should complete successfully
+/// `cache list` on an empty cache prints the empty message and exits 0.
+#[test]
+fn cache_list_empty_shows_message_and_exits_zero() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "list"], home.path());
+
+    s.expect("Cache is empty").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
-/// cache list --json outputs valid JSON structure.
+/// `cache list --verbose` on empty cache prints the empty message.
 #[test]
-fn cache_list_json() {
-    let mut s = spawn_bivvy_global(&["cache", "list", "--json"]);
+fn cache_list_verbose_empty_exits_zero() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "list", "--verbose"], home.path());
 
-    let output = read_to_eof(&mut s);
-    // If cache is non-empty, should output JSON (starts with [ or "empty")
-    if !output.contains("empty") {
-        assert!(
-            output.contains('[') && output.contains(']'),
-            "JSON output should contain array brackets, got: {}",
-            output
-        );
-    }
+    s.expect("Cache is empty").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
-/// cache list --verbose --json (both flags combined) — json takes priority.
+/// `cache list --json` on empty cache prints the empty message.
 #[test]
-fn cache_list_verbose_and_json() {
-    let mut s = spawn_bivvy_global(&["cache", "list", "--verbose", "--json"]);
+fn cache_list_json_empty_exits_zero() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "list", "--json"], home.path());
 
-    let output = read_to_eof(&mut s);
-    // Should produce output without error
-    if !output.contains("empty") {
-        assert!(
-            output.contains('['),
-            "JSON flag should produce JSON output even with --verbose, got: {}",
-            output
-        );
+    s.expect("Cache is empty").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+}
+
+/// `cache list --verbose --json` on empty cache prints the empty message.
+#[test]
+fn cache_list_verbose_and_json_empty_exits_zero() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "list", "--verbose", "--json"], home.path());
+
+    s.expect("Cache is empty").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+}
+
+// =====================================================================
+// HAPPY PATH — cache list (seeded)
+// =====================================================================
+
+/// `cache list` on a seeded cache prints one entry-count header line per
+/// template and the fresh/expired status for each.
+#[test]
+fn cache_list_shows_seeded_entries_with_status() {
+    let home = TempDir::new().unwrap();
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "cargo-setup", "content", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "git-hooks", "content", 0)
+        .unwrap();
+
+    let mut s = spawn_cache_isolated(&["cache", "list"], home.path());
+
+    s.expect("2 cached entries:").unwrap();
+    // Full non-verbose line format from src/cli/commands/cache.rs:
+    //     "  {template_name} [{status}] {ttl}"
+    // cargo-setup was seeded with 3600 s TTL so it is fresh; git-hooks with
+    // 0 s TTL so it is expired and its ttl_str is literally "expired".
+    s.expect("  cargo-setup [fresh] ").unwrap();
+    s.expect("  git-hooks [expired] expired").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+}
+
+/// `cache list --verbose` on a seeded cache prints every documented
+/// verbose field (Status, TTL, Size) for each entry.
+#[test]
+fn cache_list_verbose_shows_all_fields_for_seeded_entry() {
+    let home = TempDir::new().unwrap();
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "rust-toolchain", "hello", 3600)
+        .unwrap();
+
+    let mut s = spawn_cache_isolated(&["cache", "list", "--verbose"], home.path());
+
+    s.expect("1 cached entries:").unwrap();
+    // Verbose format from src/cli/commands/cache.rs:
+    //     "  {template_name} ({source_id})"
+    //     "    Status: {status}"
+    //     "    TTL: {ttl_str}"
+    //     "    Size: {size_bytes} bytes"
+    s.expect("  rust-toolchain (http:https://example.com)").unwrap();
+    s.expect("    Status: fresh").unwrap();
+    s.expect("    TTL: ").unwrap();
+    s.expect("    Size: 5 bytes").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+}
+
+/// `cache list --json` on a seeded cache emits parseable JSON describing
+/// the entries.  We parse it to catch structural regressions instead of
+/// string matching.
+#[test]
+fn cache_list_json_output_is_parseable_and_correct() {
+    let home = TempDir::new().unwrap();
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "alpha", "aaa", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "beta", "bbbbb", 3600)
+        .unwrap();
+
+    // Use non-PTY capture so we get clean stdout for JSON parsing.
+    let (stdout, _stderr, code) =
+        run_cache_isolated(&["cache", "list", "--json"], home.path());
+    assert_eq!(code, 0, "cache list --json should exit 0, stdout: {stdout}");
+
+    // Locate the JSON array in stdout (ui.message prefixes may add no
+    // content but trailing newline is fine).
+    let start = stdout.find('[').expect("JSON array not found in stdout");
+    let end = stdout.rfind(']').expect("JSON array end not found in stdout");
+    let json_slice = &stdout[start..=end];
+    let parsed: serde_json::Value =
+        serde_json::from_str(json_slice).expect("list --json must emit valid JSON");
+
+    let arr = parsed.as_array().expect("JSON root must be an array");
+    assert_eq!(arr.len(), 2, "expected exactly 2 entries");
+
+    // Every entry must carry these documented fields.
+    for entry in arr {
+        assert!(entry.get("source_id").is_some(), "missing source_id");
+        assert!(entry.get("template_name").is_some(), "missing template_name");
+        assert!(entry.get("metadata").is_some(), "missing metadata block");
     }
+
+    // Template names must match what we seeded.
+    let names: Vec<&str> = arr
+        .iter()
+        .map(|e| e["template_name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"alpha"));
+    assert!(names.contains(&"beta"));
 }
 
 // =====================================================================
 // HAPPY PATH — cache clear
 // =====================================================================
 
-/// cache clear --expired removes only expired entries.
+/// `cache clear --expired` on an empty cache reports 0 cleared entries
+/// and exits 0.
 #[test]
-fn cache_clear_expired() {
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--expired"]);
+fn cache_clear_expired_on_empty_cache_reports_zero() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "clear", "--expired"], home.path());
 
-    s.expect("Cleared").expect("Should confirm clearing");
+    s.expect("Cleared 0 expired entries").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
-/// cache clear --force clears everything without prompting.
+/// `cache clear --expired` on a seeded cache removes only expired entries
+/// and leaves fresh ones intact.
 #[test]
-fn cache_clear_force() {
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--force"]);
+fn cache_clear_expired_removes_only_expired() {
+    let home = TempDir::new().unwrap();
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "keep-me", "fresh", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "drop-me", "stale", 0)
+        .unwrap();
 
-    let output = read_to_eof(&mut s);
-    // Should either clear entries or report cache is already empty
-    assert!(
-        output.contains("Cleared") || output.contains("empty"),
-        "Should confirm clearing or report empty, got: {}",
-        output
-    );
+    let mut s = spawn_cache_isolated(&["cache", "clear", "--expired"], home.path());
+    s.expect("Cleared 1 expired entries").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+
+    // Verify side effect directly through the seeded store.
+    let remaining = store.list().unwrap();
+    assert_eq!(remaining.len(), 1, "only fresh entry should remain");
+    assert_eq!(remaining[0].template_name, "keep-me");
 }
 
-/// Bare `cache clear` (no flags) prompts for confirmation — the most
-/// natural interactive workflow. Answer yes.
+/// `cache clear --force` on an empty cache reports already-empty and
+/// exits 0.
 #[test]
-fn cache_clear_bare_confirm_yes() {
-    // First ensure there is something to clear by running clear --force
-    // (which is a no-op if empty) then checking if we can trigger the prompt.
-    let mut s = spawn_bivvy_global(&["cache", "clear"]);
+fn cache_clear_force_on_empty_cache_reports_already_empty() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "clear", "--force"], home.path());
 
-    let output = read_to_eof(&mut s);
-    // Two valid outcomes:
-    // 1) Cache is empty -> "Cache is already empty"
-    // 2) Cache has entries -> shows confirmation prompt "Clear N cached entries?"
-    assert!(
-        output.contains("empty") || output.contains("Clear") || output.contains("cached entries"),
-        "Bare clear should either show empty or prompt for confirmation, got: {}",
-        output
-    );
+    s.expect("Cache is already empty").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
-/// Bare `cache clear` — answer no to cancel.
+/// Bare `cache clear` on an empty cache reports already-empty without
+/// prompting and exits 0.
 #[test]
-fn cache_clear_bare_confirm_no() {
-    let mut s = spawn_bivvy_global(&["cache", "clear"]);
+fn cache_clear_bare_on_empty_cache_does_not_prompt() {
+    let home = TempDir::new().unwrap();
+    let mut s = spawn_cache_isolated(&["cache", "clear"], home.path());
 
-    let output = read_to_eof(&mut s);
-    // If it prompted, the default is "no" so it should cancel
-    // If cache was empty, "already empty"
+    s.expect("Cache is already empty").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+}
+
+/// `cache clear --force` on a seeded cache clears every entry without
+/// prompting, reports the count, and exits 0.  The side effect is
+/// verified by reading the store back.
+#[test]
+fn cache_clear_force_wipes_seeded_cache() {
+    let home = TempDir::new().unwrap();
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "one", "x", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "two", "y", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "three", "z", 3600)
+        .unwrap();
+
+    let mut s = spawn_cache_isolated(&["cache", "clear", "--force"], home.path());
+    s.expect("Cleared 3 entries").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+
+    // Side effect: store should be empty.
+    let remaining = store.list().unwrap();
     assert!(
-        output.contains("empty") || output.contains("Cancel") || output.contains("Clear"),
-        "Should handle bare clear gracefully, got: {}",
-        output
+        remaining.is_empty(),
+        "cache clear --force should leave store empty, found {remaining:?}"
     );
 }
 
 // =====================================================================
-// HAPPY PATH — Seeded cache tests (run workflow first)
+// HAPPY PATH — sequential / multi-phase
 // =====================================================================
 
-/// After clearing the cache, stats show zero entries and zero size.
+/// After clearing expired on an empty cache, stats still report zero.
+/// This verifies both phases independently (clear, then stats).
 #[test]
-fn cache_stats_after_clear_shows_zero() {
-    // Clear first
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--force"]);
-    s.expect("Cleared").unwrap();
+fn cache_stats_after_clear_expired_shows_zero() {
+    let home = TempDir::new().unwrap();
+
+    // Phase 1: clear --expired
+    let mut s = spawn_cache_isolated(&["cache", "clear", "--expired"], home.path());
+    s.expect("Cleared 0 expired entries").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
-    // Then check stats
-    let mut s = spawn_bivvy_global(&["cache", "stats"]);
-    s.expect("Cache Statistics").unwrap();
-    s.expect("Total entries:").unwrap();
-
-    let output = read_to_eof(&mut s);
-    // After clear, total entries should be 0
-    // (the "Total entries: 0" line was partially consumed, check remaining)
-    assert!(
-        !output.contains("error"),
-        "Stats after clear should not error"
-    );
+    // Phase 2: stats should still show zeros
+    let mut s = spawn_cache_isolated(&["cache", "stats"], home.path());
+    s.expect("Cache Statistics:").unwrap();
+    s.expect("  Total entries: 0").unwrap();
+    s.expect("  Fresh: 0").unwrap();
+    s.expect("  Expired: 0").unwrap();
+    s.expect("  Total size: 0 bytes").unwrap();
+    s.expect("  Location: ").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
-/// After clearing, list should show empty cache message.
+/// Full lifecycle against a seeded cache: `stats` shows the seeded count,
+/// `clear --force` wipes it, and `list` then reports empty.
 #[test]
-fn cache_list_after_clear_is_empty() {
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--force"]);
-    s.expect("Cleared").unwrap();
+fn cache_full_lifecycle_on_seeded_cache() {
+    let home = TempDir::new().unwrap();
+    let store = isolated_store(home.path());
+    store
+        .store("http:https://example.com", "lifecycle-a", "xx", 3600)
+        .unwrap();
+    store
+        .store("http:https://example.com", "lifecycle-b", "yyyy", 3600)
+        .unwrap();
+
+    // 1. Stats: 2 entries, 6 bytes
+    let mut s = spawn_cache_isolated(&["cache", "stats"], home.path());
+    s.expect("Cache Statistics:").unwrap();
+    s.expect("  Total entries: 2").unwrap();
+    s.expect("  Fresh: 2").unwrap();
+    s.expect("  Expired: 0").unwrap();
+    s.expect("  Total size: 6 bytes").unwrap();
+    s.expect("  Location: ").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
-    let mut s = spawn_bivvy_global(&["cache", "list"]);
-    let output = read_to_eof(&mut s);
-
-    assert!(
-        output.contains("empty"),
-        "List after clear should show cache is empty, got: {}",
-        output
-    );
-}
-
-/// After clearing, list --json should show empty array or empty message.
-#[test]
-fn cache_list_json_after_clear_is_empty() {
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--force"]);
-    s.expect("Cleared").unwrap();
+    // 2. Force clear
+    let mut s = spawn_cache_isolated(&["cache", "clear", "--force"], home.path());
+    s.expect("Cleared 2 entries").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
-    let mut s = spawn_bivvy_global(&["cache", "list", "--json"]);
-    let output = read_to_eof(&mut s);
-
-    assert!(
-        output.contains("empty") || output.contains("[]"),
-        "JSON list after clear should show empty, got: {}",
-        output
-    );
-}
-
-/// Clear --expired then clear --force — sequential operations.
-#[test]
-fn cache_clear_expired_then_force() {
-    // First clear expired
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--expired"]);
-    s.expect("Cleared").unwrap();
+    // 3. List should report empty
+    let mut s = spawn_cache_isolated(&["cache", "list"], home.path());
+    s.expect("Cache is empty").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
-    // Then force clear everything
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--force"]);
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("Cleared") || output.contains("empty"),
-        "Force clear after expired clear should succeed, got: {}",
-        output
-    );
-}
-
-/// Full lifecycle: clear -> stats (zero) -> clear --expired -> stats (zero).
-#[test]
-fn cache_full_lifecycle() {
-    // 1. Clear everything
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--force"]);
-    s.expect("Cleared").unwrap();
-    s.expect(expectrl::Eof).unwrap();
-
-    // 2. Stats should show zero
-    let mut s = spawn_bivvy_global(&["cache", "stats"]);
-    s.expect("Cache Statistics").unwrap();
-    s.expect("Total entries:").unwrap();
-    s.expect(expectrl::Eof).unwrap();
-
-    // 3. Clear expired (should be a no-op)
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--expired"]);
-    s.expect("Cleared").unwrap();
-    s.expect(expectrl::Eof).unwrap();
-
-    // 4. List should still be empty
-    let mut s = spawn_bivvy_global(&["cache", "list"]);
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("empty"),
-        "Cache should still be empty after lifecycle, got: {}",
-        output
-    );
+    // 4. Side effect verified via the store.
+    assert!(store.list().unwrap().is_empty());
 }
 
 // =====================================================================
-// HELP
+// HELP — snapshot-based regression protection
 // =====================================================================
+//
+// `system_global_tests.rs` already snapshots `bivvy cache --help`.  Here
+// we cover each subcommand's help independently so renaming a flag or
+// changing a description is caught.  NOTE: these snapshots are written
+// but not generated by this audit — run `cargo insta test` to accept.
 
-/// cache --help shows subcommand descriptions.
+/// Snapshot of `bivvy cache list --help`.
 #[test]
-fn cache_help() {
-    let mut s = spawn_bivvy_global(&["cache", "--help"]);
-
-    s.expect("Manage template cache")
-        .expect("Should show cache help");
-    s.expect(expectrl::Eof).unwrap();
+fn cache_list_help_snapshot() {
+    let home = TempDir::new().unwrap();
+    let (stdout, _stderr, code) =
+        run_cache_isolated(&["cache", "list", "--help"], home.path());
+    assert_eq!(code, 0, "cache list --help should exit 0");
+    insta::assert_snapshot!("cache_list_help", stdout);
 }
 
-/// cache clear --help shows clear options including --expired and --force.
+/// Snapshot of `bivvy cache clear --help`.
 #[test]
-fn cache_clear_help() {
-    let mut s = spawn_bivvy_global(&["cache", "clear", "--help"]);
-
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("expired") || output.contains("force"),
-        "Clear help should mention --expired or --force flags, got: {}",
-        output
-    );
+fn cache_clear_help_snapshot() {
+    let home = TempDir::new().unwrap();
+    let (stdout, _stderr, code) =
+        run_cache_isolated(&["cache", "clear", "--help"], home.path());
+    assert_eq!(code, 0, "cache clear --help should exit 0");
+    insta::assert_snapshot!("cache_clear_help", stdout);
 }
 
-/// cache list --help shows list options including --verbose and --json.
+/// Snapshot of `bivvy cache stats --help`.
 #[test]
-fn cache_list_help() {
-    let mut s = spawn_bivvy_global(&["cache", "list", "--help"]);
-
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("verbose") || output.contains("json"),
-        "List help should mention --verbose or --json flags, got: {}",
-        output
-    );
-}
-
-/// cache stats --help works.
-#[test]
-fn cache_stats_help() {
-    let mut s = spawn_bivvy_global(&["cache", "stats", "--help"]);
-
-    let output = read_to_eof(&mut s);
-    // Should at minimum show usage info
-    assert!(
-        output.contains("stats") || output.contains("Usage"),
-        "Stats help should show usage, got: {}",
-        output
-    );
+fn cache_stats_help_snapshot() {
+    let home = TempDir::new().unwrap();
+    let (stdout, _stderr, code) =
+        run_cache_isolated(&["cache", "stats", "--help"], home.path());
+    assert_eq!(code, 0, "cache stats --help should exit 0");
+    insta::assert_snapshot!("cache_stats_help", stdout);
 }
 
 // =====================================================================
-// SAD PATH
+// SAD PATH — error conditions
 // =====================================================================
 
-/// cache with no subcommand shows help or error.
+/// `bivvy cache` with no subcommand is an arg-parsing error: clap
+/// prints a Usage message to stderr and exits with code 2.  The full
+/// stderr is snapshotted to catch wording and flag-list regressions.
 #[test]
-fn cache_no_subcommand() {
-    let mut s = spawn_bivvy_global(&["cache"]);
+fn cache_no_subcommand_is_usage_error_with_exit_2() {
+    let home = TempDir::new().unwrap();
+    let (stdout, stderr, code) = run_cache_isolated(&["cache"], home.path());
 
-    let output = read_to_eof(&mut s);
-    // Should show help or error about missing subcommand
-    assert!(
-        output.contains("Usage") || output.contains("help") || output.contains("subcommand"),
-        "Missing subcommand should show usage info, got: {}",
-        output
+    assert_eq!(
+        code, 2,
+        "missing subcommand should exit 2 (clap usage error), got {code}\nstdout: {stdout}\nstderr: {stderr}"
     );
+    assert!(
+        stdout.is_empty(),
+        "clap usage errors should write to stderr only, got stdout: {stdout}"
+    );
+    insta::assert_snapshot!("cache_no_subcommand_stderr", stderr);
 }
 
-/// cache with unknown subcommand shows error.
+/// `bivvy cache frobnicate` (unknown subcommand) is a clap error:
+/// "unrecognized subcommand" on stderr, exit code 2.
 #[test]
-fn cache_unknown_subcommand() {
-    let mut s = spawn_bivvy_global(&["cache", "frobnicate"]);
+fn cache_unknown_subcommand_is_usage_error_with_exit_2() {
+    let home = TempDir::new().unwrap();
+    let (stdout, stderr, code) = run_cache_isolated(&["cache", "frobnicate"], home.path());
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("error") || output.contains("invalid") || output.contains("unrecognized"),
-        "Unknown subcommand should produce an error, got: {}",
-        output
+    assert_eq!(
+        code, 2,
+        "unknown subcommand should exit 2 (clap usage error), got {code}\nstdout: {stdout}\nstderr: {stderr}"
     );
+    assert!(
+        stdout.is_empty(),
+        "clap usage errors should write to stderr only, got stdout: {stdout}"
+    );
+    insta::assert_snapshot!("cache_unknown_subcommand_stderr", stderr);
+}
+
+/// `bivvy cache list --nope` must be rejected by clap with exit code 2,
+/// not silently accepted.  Full stderr is snapshotted so that wording
+/// and suggestion-list regressions are caught.
+#[test]
+fn cache_list_unknown_flag_is_usage_error_with_exit_2() {
+    let home = TempDir::new().unwrap();
+    let (stdout, stderr, code) =
+        run_cache_isolated(&["cache", "list", "--nope"], home.path());
+
+    assert_eq!(
+        code, 2,
+        "unknown flag should exit 2 (clap usage error), got {code}\nstdout: {stdout}\nstderr: {stderr}"
+    );
+    assert!(
+        stdout.is_empty(),
+        "clap usage errors should write to stderr only, got stdout: {stdout}"
+    );
+    insta::assert_snapshot!("cache_list_unknown_flag_stderr", stderr);
 }

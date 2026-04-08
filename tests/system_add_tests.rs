@@ -8,7 +8,21 @@
 mod system;
 
 use std::fs;
+use std::process::Command;
 use system::helpers::*;
+
+/// Normalize a config file to a stable representation for snapshotting.
+///
+/// Strips trailing whitespace from each line and ensures a single trailing
+/// newline, so snapshots are resilient to incidental whitespace churn.
+fn normalize_config(content: &str) -> String {
+    let mut out = String::new();
+    for line in content.lines() {
+        out.push_str(line.trim_end());
+        out.push('\n');
+    }
+    out
+}
 
 // ─────────────────────────────────────────────────────────────────────
 // Configs
@@ -107,8 +121,11 @@ fn add_template_creates_step() {
     let temp = setup_project(BASE_CONFIG);
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
-    s.expect("Added").expect("Should confirm addition");
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
@@ -120,6 +137,10 @@ fn add_template_creates_step() {
         config.contains("  bundle-install:\n    template: bundle-install\n"),
         "Step block should have correct YAML structure with name and template"
     );
+
+    // Snapshot the full resulting YAML to catch regressions in the
+    // generated step block format, workflow list, and structural layout.
+    insta::assert_snapshot!("add_template_creates_step_config", normalize_config(&config));
 }
 
 /// Add a second template — verify both are present and workflow is updated
@@ -133,8 +154,11 @@ fn add_second_template() {
 
     // Second add
     let mut s = spawn_bivvy(&["add", "npm-install"], temp.path());
-    s.expect("Added").expect("Should add second template");
+    s.expect("Added 'npm-install' step using template 'npm-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("template: bundle-install"));
@@ -186,8 +210,11 @@ fn add_with_custom_name() {
     let temp = setup_project(BASE_CONFIG);
     let mut s = spawn_bivvy(&["add", "cargo-build", "--as", "my_build"], temp.path());
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'my_build' step using template 'cargo-build'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("my_build:"), "Should use custom step name");
@@ -209,8 +236,11 @@ fn add_to_named_workflow() {
     let temp = setup_project(MULTI_WORKFLOW_CONFIG);
     let mut s = spawn_bivvy(&["add", "bundle-install", "--workflow", "ci"], temp.path());
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'ci' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
@@ -267,8 +297,11 @@ fn add_after_specific_step() {
         temp.path(),
     );
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
@@ -287,8 +320,11 @@ fn add_after_last_step() {
         temp.path(),
     );
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
@@ -304,8 +340,16 @@ fn add_no_workflow() {
     let temp = setup_project(BASE_CONFIG);
     let mut s = spawn_bivvy(&["add", "bundle-install", "--no-workflow"], temp.path());
 
-    s.expect("Added").unwrap();
-    s.expect(expectrl::Eof).unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    // Ensure the "Added to 'default' workflow" message is NOT emitted when
+    // --no-workflow is used: read to EOF and check the full transcript.
+    let tail = read_to_eof(&mut s);
+    assert!(
+        !tail.contains("Added to 'default' workflow"),
+        "Should not print workflow-addition message with --no-workflow, got: {tail}"
+    );
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("template: bundle-install"));
@@ -314,6 +358,7 @@ fn add_no_workflow() {
         config.contains("steps: [existing]"),
         "Workflow should remain unchanged with --no-workflow"
     );
+    insta::assert_snapshot!("add_no_workflow_config", normalize_config(&config));
 }
 
 /// --as + --workflow combined.
@@ -325,8 +370,11 @@ fn add_custom_name_to_named_workflow() {
         temp.path(),
     );
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'build_ci' step using template 'cargo-build'")
+        .unwrap();
+    s.expect("Added to 'ci' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("build_ci:"), "Custom name should be used");
@@ -345,8 +393,11 @@ fn add_custom_name_after_step() {
         temp.path(),
     );
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'deps' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
@@ -377,11 +428,15 @@ fn add_all_flags_combined() {
         temp.path(),
     );
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'my_build' step using template 'cargo-build'")
+        .unwrap();
+    s.expect("Added to 'ci' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(config.contains("  my_build:\n    template: cargo-build\n"));
+    insta::assert_snapshot!("add_all_flags_combined_config", normalize_config(&config));
 }
 
 // =====================================================================
@@ -461,8 +516,11 @@ fn add_preserves_all_comments() {
     let temp = setup_project(COMMENTED_CONFIG);
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
 
@@ -507,8 +565,11 @@ fn add_to_config_with_complex_steps() {
         temp.path(),
     );
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
 
@@ -543,8 +604,11 @@ fn add_to_complex_config_preserves_ci_workflow() {
     let temp = setup_project(COMPLEX_CONFIG);
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
-    s.expect("Added").unwrap();
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
 
@@ -583,8 +647,11 @@ fn multi_step_add_with_different_flags() {
         &["add", "cargo-build", "--as", "build_ci", "--workflow", "ci"],
         temp.path(),
     );
-    s.expect("Added").unwrap();
+    s.expect("Added 'build_ci' step using template 'cargo-build'")
+        .unwrap();
+    s.expect("Added to 'ci' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
 
@@ -592,6 +659,15 @@ fn multi_step_add_with_different_flags() {
     assert!(config.contains("template: bundle-install"));
     // build_ci in ci workflow
     assert!(config.contains("  build_ci:\n    template: cargo-build\n"));
+    // bundle-install must be in the default workflow (from the first add).
+    assert!(
+        config.contains("default:\n    steps: [existing, bundle-install]"),
+        "bundle-install should remain in the default workflow"
+    );
+    insta::assert_snapshot!(
+        "multi_step_add_with_different_flags_config",
+        normalize_config(&config)
+    );
 }
 
 /// Add a step, then add another after it — chained --after.
@@ -607,8 +683,11 @@ fn chained_after_insertions() {
         &["add", "npm-install", "--after", "bundle-install"],
         temp.path(),
     );
-    s.expect("Added").unwrap();
+    s.expect("Added 'npm-install' step using template 'npm-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
@@ -629,8 +708,11 @@ fn add_no_workflow_then_normal() {
     );
 
     let mut s = spawn_bivvy(&["add", "npm-install"], temp.path());
-    s.expect("Added").unwrap();
+    s.expect("Added 'npm-install' step using template 'npm-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     // bundle-install should NOT be in workflow, npm-install should be
@@ -643,7 +725,8 @@ fn add_no_workflow_then_normal() {
     assert!(config.contains("template: npm-install"));
 }
 
-/// Add two steps to different workflows in sequence.
+/// Add two steps to different workflows in sequence — verify each
+/// workflow contains exactly the step that was added to it.
 #[test]
 fn add_to_different_workflows_sequentially() {
     let temp = setup_project(MULTI_WORKFLOW_CONFIG);
@@ -662,6 +745,21 @@ fn add_to_different_workflows_sequentially() {
     // Both templates should be defined as steps
     assert!(config.contains("template: bundle-install"));
     assert!(config.contains("template: cargo-build"));
+
+    // The default workflow should contain bundle-install but not cargo-build.
+    assert!(
+        config.contains("default:\n    steps: [existing, bundle-install]"),
+        "Default workflow should contain bundle-install only, got: {config}"
+    );
+    // The ci workflow should contain cargo-build but not bundle-install.
+    assert!(
+        config.contains("ci:\n    steps: [existing, cargo-build]"),
+        "CI workflow should contain cargo-build only, got: {config}"
+    );
+    insta::assert_snapshot!(
+        "add_to_different_workflows_sequentially_config",
+        normalize_config(&config)
+    );
 }
 
 // =====================================================================
@@ -674,15 +772,21 @@ fn add_unknown_template_fails() {
     let temp = setup_project(BASE_CONFIG);
     let mut s = spawn_bivvy(&["add", "nonexistent-template-xyz"], temp.path());
 
-    s.expect("Unknown template: nonexistent-template-xyz")
-        .expect("Should show 'Unknown template' error for unknown template");
+    s.expect("Error: Unknown template: nonexistent-template-xyz")
+        .unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 
     // Config should be unchanged
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     assert!(
         !config.contains("nonexistent"),
         "Config should not be modified on failure"
+    );
+    assert_eq!(
+        config.trim(),
+        BASE_CONFIG.trim(),
+        "Config should be byte-identical to the original on failure"
     );
 }
 
@@ -694,11 +798,24 @@ fn add_duplicate_template_fails() {
     // First add succeeds
     run_bivvy_silently(temp.path(), &["add", "bundle-install"]);
 
+    // Capture the config state after the first successful add.
+    let config_after_first =
+        fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+
     // Second add of same template fails
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
     s.expect("Step 'bundle-install' already exists in configuration. Use a different name with --as.")
-        .expect("Should indicate step already exists");
+        .unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
+
+    // Config should be byte-identical — failed add must not mutate file.
+    let config_after_second =
+        fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(
+        config_after_first, config_after_second,
+        "Failed duplicate add should not modify the config file"
+    );
 }
 
 /// Duplicate with --as to the same custom name also fails.
@@ -711,8 +828,16 @@ fn add_duplicate_custom_name_fails() {
     // Try to add a different template with the same custom name
     let mut s = spawn_bivvy(&["add", "npm-install", "--as", "deps"], temp.path());
     s.expect("Step 'deps' already exists in configuration. Use a different name with --as.")
-        .expect("Should reject duplicate custom step name");
+        .unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
+
+    // The second add must not have introduced npm-install into the config.
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert!(
+        !config.contains("template: npm-install"),
+        "Failed add should not introduce a new template reference, got: {config}"
+    );
 }
 
 /// Adding a step named the same as an existing non-template step fails.
@@ -723,8 +848,17 @@ fn add_conflicts_with_existing_step_name() {
     let mut s = spawn_bivvy(&["add", "bundle-install", "--as", "existing"], temp.path());
 
     s.expect("Step 'existing' already exists in configuration. Use a different name with --as.")
-        .expect("Should reject name that conflicts with existing step");
+        .unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
+
+    // Config should be unchanged on failure.
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(
+        config.trim(),
+        BASE_CONFIG.trim(),
+        "Conflicting --as should not modify the config file"
+    );
 }
 
 /// Add without any config file suggests `bivvy init`.
@@ -733,19 +867,25 @@ fn add_without_config_fails() {
     let temp = tempfile::TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
-    s.expect("bivvy init")
-        .expect("Should suggest running 'bivvy init'");
+    s.expect("No configuration found. Run 'bivvy init' first.")
+        .unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 2);
 
     // No config file should be created
     assert!(
         !temp.path().join(".bivvy/config.yml").exists(),
         "Should not create config file on failure"
     );
+    // The .bivvy directory itself should not exist either.
+    assert!(
+        !temp.path().join(".bivvy").exists(),
+        "Should not create .bivvy directory on failure"
+    );
 }
 
-/// --workflow targeting a nonexistent workflow — step is added but
-/// workflow is unchanged.
+/// --workflow targeting a nonexistent workflow — the step definition is
+/// still added and the command succeeds (workflow silently not modified).
 #[test]
 fn add_to_nonexistent_workflow() {
     let temp = setup_project(BASE_CONFIG);
@@ -754,12 +894,13 @@ fn add_to_nonexistent_workflow() {
         temp.path(),
     );
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("Added") || output.contains("added") || output.contains("error") || output.contains("Error"),
-        "Should show result of add to nonexistent workflow, got: {}",
-        &output[..output.len().min(300)]
-    );
+    // The step definition is added and the success message is printed.
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    // The workflow line is printed even though the workflow does not exist.
+    s.expect("Added to 'ghost' workflow").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
     // Default workflow should still just have [existing]
@@ -767,9 +908,24 @@ fn add_to_nonexistent_workflow() {
         config.contains("steps: [existing]"),
         "Default workflow should be unchanged when targeting nonexistent workflow"
     );
+    // The step definition should still be added even if the workflow doesn't exist
+    assert!(
+        config.contains("template: bundle-install"),
+        "Step definition should be present even when target workflow doesn't exist"
+    );
+    // No "ghost:" workflow should have been created.
+    assert!(
+        !config.contains("ghost:"),
+        "Nonexistent workflow should not be created"
+    );
+    insta::assert_snapshot!(
+        "add_to_nonexistent_workflow_config",
+        normalize_config(&config)
+    );
 }
 
-/// --after targeting a nonexistent step — step is still appended.
+/// --after targeting a nonexistent step — the command succeeds and the
+/// step is appended at the end of the workflow (documented fallback).
 #[test]
 fn add_after_nonexistent_step_appends() {
     let temp = setup_project(BASE_CONFIG);
@@ -778,60 +934,356 @@ fn add_after_nonexistent_step_appends() {
         temp.path(),
     );
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("Added") || output.contains("added") || output.contains("error") || output.contains("Error"),
-        "Should show result of add after nonexistent step, got: {}",
-        &output[..output.len().min(300)]
-    );
+    s.expect("Added 'bundle-install' step using template 'bundle-install'")
+        .unwrap();
+    s.expect("Added to 'default' workflow").unwrap();
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
-    // When --after target doesn't exist, the step should still be appended
-    if config.contains("template: bundle-install") {
-        assert!(
-            config.contains("steps: [existing, bundle-install]"),
-            "Step should be appended when --after target is not found"
-        );
-    }
+    // The step definition must be present.
+    assert!(
+        config.contains("template: bundle-install"),
+        "Step definition should be added even when --after target doesn't exist"
+    );
+    // When --after target doesn't exist, the step should be appended at the end.
+    assert!(
+        config.contains("steps: [existing, bundle-install]"),
+        "Step should be appended when --after target is not found"
+    );
+    insta::assert_snapshot!(
+        "add_after_nonexistent_step_config",
+        normalize_config(&config)
+    );
 }
 
-/// No template argument provided — clap shows required argument error.
+/// No template argument provided — clap shows required argument error
+/// and the process exits with clap's usage-error exit code (2).
 #[test]
 fn add_no_argument_shows_help() {
     let temp = setup_project(BASE_CONFIG);
-    let mut s = spawn_bivvy(&["add"], temp.path());
 
-    // Clap should show an error about missing required argument
-    s.expect("required")
-        .expect("Should show missing argument error");
-    s.expect(expectrl::Eof).unwrap();
+    // Use a subprocess so we can reliably capture stderr + exit code.
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .arg("add")
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("error: the following required arguments were not provided"),
+        "Clap should print the full 'required arguments were not provided' error on stderr, got: {stderr}"
+    );
+    // Clap's error message names the missing argument.
+    assert!(
+        stderr.contains("<TEMPLATE>"),
+        "Clap error should name the missing TEMPLATE argument, got: {stderr}"
+    );
+    // Clap exits with code 2 on usage errors.
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Missing required arg should exit with clap's usage-error code 2"
+    );
+
+    // Config must not have been modified.
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(config.trim(), BASE_CONFIG.trim());
 }
 
-/// Config with no steps section — should fail.
+/// Config with no steps section — should fail with a specific error and
+/// exit code 1. The config file must not be modified.
 #[test]
 fn add_config_without_steps_section() {
     let config = "app_name: \"NoSteps\"\n";
     let temp = setup_project(config);
-    let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    // The command should fail since there's no steps section
+    // Use a subprocess for reliable stderr + exit code capture.
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
     assert!(
-        !output.contains("Added"),
-        "Should not succeed when config has no steps section, got: {}",
-        output
+        !combined.contains("Added 'bundle-install'"),
+        "Should not succeed when config has no steps section, got: {combined}"
+    );
+    assert!(
+        combined.contains("Invalid configuration: No 'steps:' section found in config file"),
+        "Should show the specific 'no steps section' error, got: {combined}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Config without steps section should exit with code 1"
+    );
+
+    // Config file should be unchanged.
+    let after = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(
+        after, config,
+        "Config file should not be modified on failure"
     );
 }
 
-/// Add to a config with malformed YAML fails gracefully.
+/// Add to a config with malformed YAML fails gracefully with a specific
+/// parse-error message and exit code 1. The malformed file is not modified.
 #[test]
 fn add_malformed_config_fails() {
-    let temp = setup_project("{{{{ not yaml");
-    let mut s = spawn_bivvy(&["add", "bundle-install"], temp.path());
+    let malformed = "{{{{ not yaml";
+    let temp = setup_project(malformed);
 
-    let output = read_to_eof(&mut s);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
     assert!(
-        !output.contains("Added"),
-        "Should not succeed with malformed YAML"
+        !combined.contains("Added 'bundle-install'"),
+        "Should not succeed with malformed YAML, got: {combined}"
+    );
+    assert!(
+        combined.contains("Failed to parse config at"),
+        "Should show the specific parse-error prefix for malformed YAML, got: {combined}"
+    );
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Malformed config should exit with code 1"
+    );
+
+    // The malformed file should not have been overwritten.
+    let after = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(after, malformed, "Malformed config should not be modified");
+}
+
+// =====================================================================
+// EXIT CODE VERIFICATION
+// =====================================================================
+
+/// Successful `bivvy add` exits with code 0 and prints the success message
+/// and the `Added to 'default' workflow` line on stdout.
+#[test]
+fn add_success_exit_code_zero() {
+    let temp = setup_project(BASE_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Successful add should exit with code 0"
+    );
+
+    // The success path writes to stdout — verify content, not just exit code.
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("Added 'bundle-install' step using template 'bundle-install'"),
+        "Should print success message on stdout, got: {combined}"
+    );
+    assert!(
+        combined.contains("Added to 'default' workflow"),
+        "Should print workflow-addition line on stdout, got: {combined}"
+    );
+    // And the config file should actually have been modified.
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert!(
+        config.contains("template: bundle-install"),
+        "Config file should be updated on success"
+    );
+}
+
+/// `bivvy add` with no config exits with code 2 and prints the
+/// `Run 'bivvy init' first.` hint on stderr.
+#[test]
+fn add_no_config_exit_code_two() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "Add with no config should exit with code 2"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("No configuration found. Run 'bivvy init' first."),
+        "Should print init hint on failure, got: {combined}"
+    );
+    // No config directory should be created as a side effect.
+    assert!(
+        !temp.path().join(".bivvy").exists(),
+        "No .bivvy directory should be created on failure"
+    );
+}
+
+/// `bivvy add` with duplicate step exits with code 1 and prints the
+/// `already exists` message.
+#[test]
+fn add_duplicate_step_exit_code_one() {
+    let temp = setup_project(BASE_CONFIG);
+    run_bivvy_silently(temp.path(), &["add", "bundle-install"]);
+
+    // Snapshot the config after the first add so we can confirm the second
+    // add does not modify it.
+    let before = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Add with duplicate step should exit with code 1"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains(
+            "Step 'bundle-install' already exists in configuration. Use a different name with --as."
+        ),
+        "Should print the full duplicate-step error message, got: {combined}"
+    );
+
+    // Config must not have been mutated by the failed second add.
+    let after = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(
+        before, after,
+        "Failed duplicate add must not modify the config file"
+    );
+}
+
+/// `bivvy add` with unknown template exits with code 1 and prints the
+/// `Unknown template` error.
+#[test]
+fn add_unknown_template_exit_code_one() {
+    let temp = setup_project(BASE_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "nonexistent-template-xyz"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "Add with unknown template should exit with code 1"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("Unknown template: nonexistent-template-xyz"),
+        "Should print the full unknown-template error message, got: {combined}"
+    );
+
+    // Config must not have been modified by the failed add.
+    let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+    assert_eq!(
+        config.trim(),
+        BASE_CONFIG.trim(),
+        "Failed unknown-template add must not modify the config file"
+    );
+}
+
+/// A successful `bivvy add` emits the documented `after_add` hint that
+/// points the user at `bivvy run --only=<step>`.  This is a documented,
+/// user-facing behavior so it must be exercised by a system test.
+#[test]
+fn add_emits_after_add_hint() {
+    let temp = setup_project(BASE_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+
+    assert_eq!(
+        output.status.code(),
+        Some(0),
+        "Successful add should exit with code 0"
+    );
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    // The hint references the new step by name and points at `bivvy run --only=`.
+    assert!(
+        combined.contains("bivvy run --only=bundle-install"),
+        "Should emit the after_add hint pointing at `bivvy run --only=bundle-install`, got: {combined}"
+    );
+    assert!(
+        combined.contains("bivvy list"),
+        "after_add hint should also reference `bivvy list`, got: {combined}"
+    );
+}
+
+/// A successful `bivvy add --as NAME` emits the `after_add` hint using the
+/// custom step name, not the original template name.
+#[test]
+fn add_emits_after_add_hint_with_custom_name() {
+    let temp = setup_project(BASE_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = Command::new(bin)
+        .args(["add", "bundle-install", "--as", "ruby_deps"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+
+    assert_eq!(output.status.code(), Some(0));
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+    assert!(
+        combined.contains("bivvy run --only=ruby_deps"),
+        "after_add hint should use the custom step name, got: {combined}"
+    );
+    // Should not reference the raw template name in the hint.
+    assert!(
+        !combined.contains("bivvy run --only=bundle-install"),
+        "after_add hint should not reference the template name when --as is used, got: {combined}"
     );
 }

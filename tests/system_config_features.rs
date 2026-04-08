@@ -2,7 +2,9 @@
 //!
 //! Tests all possible configuration options: env vars, hooks,
 //! preconditions, sensitive steps, environment overrides, etc.
-//! Commands use external programs, not shell builtins.
+//! Commands use real toolchain programs (git, rustc, cargo, printenv)
+//! rather than shell builtins, and every test verifies exit codes plus
+//! concrete side effects where applicable.
 #![cfg(unix)]
 
 mod system;
@@ -14,6 +16,11 @@ use std::fs;
 // 1. Step-level environment variables (env)
 // ─────────────────────────────────────────────────────────────────────
 
+/// Step-level `env` entries must be exported to the step's command.
+///
+/// The first step writes the value of `MY_VAR` to a file. The follow-up
+/// step `grep`s the expected literal out of that file — if the env var
+/// was not set, `grep` exits non-zero and the workflow fails.
 #[test]
 fn step_env_vars_are_available() {
     let config = r#"
@@ -22,91 +29,96 @@ app_name: "EnvVarsTest"
 steps:
   check-env:
     title: "Check env var"
-    command: "printenv MY_VAR"
+    command: "printenv MY_VAR > .env-output.txt"
     skippable: false
     env:
       MY_VAR: "hello_from_bivvy"
 
-  verify-tools:
-    title: "Verify tools"
-    command: "git --version"
+  verify-env:
+    title: "Verify env var value"
+    command: "grep -Fx hello_from_bivvy .env-output.txt"
     skippable: false
+    depends_on: [check-env]
 
   done:
-    title: "Finish"
-    command: "date"
+    title: "Finish env test"
+    command: "git --version"
     skippable: false
-    depends_on: [check-env, verify-tools]
+    depends_on: [verify-env]
 
 workflows:
   default:
-    steps: [check-env, verify-tools, done]
+    steps: [check-env, verify-env, done]
 "#;
 
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run"], temp.path());
 
-    // The step should succeed since MY_VAR is set
-    wait_for(&s, "hello_from_bivvy", "step env var should be printed");
-    expect_or_dump(&mut s, "Finish", "workflow should complete");
-    let output = read_to_eof(&mut s);
-    assert!(
-        !output.contains("Failed"),
-        "no steps should fail, got: {output}"
-    );
+    wait_for(&s, "EnvVarsTest", "Header with app name");
+    wait_for(&s, "3 run", "Summary shows all 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // The env var value must have been written to disk by the step.
+    let contents = fs::read_to_string(temp.path().join(".env-output.txt")).unwrap();
+    assert_eq!(contents.trim(), "hello_from_bivvy");
 }
 
 // ─────────────────────────────────────────────────────────────────────
-// 2. Environment file (env_file) - global settings level
+// 2. Environment file (env_file)
 // ─────────────────────────────────────────────────────────────────────
 
+/// `env_file` at the step level loads variables from a dotenv-format
+/// file so the command can read them. We write the loaded value to a
+/// marker file and assert on the file contents.
 #[test]
 fn env_file_loads_variables() {
-    // setup_project_with_git creates a .env file with APP_ENV=development.
-    // Use step-level env_file to load vars from that file.
-    // allow_failure=true so the workflow continues even if env_file loading
-    // has edge cases — we verify via the step succeeding or the workflow
-    // completing.
+    // setup_project_with_git creates `.env` with `APP_ENV=development`.
     let config = r#"
 app_name: "EnvFileTest"
 
 steps:
   read-env:
     title: "Read env file var"
-    command: "printenv APP_ENV"
+    command: "printenv APP_ENV > .env-file-output.txt"
     skippable: false
     env_file: ".env"
-    allow_failure: true
 
-  verify:
-    title: "Verify"
-    command: "git --version"
+  verify-env-file:
+    title: "Verify env file value"
+    command: "grep -Fx development .env-file-output.txt"
     skippable: false
+    depends_on: [read-env]
 
   finish:
-    title: "Finish up"
-    command: "date"
+    title: "Finish env file test"
+    command: "git --version"
     skippable: false
+    depends_on: [verify-env-file]
 
 workflows:
   default:
-    steps: [read-env, verify, finish]
+    steps: [read-env, verify-env-file, finish]
 "#;
 
     let temp = setup_project_with_git(config);
-    let s = spawn_bivvy(&["run"], temp.path());
+    let mut s = spawn_bivvy(&["run"], temp.path());
 
-    // Workflow completes regardless of env_file step outcome
-    wait_for(&s, "3 run", "all 3 steps should complete");
+    wait_for(&s, "EnvFileTest", "Header with app name");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    let contents = fs::read_to_string(temp.path().join(".env-file-output.txt")).unwrap();
+    assert_eq!(contents.trim(), "development");
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // 3. Required environment (required_env)
-//    NOTE: required_env is defined in the schema but not enforced at
-//    runtime yet, so we test that the config is accepted and the step
-//    succeeds/fails based on the command itself using the var.
 // ─────────────────────────────────────────────────────────────────────
 
+/// When `required_env` is satisfied (via step-level `env`), the step
+/// runs normally.
 #[test]
 fn required_env_succeeds_when_present() {
     let config = r#"
@@ -115,22 +127,23 @@ app_name: "RequiredEnvTest"
 steps:
   needs-var:
     title: "Needs REQUIRED_VAR"
-    command: "printenv REQUIRED_VAR"
+    command: "printenv REQUIRED_VAR > .required-output.txt"
     skippable: false
     required_env: ["REQUIRED_VAR"]
     env:
       REQUIRED_VAR: "present_value"
 
   verify:
-    title: "Verify"
-    command: "git --version"
+    title: "Verify REQUIRED_VAR value"
+    command: "grep -Fx present_value .required-output.txt"
     skippable: false
+    depends_on: [needs-var]
 
   finish:
     title: "All done"
-    command: "date"
+    command: "git --version"
     skippable: false
-    depends_on: [needs-var, verify]
+    depends_on: [verify]
 
 workflows:
   default:
@@ -140,23 +153,20 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run"], temp.path());
 
-    wait_for(
-        &s,
-        "present_value",
-        "REQUIRED_VAR should be printed by printenv",
-    );
-    expect_or_dump(&mut s, "All done", "workflow should complete");
-    let output = read_to_eof(&mut s);
-    assert!(
-        !output.contains("Failed"),
-        "no steps should fail, got: {output}"
-    );
+    wait_for(&s, "RequiredEnvTest", "Header");
+    wait_for(&s, "3 run", "Summary shows 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    let contents = fs::read_to_string(temp.path().join(".required-output.txt")).unwrap();
+    assert_eq!(contents.trim(), "present_value");
 }
 
+/// When the required env var is missing, the step fails and the
+/// workflow exits non-zero. We use `printenv` on a var that is
+/// guaranteed not to exist so the command itself fails with exit 1.
 #[test]
 fn required_env_fails_when_missing() {
-    // Command uses printenv for a var that does not exist,
-    // so the step command itself fails (exit code 1).
     let config = r#"
 app_name: "RequiredEnvMissingTest"
 
@@ -174,7 +184,7 @@ steps:
 
   finish:
     title: "All done"
-    command: "date"
+    command: "git --version"
     skippable: false
 
 workflows:
@@ -185,18 +195,19 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-    assert!(
-        clean.contains("Failed") || clean.contains("failed"),
-        "step should fail when env var is missing, got: {clean}"
-    );
+    wait_for(&s, "Needs REQUIRED_VAR", "Failing step title appears");
+    read_to_eof(&mut s);
+    // Failed step with skippable: false and no allow_failure must cause
+    // bivvy to exit with code 1.
+    assert_exit_code(&s, 1);
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // 4. Allow failure (allow_failure)
 // ─────────────────────────────────────────────────────────────────────
 
+/// A step with `allow_failure: true` that fails must not stop the
+/// workflow — dependent steps still run and bivvy exits 0.
 #[test]
 fn allow_failure_continues_workflow() {
     let config = r#"
@@ -217,7 +228,7 @@ steps:
 
   final-step:
     title: "Final step runs"
-    command: "uname -s"
+    command: "rustc --version > .final-marker.txt"
     skippable: false
     depends_on: [setup]
 
@@ -229,15 +240,18 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run"], temp.path());
 
-    // The failing step should show failure but workflow continues
-    wait_for(&s, "Setup step", "first step should start");
-    wait_for(&s, "Failing but allowed", "failing step should start");
-    wait_for(&s, "Final step runs", "final step should execute after allowed failure");
-    let output = read_to_eof(&mut s);
-    // The workflow should not abort
+    wait_for(&s, "Setup step", "Setup step title");
+    wait_for(&s, "Failing but allowed", "Failing step title");
+    wait_for(&s, "Final step runs", "Final step runs despite earlier failure");
+    wait_for(&s, "Total:", "Summary footer appears");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // Final step's side effect must exist — proves it actually ran.
+    let contents = fs::read_to_string(temp.path().join(".final-marker.txt")).unwrap();
     assert!(
-        !output.contains("Aborted") && !output.contains("aborted"),
-        "workflow should not abort, got: {output}"
+        contents.contains("rustc"),
+        ".final-marker.txt should contain rustc version output"
     );
 }
 
@@ -245,6 +259,11 @@ workflows:
 // 5. Retry (retry)
 // ─────────────────────────────────────────────────────────────────────
 
+/// A step that succeeds on the first attempt does not emit retry
+/// output. A step whose command always fails with `retry: 2` should
+/// emit retry output and still cause the workflow to fail. We wrap the
+/// retry in `allow_failure: true` so the workflow completes and we can
+/// assert on both the retry message and exit code 0.
 #[test]
 fn retry_attempts_shown_in_output() {
     let config = r#"
@@ -262,11 +281,13 @@ steps:
     title: "Fallback step"
     command: "git --version"
     skippable: false
+    depends_on: [will-fail]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Retry test done"
+    command: "git --version"
     skippable: false
+    depends_on: [fallback]
 
 workflows:
   default:
@@ -274,21 +295,30 @@ workflows:
 "#;
 
     let temp = setup_project_with_git(config);
-    let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
+    let mut s = spawn_bivvy(&["run", "--non-interactive", "--verbose"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-    // Should show retry attempt indicators
-    assert!(
-        clean.contains("retry") || clean.contains("Retry") || clean.contains("attempt"),
-        "output should mention retry attempts, got: {clean}"
+    wait_for(&s, "Will fail with retries", "Retrying step title");
+    // Bivvy prints the exact line "    Retrying... (attempt N/M)" on each
+    // re-attempt; assert on the full canonical prefix rather than a bare
+    // substring.
+    wait_for(
+        &s,
+        "Retrying... (attempt",
+        "Bivvy should announce retry attempts when retry > 0",
     );
+    wait_for(&s, "Fallback step", "Fallback step title");
+    wait_for(&s, "Retry test done", "Final step title");
+    read_to_eof(&mut s);
+    // allow_failure: true means the workflow still exits 0.
+    assert_exit_code(&s, 0);
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // 6. Before/after hooks (before, after)
 // ─────────────────────────────────────────────────────────────────────
 
+/// `before` hooks must run before the step's main command — verified
+/// by a follow-up step that reads the marker file created by the hook.
 #[test]
 fn before_hooks_run_before_command() {
     let config = r#"
@@ -300,17 +330,17 @@ steps:
     command: "git --version"
     skippable: false
     before:
-      - "touch .before-marker"
+      - "git --version > .before-marker.txt"
 
   verify-hook:
     title: "Verify before hook ran"
-    command: "test -f .before-marker"
+    command: "grep -q git .before-marker.txt"
     skippable: false
     depends_on: [hooked]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Before hook test done"
+    command: "git --version"
     skippable: false
     depends_on: [verify-hook]
 
@@ -322,19 +352,20 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run"], temp.path());
 
-    wait_for(&s, "Done", "workflow should complete");
-    let output = read_to_eof(&mut s);
+    wait_for(&s, "BeforeHookTest", "Header");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    let contents = fs::read_to_string(temp.path().join(".before-marker.txt")).unwrap();
     assert!(
-        !output.contains("Failed"),
-        "no steps should fail (before-marker should exist), got: {output}"
-    );
-    // Also verify the file exists on disk
-    assert!(
-        temp.path().join(".before-marker").exists(),
-        ".before-marker should exist after before hook runs"
+        contents.contains("git"),
+        ".before-marker.txt should contain git version output"
     );
 }
 
+/// `after` hooks must run after the step's main command — verified by
+/// a follow-up step that reads the marker file.
 #[test]
 fn after_hooks_run_after_command() {
     let config = r#"
@@ -346,17 +377,17 @@ steps:
     command: "git --version"
     skippable: false
     after:
-      - "touch .after-marker"
+      - "cargo --version > .after-marker.txt"
 
   verify-hook:
     title: "Verify after hook ran"
-    command: "test -f .after-marker"
+    command: "grep -q cargo .after-marker.txt"
     skippable: false
     depends_on: [hooked]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "After hook test done"
+    command: "git --version"
     skippable: false
     depends_on: [verify-hook]
 
@@ -368,15 +399,15 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run"], temp.path());
 
-    wait_for(&s, "Done", "workflow should complete");
-    let output = read_to_eof(&mut s);
+    wait_for(&s, "AfterHookTest", "Header");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    let contents = fs::read_to_string(temp.path().join(".after-marker.txt")).unwrap();
     assert!(
-        !output.contains("Failed"),
-        "no steps should fail (after-marker should exist), got: {output}"
-    );
-    assert!(
-        temp.path().join(".after-marker").exists(),
-        ".after-marker should exist after after hook runs"
+        contents.contains("cargo"),
+        ".after-marker.txt should contain cargo version output"
     );
 }
 
@@ -384,6 +415,7 @@ workflows:
 // 7. Precondition (precondition)
 // ─────────────────────────────────────────────────────────────────────
 
+/// A passing precondition lets the step execute normally.
 #[test]
 fn precondition_passes_step_runs() {
     let config = r#"
@@ -392,21 +424,21 @@ app_name: "PreconditionPassTest"
 steps:
   guarded:
     title: "Guarded step"
-    command: "git --version"
+    command: "rustc --version > .guarded-marker.txt"
     skippable: false
     precondition:
       type: command_succeeds
       command: "rustc --version"
 
   verify:
-    title: "Verify"
-    command: "uname -s"
+    title: "Verify guarded ran"
+    command: "grep -q rustc .guarded-marker.txt"
     skippable: false
     depends_on: [guarded]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Precondition pass test done"
+    command: "git --version"
     skippable: false
     depends_on: [verify]
 
@@ -418,15 +450,20 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run"], temp.path());
 
-    wait_for(&s, "Guarded step", "guarded step should start");
-    wait_for(&s, "Done", "workflow should complete");
-    let output = read_to_eof(&mut s);
+    wait_for(&s, "PreconditionPassTest", "Header");
+    wait_for(&s, "Guarded step", "Guarded step title");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
     assert!(
-        !output.contains("Precondition failed"),
-        "precondition should pass, got: {output}"
+        temp.path().join(".guarded-marker.txt").exists(),
+        "Guarded step should have produced .guarded-marker.txt"
     );
 }
 
+/// A failing precondition blocks step execution and causes the
+/// workflow to exit 1. Bivvy prints `Precondition failed: ...`.
 #[test]
 fn precondition_fails_step_skipped() {
     let config = r#"
@@ -435,35 +472,28 @@ app_name: "PreconditionFailTest"
 steps:
   guarded:
     title: "Guarded step"
-    command: "git --version"
+    command: "rustc --version > .should-not-exist.txt"
     skippable: false
     precondition:
       type: command_succeeds
-      command: "which nonexistent_tool_xyz_bivvy_test"
-
-  fallback:
-    title: "Fallback"
-    command: "uname -s"
-    skippable: false
-
-  done:
-    title: "Done"
-    command: "date"
-    skippable: false
+      command: "git --no-such-flag-xyz"
 
 workflows:
   default:
-    steps: [guarded, fallback, done]
+    steps: [guarded]
 "#;
 
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
+    expect_or_dump(&mut s, "Precondition failed", "Precondition failure message");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 1);
+
+    // Side-effect verification: the step's main command must not have run.
     assert!(
-        clean.contains("Precondition failed") || clean.contains("precondition") || clean.contains("Failed"),
-        "step should fail due to precondition, got: {clean}"
+        !temp.path().join(".should-not-exist.txt").exists(),
+        "Guarded step's main command must not execute when precondition fails"
     );
 }
 
@@ -471,10 +501,11 @@ workflows:
 // 8. Sensitive step (sensitive)
 // ─────────────────────────────────────────────────────────────────────
 
+/// In dry-run mode, a sensitive step's command text is replaced with
+/// the literal `[SENSITIVE - command hidden in dry-run]` so secrets
+/// never leak into logs.
 #[test]
 fn sensitive_step_hides_command_in_dry_run() {
-    // In dry-run mode, sensitive steps show "[SENSITIVE - command hidden
-    // in dry-run]" instead of the actual command text.
     let config = r#"
 app_name: "SensitiveTest"
 
@@ -486,14 +517,16 @@ steps:
 
   secret-step:
     title: "Secret step"
-    command: "printenv SECRET_TOKEN_VALUE"
+    command: "printenv SECRET_TOKEN_VALUE_XYZ"
     skippable: false
     sensitive: true
+    depends_on: [public-step]
 
   final-step:
-    title: "Final"
-    command: "date"
+    title: "Final sensitive step"
+    command: "git --version"
     skippable: false
+    depends_on: [secret-step]
 
 workflows:
   default:
@@ -501,19 +534,35 @@ workflows:
 "#;
 
     let temp = setup_project_with_git(config);
-    let mut s = spawn_bivvy(&["run", "--dry-run"], temp.path());
+    let mut s = spawn_bivvy(
+        &["run", "--dry-run", "--verbose"],
+        temp.path(),
+    );
 
-    // In dry-run mode, expect the dry-run indicator and completion.
-    // The sensitive step's command should be hidden (replaced with
-    // "[SENSITIVE - command hidden in dry-run]").
-    expect_or_dump(&mut s, "dry-run", "dry-run mode indicator");
+    expect_or_dump(
+        &mut s,
+        "Running in dry-run mode - no commands will be executed",
+        "Dry-run indicator",
+    );
+    expect_or_dump(
+        &mut s,
+        "[SENSITIVE - command hidden in dry-run]",
+        "Sensitive command must be replaced with the hidden-command marker",
+    );
     let output = read_to_eof(&mut s);
     let clean = strip_ansi(&output);
 
-    // The actual secret command should NOT appear in dry-run output
+    // The actual secret command text must never appear in dry-run output.
     assert!(
-        !clean.contains("SECRET_TOKEN_VALUE"),
+        !clean.contains("SECRET_TOKEN_VALUE_XYZ"),
         "Sensitive command should be hidden in dry-run output, but found it"
+    );
+    assert_exit_code(&s, 0);
+
+    // Dry-run must not create side effects.
+    assert!(
+        !temp.path().join(".should-not-exist-dry.txt").exists(),
+        "Dry-run must not produce file side effects"
     );
 }
 
@@ -521,28 +570,28 @@ workflows:
 // 9. Only environments (only_environments)
 // ─────────────────────────────────────────────────────────────────────
 
+/// `only_environments: [ci]` excludes the step when `--env` is set to
+/// something other than `ci`. The excluded step must not execute.
 #[test]
 fn only_environments_skips_in_non_matching_env() {
-    // When --env staging is set but step requires "ci",
-    // the step should be filtered out.
     let config = r#"
 app_name: "OnlyEnvTest"
 
 steps:
   always-runs:
     title: "Always runs"
-    command: "git --version"
+    command: "git --version > .always-marker.txt"
     skippable: false
 
   ci-only:
     title: "CI only step"
-    command: "rustc --version"
+    command: "rustc --version > .ci-only-marker.txt"
     skippable: false
     only_environments: ["ci"]
 
   final:
     title: "Final step"
-    command: "date"
+    command: "git --version > .final-marker.txt"
     skippable: false
 
 workflows:
@@ -551,20 +600,31 @@ workflows:
 "#;
 
     let temp = setup_project_with_git(config);
-    // Pass --env staging so ci-only step is filtered
+    // Pass --env staging so ci-only step is filtered out.
     let mut s = spawn_bivvy(&["run", "--env", "staging"], temp.path());
 
-    wait_for(&s, "Always runs", "first step should appear");
-    wait_for(&s, "Final step", "final step should appear");
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-    // ci-only should be skipped (not executed)
+    wait_for(&s, "OnlyEnvTest", "Header");
+    wait_for(&s, "Always runs", "First step appears");
+    wait_for(&s, "Final step", "Final step appears");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // always-runs and final produced files; ci-only did NOT.
     assert!(
-        !clean.contains("CI only step"),
-        "ci-only step should be skipped when --env staging, got: {clean}"
+        temp.path().join(".always-marker.txt").exists(),
+        "always-runs should have produced its marker"
+    );
+    assert!(
+        temp.path().join(".final-marker.txt").exists(),
+        "final should have produced its marker"
+    );
+    assert!(
+        !temp.path().join(".ci-only-marker.txt").exists(),
+        "ci-only must not run when --env staging is set"
     );
 }
 
+/// `only_environments: [ci]` includes the step when `--env ci` is set.
 #[test]
 fn only_environments_runs_in_matching_env() {
     let config = r#"
@@ -578,13 +638,13 @@ steps:
 
   ci-only:
     title: "CI only step"
-    command: "rustc --version"
+    command: "rustc --version > .ci-only-marker.txt"
     skippable: false
     only_environments: ["ci"]
 
   final:
     title: "Final step"
-    command: "date"
+    command: "git --version"
     skippable: false
     depends_on: [always-runs, ci-only]
 
@@ -596,13 +656,19 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run", "--env", "ci"], temp.path());
 
-    wait_for(&s, "Always runs", "first step should start");
-    wait_for(&s, "CI only step", "ci-only step should run with --env ci");
-    wait_for(&s, "Final step", "final step should run");
-    let output = read_to_eof(&mut s);
+    wait_for(&s, "OnlyEnvMatchTest", "Header");
+    wait_for(&s, "Always runs", "First step appears");
+    wait_for(&s, "CI only step", "ci-only step runs under --env ci");
+    wait_for(&s, "Final step", "Final step runs");
+    wait_for(&s, "3 run", "All 3 steps ran under --env ci");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // The ci-only step must have produced its side effect.
+    let contents = fs::read_to_string(temp.path().join(".ci-only-marker.txt")).unwrap();
     assert!(
-        !strip_ansi(&output).contains("Failed"),
-        "no steps should fail, got: {output}"
+        contents.contains("rustc"),
+        ".ci-only-marker.txt should contain rustc version output"
     );
 }
 
@@ -610,6 +676,9 @@ workflows:
 // 10. Step environment overrides (environments)
 // ─────────────────────────────────────────────────────────────────────
 
+/// A step with `environments.ci.command` should use the overridden
+/// command when `--env ci` is passed. We verify this by side effect:
+/// the overridden command writes to a different file than the default.
 #[test]
 fn environment_override_changes_command() {
     let config = r#"
@@ -618,22 +687,23 @@ app_name: "EnvOverrideTest"
 steps:
   greet:
     title: "Greet"
-    command: "git --version"
+    command: "git --version > .default-marker.txt"
     skippable: false
     environments:
       ci:
-        command: "rustc --version"
+        command: "rustc --version > .ci-marker.txt"
 
   verify:
-    title: "Verify"
-    command: "git --version"
+    title: "Verify override marker"
+    command: "grep -q rustc .ci-marker.txt"
     skippable: false
+    depends_on: [greet]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Env override test done"
+    command: "git --version"
     skippable: false
-    depends_on: [greet, verify]
+    depends_on: [verify]
 
 workflows:
   default:
@@ -643,23 +713,32 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run", "--env", "ci"], temp.path());
 
-    wait_for(
-        &s,
-        "rustc",
-        "ci environment override should change the command to rustc",
+    wait_for(&s, "EnvOverrideTest", "Header");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // The override command ran — produced the ci-specific marker.
+    assert!(
+        temp.path().join(".ci-marker.txt").exists(),
+        "Environment override should have produced .ci-marker.txt"
     );
-    wait_for(&s, "Done", "workflow should complete");
-    let _output = read_to_eof(&mut s);
+    // The default command did NOT run.
+    assert!(
+        !temp.path().join(".default-marker.txt").exists(),
+        "Default command must not run when environments.ci.command override is in effect"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // 11. Workflow overrides (overrides)
 // ─────────────────────────────────────────────────────────────────────
 
+/// The `strict` workflow overrides the `optional` step to auto-run
+/// without prompting despite having a completed_check. Running the
+/// strict workflow should not wait for input.
 #[test]
 fn workflow_overrides_apply() {
-    // The "strict" workflow overrides the "optional" step to be required
-    // and skip_prompt, making it non-interactive.
     let config = r#"
 app_name: "WorkflowOverrideTest"
 
@@ -671,14 +750,14 @@ steps:
 
   optional:
     title: "Optional step"
-    command: "rustc --version"
+    command: "rustc --version > .optional-marker.txt"
     completed_check:
       type: command_succeeds
       command: "rustc --version"
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Workflow overrides done"
+    command: "git --version"
     skippable: false
     depends_on: [setup, optional]
 
@@ -695,17 +774,21 @@ workflows:
 "#;
 
     let temp = setup_project_with_git(config);
-    // Run the "strict" workflow where overrides apply
     let mut s = spawn_bivvy(&["run", "--workflow", "strict"], temp.path());
 
-    // With skip_prompt and prompt_if_complete=false, the optional step
-    // should auto-run without prompting even though it has a completed_check
-    wait_for(&s, "Setup", "setup step should appear");
-    wait_for(&s, "Done", "workflow should complete without prompts");
-    let output = read_to_eof(&mut s);
+    wait_for(&s, "WorkflowOverrideTest", "Header");
+    wait_for(&s, "Setup", "Setup step title");
+    wait_for(&s, "Optional step", "Optional step title");
+    wait_for(&s, "Workflow overrides done", "Final step title");
+    wait_for(&s, "3 run", "All 3 steps ran under strict workflow");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // The optional step actually ran (strict override forced it) —
+    // proven by its side effect.
     assert!(
-        !strip_ansi(&output).contains("Failed"),
-        "no steps should fail, got: {output}"
+        temp.path().join(".optional-marker.txt").exists(),
+        "Optional step should have produced .optional-marker.txt under strict workflow"
     );
 }
 
@@ -713,17 +796,19 @@ workflows:
 // 12. Composite completed checks (all, any)
 // ─────────────────────────────────────────────────────────────────────
 
+/// `completed_check` with `type: all` requires every sub-check to
+/// pass. Both checks pass here, so the step is considered complete —
+/// but `skippable: false` forces it to re-run anyway. Either way the
+/// workflow must succeed and the step must produce its side effect.
 #[test]
 fn completed_check_all_requires_all() {
-    // Both sub-checks pass (Cargo.toml exists AND rustc succeeds),
-    // so the step is considered complete and skipped.
     let config = r#"
 app_name: "CheckAllTest"
 
 steps:
   checked:
     title: "All-checked step"
-    command: "git --version"
+    command: "rustc --version > .all-marker.txt"
     skippable: false
     completed_check:
       type: all
@@ -734,14 +819,16 @@ steps:
           command: "rustc --version"
 
   verify:
-    title: "Verify"
-    command: "uname -s"
+    title: "Verify all-checked ran"
+    command: "grep -q rustc .all-marker.txt"
     skippable: false
+    depends_on: [checked]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "All-check test done"
+    command: "git --version"
     skippable: false
+    depends_on: [verify]
 
 workflows:
   default:
@@ -751,28 +838,28 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-    // With all checks passing, the step should be skipped as already complete.
-    // skippable: false means it auto-reruns, so it shows "Re-running"
-    // Either way the workflow should succeed.
+    wait_for(&s, "CheckAllTest", "Header");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
     assert!(
-        !clean.contains("Failed"),
-        "workflow should succeed, got: {clean}"
+        temp.path().join(".all-marker.txt").exists(),
+        "All-checked step should have produced .all-marker.txt"
     );
 }
 
+/// `completed_check` with `type: any` is satisfied when at least one
+/// sub-check passes.
 #[test]
 fn completed_check_any_requires_one() {
-    // One check passes (Cargo.toml exists), one fails (nonexistent file).
-    // With `any`, the step is complete because at least one passes.
     let config = r#"
 app_name: "CheckAnyTest"
 
 steps:
   any-checked:
     title: "Any-checked step"
-    command: "git --version"
+    command: "rustc --version > .any-marker.txt"
     skippable: false
     completed_check:
       type: any
@@ -783,14 +870,16 @@ steps:
           path: "nonexistent_file_xyz.txt"
 
   verify:
-    title: "Verify"
-    command: "uname -s"
+    title: "Verify any-checked ran"
+    command: "grep -q rustc .any-marker.txt"
     skippable: false
+    depends_on: [any-checked]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Any-check test done"
+    command: "git --version"
     skippable: false
+    depends_on: [verify]
 
 workflows:
   default:
@@ -800,12 +889,14 @@ workflows:
     let temp = setup_project_with_git(config);
     let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-    // With any check passing, the step is complete.
+    wait_for(&s, "CheckAnyTest", "Header");
+    wait_for(&s, "3 run", "All 3 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
     assert!(
-        !clean.contains("Failed"),
-        "workflow should succeed with any-check, got: {clean}"
+        temp.path().join(".any-marker.txt").exists(),
+        "Any-checked step should have produced .any-marker.txt"
     );
 }
 
@@ -813,6 +904,9 @@ workflows:
 // 13. Variables (vars) with command evaluation
 // ─────────────────────────────────────────────────────────────────────
 
+/// Variables are interpolated into step commands. We write the
+/// interpolated values to files and read them back to prove both the
+/// static and the command-evaluated variable resolved correctly.
 #[test]
 fn vars_interpolated_in_commands() {
     let config = r#"
@@ -820,61 +914,82 @@ app_name: "VarsTest"
 
 vars:
   project_version:
-    command: "git log --oneline -1"
+    command: "git rev-parse --short HEAD"
   static_val: "bivvy_static_marker"
 
 steps:
   show-version:
     title: "Show version"
-    command: "test -n '${project_version}'"
+    command: "printf '%s\\n' ${project_version} > .version-marker.txt"
     skippable: false
 
   show-static:
     title: "Show static"
-    command: "test -n '${static_val}'"
+    command: "printf '%s\\n' ${static_val} > .static-marker.txt"
     skippable: false
 
-  verify:
-    title: "Verify"
-    command: "git --version"
+  verify-static:
+    title: "Verify static var"
+    command: "grep -Fx bivvy_static_marker .static-marker.txt"
     skippable: false
+    depends_on: [show-static]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Vars test done"
+    command: "git --version"
     skippable: false
-    depends_on: [show-version, show-static, verify]
+    depends_on: [show-version, verify-static]
 
 workflows:
   default:
-    steps: [show-version, show-static, verify, done]
+    steps: [show-version, show-static, verify-static, done]
 "#;
 
     let temp = setup_project_with_git(config);
-    let s = spawn_bivvy(&["run"], temp.path());
+    let mut s = spawn_bivvy(&["run"], temp.path());
 
-    // All 4 steps complete. Variable interpolation is verified by the
-    // commands succeeding — `echo version_is_${project_version}` would
-    // fail if interpolation didn't resolve to a value.
-    // Check the summary to confirm all 4 ran.
-    wait_for(&s, "4 run", "all 4 steps should complete with vars interpolated");
+    wait_for(&s, "VarsTest", "Header");
+    wait_for(&s, "4 run", "All 4 steps ran");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // Static var must have been interpolated verbatim.
+    let static_contents =
+        fs::read_to_string(temp.path().join(".static-marker.txt")).unwrap();
+    assert_eq!(static_contents.trim(), "bivvy_static_marker");
+
+    // Command-evaluated var must have produced a non-empty sha-like value.
+    let version_contents =
+        fs::read_to_string(temp.path().join(".version-marker.txt")).unwrap();
+    let trimmed = version_contents.trim();
+    assert!(
+        !trimmed.is_empty(),
+        ".version-marker.txt should not be empty — got {trimmed:?}"
+    );
+    // git rev-parse --short HEAD emits 7+ lowercase hex chars.
+    assert!(
+        trimmed.len() >= 7 && trimmed.chars().all(|c| c.is_ascii_hexdigit()),
+        ".version-marker.txt should contain a short git sha, got {trimmed:?}"
+    );
 }
 
 // ─────────────────────────────────────────────────────────────────────
 // 14. Watches (watches)
 // ─────────────────────────────────────────────────────────────────────
 
+/// First run primes the watches state with the current file hash. On
+/// the second run the watched file is modified, so the step should
+/// re-execute. We prove re-execution by checking that the step's
+/// side-effect file was re-created after deletion.
 #[test]
 fn watches_trigger_rerun_on_change() {
-    // First run completes the step. Second run with modified watched file
-    // should re-execute the step because the watches hash changed.
     let config = r#"
 app_name: "WatchesTest"
 
 steps:
   watched-step:
     title: "Watched step"
-    command: "wc -l Cargo.toml"
+    command: "cargo --version > .watched-marker.txt"
     skippable: false
     completed_check:
       type: marker
@@ -882,15 +997,16 @@ steps:
       - Cargo.toml
 
   verify:
-    title: "Verify"
-    command: "git --version"
+    title: "Verify watched ran"
+    command: "grep -q cargo .watched-marker.txt"
     skippable: false
+    depends_on: [watched-step]
 
   done:
-    title: "Done"
-    command: "date"
+    title: "Watches test done"
+    command: "git --version"
     skippable: false
-    depends_on: [watched-step, verify]
+    depends_on: [verify]
 
 workflows:
   default:
@@ -899,33 +1015,45 @@ workflows:
 
     let temp = setup_project_with_git(config);
 
-    // First run: step executes and marker is set
+    // First run: step executes, marker is set, and the side-effect
+    // file is created.
     let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
-    let output1 = read_to_eof(&mut s);
-    let clean1 = strip_ansi(&output1);
+    wait_for(&s, "WatchesTest", "First-run header");
+    wait_for(&s, "3 run", "First run completes 3 steps");
+    read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
     assert!(
-        !clean1.contains("Failed"),
-        "first run should succeed, got: {clean1}"
+        temp.path().join(".watched-marker.txt").exists(),
+        "First run should have created .watched-marker.txt"
     );
 
-    // Modify the watched file
+    // Delete the side-effect file AND modify the watched file so the
+    // watches hash changes.  If the step re-runs, it recreates the
+    // marker.  If bivvy sees the watched file as unchanged and skips
+    // the step, the marker will not reappear.
+    fs::remove_file(temp.path().join(".watched-marker.txt")).unwrap();
     let cargo_path = temp.path().join("Cargo.toml");
     let mut content = fs::read_to_string(&cargo_path).unwrap();
     content.push_str("\n# modified for watch test\n");
     fs::write(&cargo_path, content).unwrap();
 
-    // Second run: watched file changed, step should re-execute
+    // Second run: watched file changed, step must re-execute and
+    // recreate the marker.  verify will then grep it.
     let mut s2 = spawn_bivvy(&["run", "--non-interactive"], temp.path());
-    let output2 = read_to_eof(&mut s2);
-    let clean2 = strip_ansi(&output2);
-    // The watched step should execute (not be skipped as already complete)
-    // because the watched file hash changed.
+    wait_for(&s2, "WatchesTest", "Second-run header");
+    wait_for(&s2, "Watched step", "Watched step title");
+    wait_for(&s2, "3 run", "Second run completes 3 steps");
+    read_to_eof(&mut s2);
+    assert_exit_code(&s2, 0);
+
+    // Marker file must have been recreated — proves re-execution.
     assert!(
-        clean2.contains("Watched step"),
-        "watched step should appear in second run after file change, got: {clean2}"
+        temp.path().join(".watched-marker.txt").exists(),
+        "Watched step should have re-executed after Cargo.toml changed, recreating .watched-marker.txt"
     );
+    let contents = fs::read_to_string(temp.path().join(".watched-marker.txt")).unwrap();
     assert!(
-        !clean2.contains("Failed"),
-        "second run should succeed, got: {clean2}"
+        contents.contains("cargo"),
+        "Recreated .watched-marker.txt should contain cargo version output"
     );
 }

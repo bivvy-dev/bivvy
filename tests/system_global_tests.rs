@@ -1,38 +1,29 @@
 //! Comprehensive system tests for global CLI behavior.
 //!
-//! Tests global flags (--help, --version, --no-color, --debug, --silent,
-//! --non-interactive), unknown commands, subcommand help, and general
+//! Tests global flags (--help, --version, --no-color, --debug, --verbose,
+//! --quiet, --trust, --config, --project) and the subcommand-level
+//! --non-interactive flag, unknown commands, subcommand help, and general
 //! CLI ergonomics that aren't specific to any single subcommand.
 #![cfg(unix)]
 
 mod system;
 
+use assert_cmd::Command;
+use predicates::prelude::*;
 use system::helpers::*;
 
 // =====================================================================
 // HELP & VERSION
 // =====================================================================
 
-/// --help shows all subcommands.
+/// --help shows all subcommands and usage info.
 #[test]
 fn global_help() {
     let mut s = spawn_bivvy_global(&["--help"]);
 
     let text = read_to_eof(&mut s);
-    assert!(text.contains("run"), "Help should list run command");
-    assert!(text.contains("init"), "Help should list init command");
-    assert!(text.contains("add"), "Help should list add command");
-    assert!(text.contains("status"), "Help should list status command");
-    assert!(text.contains("list"), "Help should list list command");
-    assert!(text.contains("lint"), "Help should list lint command");
-    assert!(text.contains("last"), "Help should list last command");
-    assert!(text.contains("history"), "Help should list history command");
-    assert!(text.contains("templates"), "Help should list templates command");
-    assert!(text.contains("config"), "Help should list config command");
-    assert!(text.contains("cache"), "Help should list cache command");
-    assert!(text.contains("feedback"), "Help should list feedback command");
-    assert!(text.contains("completions"), "Help should list completions command");
-    assert!(text.contains("update"), "Help should list update command");
+    insta::assert_snapshot!("global_help", text);
+    assert_exit_code(&s, 0);
 }
 
 /// --version shows version string.
@@ -42,10 +33,11 @@ fn global_version() {
 
     let text = read_to_eof(&mut s);
     assert!(
-        text.contains("bivvy"),
-        "Should show 'bivvy' in version, got: {}",
+        text.contains("bivvy "),
+        "Should show 'bivvy <version>' in version output, got: {}",
         &text[..text.len().min(200)]
     );
+    assert_exit_code(&s, 0);
 }
 
 /// -V (short version flag).
@@ -55,82 +47,114 @@ fn global_version_short() {
 
     let text = read_to_eof(&mut s);
     assert!(
-        text.contains("bivvy"),
-        "Should show version, got: {}",
+        text.contains("bivvy "),
+        "Should show 'bivvy <version>' in version output, got: {}",
         &text[..text.len().min(200)]
     );
+    assert_exit_code(&s, 0);
 }
 
-/// -h (short help flag).
+/// -h (short help flag) shows same content as --help (snapshot).
 #[test]
 fn global_help_short() {
     let mut s = spawn_bivvy_global(&["-h"]);
 
     let text = read_to_eof(&mut s);
-    assert!(text.contains("run"), "Short help should list commands");
+    insta::assert_snapshot!("global_help_short", text);
+    assert_exit_code(&s, 0);
 }
 
 // =====================================================================
 // GLOBAL FLAGS
 // =====================================================================
 
-/// --no-color is accepted on any command.
+/// --no-color is accepted on any command and suppresses ANSI escape sequences.
 #[test]
 fn global_no_color_flag() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: NoColorApp\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
+    // spawn_bivvy uses read_to_eof which strips ANSI, so assert on the raw
+    // PTY bytes directly for the no-ANSI check.
     let mut s = spawn_bivvy(&["status", "--no-color"], temp.path());
-
-    let text = read_to_eof(&mut s);
+    let raw = s.expect(expectrl::Eof).unwrap();
+    let raw_text = String::from_utf8_lossy(raw.as_bytes()).to_string();
     assert!(
-        !text.contains('\x1b'),
-        "No-color output should not contain ANSI escape sequences"
+        !raw_text.contains('\x1b'),
+        "No-color output should not contain ANSI escape sequences, got: {}",
+        &raw_text[..raw_text.len().min(300)]
     );
     assert!(
-        text.contains("Test") || text.contains("status") || text.contains("a"),
-        "No-color status should still show project info, got: {}",
-        &text[..text.len().min(300)]
+        raw_text.contains("NoColorApp"),
+        "No-color status should show the app_name 'NoColorApp', got: {}",
+        &raw_text[..raw_text.len().min(300)]
     );
+    assert!(
+        raw_text.contains("Status"),
+        "Status command should print the 'Status' header label, got: {}",
+        &raw_text[..raw_text.len().min(300)]
+    );
+    assert_exit_code(&s, 0);
 }
 
-/// --debug enables debug logging.
+/// --debug enables debug logging with DEBUG-level messages visible.
 #[test]
 fn global_debug_flag() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: DebugTest\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     let mut s = spawn_bivvy(&["status", "--debug"], temp.path());
 
     let text = read_to_eof(&mut s);
     assert!(
-        text.contains("DEBUG") || text.contains("debug"),
-        "Debug flag should produce debug-level output, got: {}",
+        text.contains("DEBUG"),
+        "Debug flag should produce DEBUG-level log output, got: {}",
         &text[..text.len().min(500)]
     );
+    assert!(
+        text.contains("DebugTest"),
+        "Debug run should still render the status page with app_name 'DebugTest', got: {}",
+        &text[..text.len().min(500)]
+    );
+    assert_exit_code(&s, 0);
 }
 
-/// -v (short verbose) is accepted.
+/// -v (short verbose) is accepted and produces verbose output.
 #[test]
 fn global_verbose_short() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: VerboseTest\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     let mut s = spawn_bivvy(&["status", "-v"], temp.path());
 
     let text = read_to_eof(&mut s);
     assert!(
-        text.contains("Test") || text.contains("Steps"),
-        "Verbose should show output, got: {}",
+        text.contains("VerboseTest"),
+        "Verbose output should show app_name 'VerboseTest', got: {}",
         &text[..text.len().min(300)]
     );
+    assert!(
+        text.contains("Steps:"),
+        "Verbose status should still render the 'Steps:' section label, got: {}",
+        &text[..text.len().min(300)]
+    );
+    assert_exit_code(&s, 0);
 }
 
-/// -q (short quiet) is accepted and produces minimal output.
+/// -q (short quiet) is accepted and produces less output than verbose.
 #[test]
 fn global_quiet_short() {
-    let temp = setup_project("app_name: VerboseApp\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: QuietApp\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     // Get verbose baseline first
-    let temp2 = setup_project("app_name: VerboseApp\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp2 = setup_project("app_name: QuietApp\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     let mut s_verbose = spawn_bivvy(&["status", "--verbose"], temp2.path());
     let verbose_text = read_to_eof(&mut s_verbose);
+    assert_exit_code(&s_verbose, 0);
 
     let mut s = spawn_bivvy(&["status", "-q"], temp.path());
     let quiet_text = read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
+
+    // Verbose baseline should contain the full status page
+    assert!(
+        verbose_text.contains("QuietApp") && verbose_text.contains("Steps:"),
+        "Verbose baseline should include app_name and 'Steps:' label, got: {}",
+        &verbose_text[..verbose_text.len().min(300)]
+    );
 
     // Quiet mode should produce less output than verbose
     assert!(
@@ -143,18 +167,29 @@ fn global_quiet_short() {
 
 /// --quiet flag suppresses verbose output but still shows progress and status.
 #[test]
-fn global_silent_flag() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\n    skippable: false\nworkflows:\n  default:\n    steps: [a]\n");
+fn global_quiet_flag_run() {
+    let temp = setup_project("app_name: QuietRun\nsteps:\n  check_rust:\n    command: \"rustc --version\"\n    skippable: false\nworkflows:\n  default:\n    steps: [check_rust]\n");
 
     // Run with --quiet: should complete without error
     let mut s = spawn_bivvy(&["run", "--quiet", "--non-interactive"], temp.path());
     let quiet_text = read_to_eof(&mut s);
     let quiet_clean = strip_ansi(&quiet_text);
+    assert_exit_code(&s, 0);
 
     // Run with default (normal) output for comparison
-    let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
-    let normal_text = read_to_eof(&mut s);
+    let temp2 = setup_project("app_name: QuietRun\nsteps:\n  check_rust:\n    command: \"rustc --version\"\n    skippable: false\nworkflows:\n  default:\n    steps: [check_rust]\n");
+    let mut s2 = spawn_bivvy(&["run", "--non-interactive"], temp2.path());
+    let normal_text = read_to_eof(&mut s2);
     let normal_clean = strip_ansi(&normal_text);
+    assert_exit_code(&s2, 0);
+
+    // Normal mode baseline should render the run header and the
+    // "Setup complete!" summary for the successful workflow.
+    assert!(
+        normal_clean.contains("QuietRun") && normal_clean.contains("Setup complete!"),
+        "Normal run should show app_name 'QuietRun' and 'Setup complete!' summary, got: {}",
+        &normal_clean[..normal_clean.len().min(500)]
+    );
 
     // Quiet mode should produce less output than normal mode
     assert!(
@@ -168,17 +203,30 @@ fn global_silent_flag() {
 /// --non-interactive flag skips all prompts and completes without hanging.
 #[test]
 fn global_non_interactive_flag() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: NonInteractiveTest\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
 
     let text = read_to_eof(&mut s);
-    // Non-interactive should actually run and produce step output
+    let clean = strip_ansi(&text);
+    // Non-interactive should actually run the workflow and emit the
+    // "Setup complete!" summary on success — the exact user-facing
+    // message from `src/ui/non_interactive.rs`.
     assert!(
-        text.contains("a") || text.contains("rustc") || text.contains("completed")
-            || text.contains("passed") || text.contains("Test"),
-        "Non-interactive run should produce step output, got: {}",
-        &text[..text.len().min(300)]
+        clean.contains("Setup complete!"),
+        "Non-interactive run should show 'Setup complete!' summary, got: {}",
+        &clean[..clean.len().min(500)]
     );
+    assert!(
+        clean.contains("NonInteractiveTest"),
+        "Non-interactive run should show app_name 'NonInteractiveTest' in the run header, got: {}",
+        &clean[..clean.len().min(500)]
+    );
+    assert!(
+        clean.contains("check_rust"),
+        "Non-interactive run should list the 'check_rust' step in the summary, got: {}",
+        &clean[..clean.len().min(500)]
+    );
+    assert_exit_code(&s, 0);
 }
 
 /// --config flag points to an alternate config file.
@@ -188,7 +236,7 @@ fn global_config_flag() {
     let alt_config = temp.path().join("alt-config.yml");
     std::fs::write(
         &alt_config,
-        "app_name: AltConfig\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n",
+        "app_name: AltConfig\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n",
     )
     .unwrap();
 
@@ -198,17 +246,26 @@ fn global_config_flag() {
     );
 
     let text = read_to_eof(&mut s);
+    // `bivvy config` dumps the resolved config as YAML; the override
+    // should produce a document containing `app_name: AltConfig` and the
+    // `check_rust` step defined in the alt file.
     assert!(
-        text.contains("AltConfig"),
-        "Should load alt config, got: {}",
-        &text[..text.len().min(300)]
+        text.contains("app_name: AltConfig"),
+        "Should load alt config and show 'app_name: AltConfig' in YAML output, got: {}",
+        &text[..text.len().min(500)]
     );
+    assert!(
+        text.contains("check_rust"),
+        "YAML dump from --config should include the 'check_rust' step, got: {}",
+        &text[..text.len().min(500)]
+    );
+    assert_exit_code(&s, 0);
 }
 
 /// --project flag sets the project root.
 #[test]
 fn global_project_flag() {
-    let temp = setup_project("app_name: ProjFlag\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: ProjFlag\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
 
     let other = tempfile::TempDir::new().unwrap();
     let mut s = spawn_bivvy(
@@ -219,290 +276,316 @@ fn global_project_flag() {
     let text = read_to_eof(&mut s);
     assert!(
         text.contains("ProjFlag"),
-        "Should load project from --project path, got: {}",
+        "Should load project from --project path and show app_name 'ProjFlag', got: {}",
         &text[..text.len().min(300)]
     );
+    assert!(
+        text.contains("check_rust"),
+        "Status should list the 'check_rust' step from the --project config, got: {}",
+        &text[..text.len().min(300)]
+    );
+    assert_exit_code(&s, 0);
 }
 
 /// --trust flag is accepted and produces normal output.
 #[test]
 fn global_trust_flag() {
-    let temp = setup_project("app_name: Trust\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: TrustTest\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     let mut s = spawn_bivvy(&["status", "--trust"], temp.path());
 
     let text = read_to_eof(&mut s);
     assert!(
-        text.contains("Trust") || text.contains("a"),
-        "Trust flag should be accepted and show status output, got: {}",
+        text.contains("TrustTest"),
+        "Trust flag should be accepted and show app_name 'TrustTest', got: {}",
         &text[..text.len().min(300)]
     );
+    assert!(
+        text.contains("Steps:"),
+        "Status under --trust should still render the 'Steps:' section, got: {}",
+        &text[..text.len().min(300)]
+    );
+    assert_exit_code(&s, 0);
 }
 
 // =====================================================================
 // EXIT CODES
 // =====================================================================
 
-/// --help exits with code 0.
+/// --help exits with code 0 and prints clap's "Usage" banner plus at
+/// least one known subcommand name.
 #[test]
 fn global_help_exit_code_zero() {
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let output = std::process::Command::new(bin)
-        .args(["--help"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("Failed to run bivvy");
-    assert!(output.status.success(), "Help should exit with code 0");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("Usage"), "Help output should contain Usage");
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .code(0)
+        .stdout(predicate::str::contains("Usage"))
+        .stdout(predicate::str::contains("init"))
+        .stdout(predicate::str::contains("run"));
 }
 
-/// --version exits with code 0.
+/// --version exits with code 0 and prints "bivvy <version>".
 #[test]
 fn global_version_exit_code_zero() {
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let output = std::process::Command::new(bin)
-        .args(["--version"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("Failed to run bivvy");
-    assert!(output.status.success(), "Version should exit with code 0");
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("bivvy"), "Version output should contain bivvy");
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .arg("--version")
+        .assert()
+        .success()
+        .code(0)
+        .stdout(predicate::str::contains("bivvy "));
 }
 
-/// Unknown command exits with non-zero code.
+/// Unknown command exits with clap's parse-error code (2) and shows the
+/// error on stderr.
 #[test]
 fn global_unknown_command_exit_code_nonzero() {
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let output = std::process::Command::new(bin)
-        .args(["frobnicate"])
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("Failed to run bivvy");
-    assert!(!output.status.success(), "Unknown command should exit non-zero");
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    assert!(
-        stderr.contains("error") || stderr.contains("unrecognized") || stderr.contains("invalid"),
-        "Unknown command should produce error on stderr, got: {}",
-        &stderr[..stderr.len().min(300)]
-    );
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .arg("frobnicate")
+        .assert()
+        .failure()
+        .code(2)
+        .stderr(predicate::str::contains("unrecognized subcommand"))
+        .stderr(predicate::str::contains("frobnicate"));
 }
 
-/// `bivvy status` with valid config exits with code 0.
+/// `bivvy status` with valid config exits with code 0 and renders the
+/// status page.
 #[test]
 fn global_status_exit_code_zero() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let output = std::process::Command::new(bin)
-        .args(["status"])
+    let temp = setup_project("app_name: StatusOK\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .arg("status")
         .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("Failed to run bivvy");
-    assert!(output.status.success(), "Status with valid config should exit 0");
+        .assert()
+        .success()
+        .code(0)
+        .stdout(predicate::str::contains("StatusOK"))
+        .stdout(predicate::str::contains("Steps:"));
 }
 
-/// `bivvy lint` with invalid config exits with non-zero code.
+/// `bivvy lint` with circular dependency exits non-zero and mentions the
+/// cycle in its diagnostics.
 #[test]
 fn global_lint_invalid_exit_code_nonzero() {
-    let temp = setup_project("app_name: \"Invalid\"\nsteps:\n  a:\n    command: \"rustc --version\"\n    depends_on: [b]\n  b:\n    command: \"cargo --version\"\n    depends_on: [a]\nworkflows:\n  default:\n    steps: [a, b]\n");
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let output = std::process::Command::new(bin)
-        .args(["lint"])
+    let temp = setup_project("app_name: \"Invalid\"\nsteps:\n  check_rust:\n    command: \"rustc --version\"\n    depends_on: [check_cargo]\n  check_cargo:\n    command: \"cargo --version\"\n    depends_on: [check_rust]\nworkflows:\n  default:\n    steps: [check_rust, check_cargo]\n");
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .arg("lint")
         .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .output()
-        .expect("Failed to run bivvy");
-    // Circular dependency should cause lint to fail
-    assert!(
-        !output.status.success(),
-        "Lint with circular deps should exit non-zero"
-    );
+        .assert()
+        .failure()
+        .stdout(
+            predicate::str::contains("circular")
+                .or(predicate::str::contains("cycle"))
+                .or(predicate::str::contains("check_rust"))
+                .or(predicate::str::contains("check_cargo")),
+        );
 }
 
 // =====================================================================
 // SAD PATH
 // =====================================================================
 
-/// Unknown command shows error.
+/// Unknown command shows error with the unrecognized subcommand name.
 #[test]
 fn global_unknown_command() {
     let mut s = spawn_bivvy_global(&["frobnicate"]);
 
     let text = read_to_eof(&mut s);
+    // clap emits: "error: unrecognized subcommand 'frobnicate'"
     assert!(
-        text.contains("error") || text.contains("unrecognized") || text.contains("invalid")
-            || text.contains("frobnicate"),
-        "Unknown command should show error, got: {}",
+        text.contains("unrecognized subcommand"),
+        "Unknown command should show clap's 'unrecognized subcommand' error, got: {}",
         &text[..text.len().min(300)]
     );
+    assert!(
+        text.contains("frobnicate"),
+        "Unknown command error should name the offending subcommand 'frobnicate', got: {}",
+        &text[..text.len().min(300)]
+    );
+    assert_exit_code(&s, 2);
 }
 
-/// Conflicting flags: --verbose and --quiet together.
+/// --verbose and --quiet together: both are accepted by clap; `src/main.rs`
+/// gives precedence to `--quiet`, and the command still runs successfully.
 #[test]
 fn global_conflicting_verbose_quiet() {
-    let temp = setup_project("app_name: Test\nsteps:\n  a:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [a]\n");
+    let temp = setup_project("app_name: ConflictTest\nsteps:\n  check_rust:\n    command: \"rustc --version\"\nworkflows:\n  default:\n    steps: [check_rust]\n");
     let mut s = spawn_bivvy(&["status", "--verbose", "--quiet"], temp.path());
 
     let text = read_to_eof(&mut s);
-    // Should either pick one, error, or handle gracefully -- verify it produces output
+    // The command should still run and render the status page — the app
+    // name from the config must appear regardless of which output mode wins.
     assert!(
-        text.contains("error") || text.contains("conflict") || text.contains("Test")
-            || text.contains("status"),
-        "Conflicting flags should either error or pick one and produce output, got: {}",
-        &text[..text.len().min(300)]
+        text.contains("ConflictTest"),
+        "Passing --verbose --quiet together should still run status and show app_name 'ConflictTest', got: {}",
+        &text[..text.len().min(500)]
     );
+    // No clap parse error should be emitted, since the flags are not
+    // declared as conflicting in `src/cli/args.rs`.
+    assert!(
+        !text.contains("unrecognized") && !text.contains("cannot be used with"),
+        "--verbose --quiet should not produce a clap conflict error, got: {}",
+        &text[..text.len().min(500)]
+    );
+    assert_exit_code(&s, 0);
 }
 
-/// --config pointing to nonexistent file.
+/// --config pointing to nonexistent file should produce an error.
 #[test]
 fn global_config_nonexistent_file() {
     let temp = tempfile::TempDir::new().unwrap();
-    let mut s = spawn_bivvy(
-        &["config", "--config", "/nonexistent/config.yml"],
-        temp.path(),
-    );
-
-    let text = read_to_eof(&mut s);
-    assert!(
-        text.contains("error") || text.contains("not found") || text.contains("No")
-            || text.contains("configuration"),
-        "Nonexistent config should show error, got: {}",
-        &text[..text.len().min(300)]
-    );
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .args(["config", "--config", "/nonexistent/config.yml"])
+        .current_dir(temp.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("/nonexistent/config.yml")
+                .or(predicate::str::contains("not found"))
+                .or(predicate::str::contains("No such file")),
+        );
 }
 
-/// --project pointing to nonexistent directory.
+/// --project pointing to nonexistent directory should produce an error.
 #[test]
 fn global_project_nonexistent_dir() {
     let temp = tempfile::TempDir::new().unwrap();
-    let mut s = spawn_bivvy(
-        &["status", "--project", "/nonexistent/dir"],
-        temp.path(),
-    );
-
-    let text = read_to_eof(&mut s);
-    assert!(
-        text.contains("error") || text.contains("not found") || text.contains("No")
-            || text.contains("does not exist") || text.contains("configuration"),
-        "Nonexistent project should show error, got: {}",
-        &text[..text.len().min(300)]
-    );
+    Command::cargo_bin("bivvy")
+        .unwrap()
+        .args(["status", "--project", "/nonexistent/dir"])
+        .current_dir(temp.path())
+        .assert()
+        .failure()
+        .stderr(
+            predicate::str::contains("/nonexistent/dir")
+                .or(predicate::str::contains("not found"))
+                .or(predicate::str::contains("No such file"))
+                .or(predicate::str::contains("No configuration found")),
+        );
 }
 
 // =====================================================================
-// SUBCOMMAND HELP
+// SUBCOMMAND HELP (snapshot-tested)
 // =====================================================================
+
+/// Run `bivvy <subcommand> --help`, assert exit code 0, and return stdout.
+fn run_help(subcommand: &str) -> String {
+    let output = Command::cargo_bin("bivvy")
+        .unwrap()
+        .args([subcommand, "--help"])
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "`bivvy {subcommand} --help` should exit 0, got {:?}\nstderr: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8_lossy(&output.stdout).into_owned()
+}
 
 /// Each subcommand accepts --help and shows relevant content.
 #[test]
 fn subcommand_help_run() {
-    let mut s = spawn_bivvy_global(&["run", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("run") || text.contains("Run"), "Run help should mention run");
-    assert!(text.contains("Usage"), "Run help should show Usage section");
+    let text = run_help("run");
+    assert!(text.contains("Usage"), "run --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_run", text);
 }
 
 #[test]
 fn subcommand_help_init() {
-    let mut s = spawn_bivvy_global(&["init", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("init") || text.contains("Init"), "Init help should mention init");
-    assert!(text.contains("Usage"), "Init help should show Usage section");
+    let text = run_help("init");
+    assert!(text.contains("Usage"), "init --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_init", text);
 }
 
 #[test]
 fn subcommand_help_add() {
-    let mut s = spawn_bivvy_global(&["add", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("add") || text.contains("Add"), "Add help should mention add");
-    assert!(text.contains("Usage"), "Add help should show Usage section");
+    let text = run_help("add");
+    assert!(text.contains("Usage"), "add --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_add", text);
 }
 
 #[test]
 fn subcommand_help_status() {
-    let mut s = spawn_bivvy_global(&["status", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("status") || text.contains("Status"), "Status help should mention status");
-    assert!(text.contains("Usage"), "Status help should show Usage section");
+    let text = run_help("status");
+    assert!(text.contains("Usage"), "status --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_status", text);
 }
 
 #[test]
 fn subcommand_help_list() {
-    let mut s = spawn_bivvy_global(&["list", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("list") || text.contains("List"), "List help should mention list");
-    assert!(text.contains("Usage"), "List help should show Usage section");
+    let text = run_help("list");
+    assert!(text.contains("Usage"), "list --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_list", text);
 }
 
 #[test]
 fn subcommand_help_lint() {
-    let mut s = spawn_bivvy_global(&["lint", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("lint") || text.contains("Lint"), "Lint help should mention lint");
-    assert!(text.contains("Usage"), "Lint help should show Usage section");
+    let text = run_help("lint");
+    assert!(text.contains("Usage"), "lint --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_lint", text);
 }
 
 #[test]
 fn subcommand_help_last() {
-    let mut s = spawn_bivvy_global(&["last", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("last") || text.contains("Last"), "Last help should mention last");
-    assert!(text.contains("Usage"), "Last help should show Usage section");
+    let text = run_help("last");
+    assert!(text.contains("Usage"), "last --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_last", text);
 }
 
 #[test]
 fn subcommand_help_history() {
-    let mut s = spawn_bivvy_global(&["history", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("history") || text.contains("History"), "History help should mention history");
-    assert!(text.contains("Usage"), "History help should show Usage section");
+    let text = run_help("history");
+    assert!(text.contains("Usage"), "history --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_history", text);
 }
 
 #[test]
 fn subcommand_help_templates() {
-    let mut s = spawn_bivvy_global(&["templates", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("template") || text.contains("Template"), "Templates help should mention templates");
-    assert!(text.contains("Usage"), "Templates help should show Usage section");
+    let text = run_help("templates");
+    assert!(text.contains("Usage"), "templates --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_templates", text);
 }
 
 #[test]
 fn subcommand_help_config() {
-    let mut s = spawn_bivvy_global(&["config", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("config") || text.contains("Config"), "Config help should mention config");
-    assert!(text.contains("Usage"), "Config help should show Usage section");
+    let text = run_help("config");
+    assert!(text.contains("Usage"), "config --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_config", text);
 }
 
 #[test]
 fn subcommand_help_cache() {
-    let mut s = spawn_bivvy_global(&["cache", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("cache") || text.contains("Cache"), "Cache help should mention cache");
-    assert!(text.contains("Usage"), "Cache help should show Usage section");
+    let text = run_help("cache");
+    assert!(text.contains("Usage"), "cache --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_cache", text);
 }
 
 #[test]
 fn subcommand_help_feedback() {
-    let mut s = spawn_bivvy_global(&["feedback", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("feedback") || text.contains("Feedback"), "Feedback help should mention feedback");
-    assert!(text.contains("Usage"), "Feedback help should show Usage section");
+    let text = run_help("feedback");
+    assert!(text.contains("Usage"), "feedback --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_feedback", text);
 }
 
 #[test]
 fn subcommand_help_completions() {
-    let mut s = spawn_bivvy_global(&["completions", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("completions") || text.contains("Completions"), "Completions help should mention completions");
-    assert!(text.contains("Usage"), "Completions help should show Usage section");
+    let text = run_help("completions");
+    assert!(text.contains("Usage"), "completions --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_completions", text);
 }
 
 #[test]
 fn subcommand_help_update() {
-    let mut s = spawn_bivvy_global(&["update", "--help"]);
-    let text = read_to_eof(&mut s);
-    assert!(text.contains("update") || text.contains("Update"), "Update help should mention update");
-    assert!(text.contains("Usage"), "Update help should show Usage section");
+    let text = run_help("update");
+    assert!(text.contains("Usage"), "update --help should include 'Usage'");
+    insta::assert_snapshot!("subcommand_help_update", text);
 }

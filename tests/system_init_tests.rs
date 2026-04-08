@@ -65,9 +65,9 @@ fn init_detects_rust_project() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Detected technologies")
+    s.expect("Detected technologies:")
         .expect("Should show detection header");
-    s.expect("Rust").expect("Should detect Rust");
+    s.expect("Rust - Cargo.toml found").expect("Should detect Rust");
 
     // Accept default selections with Enter
     s.send_line("").unwrap();
@@ -76,9 +76,10 @@ fn init_detects_rust_project() {
         .expect("Should confirm config creation");
 
     // Decline run
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // Verify config file exists
     assert!(temp.path().join(".bivvy/config.yml").exists());
@@ -117,7 +118,7 @@ fn init_detects_node_project() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Detected technologies")
+    s.expect("Detected technologies:")
         .expect("Should show detection header");
 
     // Accept defaults
@@ -126,9 +127,10 @@ fn init_detects_node_project() {
         .expect("Should confirm config creation");
 
     // Decline run
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 
@@ -152,6 +154,7 @@ fn init_detects_node_project_with_yarn() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -173,6 +176,7 @@ fn init_detects_node_project_with_pnpm() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -194,6 +198,7 @@ fn init_detects_node_project_with_bun() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -212,16 +217,17 @@ fn init_detects_ruby_project() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Detected technologies")
+    s.expect("Detected technologies:")
         .expect("Should show detection header");
 
     s.send_line("").unwrap();
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 
@@ -243,16 +249,17 @@ fn init_detects_python_project() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Detected technologies")
+    s.expect("Detected technologies:")
         .expect("Should show detection header");
 
     s.send_line("").unwrap();
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 
@@ -276,6 +283,7 @@ fn init_detects_python_project_with_poetry() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -297,6 +305,7 @@ fn init_detects_python_project_with_uv() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -315,6 +324,7 @@ fn init_detects_go_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -333,6 +343,7 @@ fn init_detects_php_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -351,6 +362,7 @@ fn init_detects_elixir_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -372,6 +384,7 @@ fn init_detects_swift_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -390,6 +403,7 @@ fn init_detects_terraform_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -408,6 +422,7 @@ fn init_detects_maven_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -426,6 +441,7 @@ fn init_detects_dotnet_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -444,6 +460,7 @@ fn init_detects_dart_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -463,6 +480,7 @@ fn init_detects_flutter_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -481,6 +499,7 @@ fn init_detects_deno_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -499,6 +518,7 @@ fn init_detects_gradle_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -517,6 +537,7 @@ fn init_detects_gradle_groovy_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -542,6 +563,7 @@ fn init_detects_rails_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -567,6 +589,7 @@ fn init_detects_laravel_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -592,6 +615,7 @@ fn init_detects_django_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -616,6 +640,7 @@ fn init_detects_spring_boot_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -641,6 +666,7 @@ fn init_detects_nextjs_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -662,6 +688,7 @@ fn init_detects_diesel_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -687,6 +714,7 @@ fn init_detects_prisma_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -708,6 +736,7 @@ fn init_detects_docker_compose_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -726,6 +755,7 @@ fn init_detects_compose_yml_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -744,6 +774,7 @@ fn init_detects_helm_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -762,6 +793,7 @@ fn init_detects_pulumi_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -780,6 +812,7 @@ fn init_detects_aws_cdk_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -798,6 +831,7 @@ fn init_detects_ansible_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -816,6 +850,7 @@ fn init_detects_ansible_via_playbook() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -834,6 +869,7 @@ fn init_detects_nx_workspace() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -852,6 +888,7 @@ fn init_detects_turborepo() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -870,6 +907,7 @@ fn init_detects_lerna_monorepo() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -888,6 +926,7 @@ fn init_detects_pre_commit() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -906,6 +945,7 @@ fn init_detects_env_template() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -927,6 +967,7 @@ fn init_detects_alembic_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -948,6 +989,7 @@ fn init_detects_vite_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -969,6 +1011,7 @@ fn init_detects_remix_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -994,7 +1037,7 @@ fn init_detects_multiple_technologies() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Detected technologies")
+    s.expect("Detected technologies:")
         .expect("Should detect technologies");
 
     // Accept all defaults
@@ -1002,9 +1045,10 @@ fn init_detects_multiple_technologies() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 
@@ -1033,6 +1077,7 @@ fn init_detects_three_languages() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -1064,6 +1109,7 @@ fn init_empty_project() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation for empty project");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(
         temp.path().join(".bivvy/config.yml").exists(),
@@ -1090,33 +1136,44 @@ fn init_empty_project() {
 // INTERACTIVE — "Run setup now?" prompt
 // =====================================================================
 
-/// Accept "Run setup now?" with 'y'.
+/// Accept "Run setup now?" with 'y' — triggers a real `cargo build` run.
 #[test]
 fn init_run_after_init_accept() {
-    let temp = setup_detection_project(&[(
-        "Cargo.toml",
-        "[package]\nname = \"test\"\nversion = \"0.1.0\"",
-    )]);
+    // Set up a *valid* Rust package so the triggered `cargo build` can
+    // actually complete — this lets us assert on phase 2 outcome specifically.
+    let temp = setup_detection_project(&[
+        (
+            "Cargo.toml",
+            "[package]\nname = \"test\"\nversion = \"0.1.0\"\nedition = \"2021\"\n",
+        ),
+        ("src/main.rs", "fn main() {}\n"),
+    ]);
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    // Accept detected templates
-    s.expect("Select steps").unwrap();
+    // Phase 1: detection + template selection + config generation.
+    s.expect("Select steps to include").unwrap();
     s.send_line("").unwrap();
 
-    s.expect("Created .bivvy/config.yml")
-        .expect("Should confirm config creation before run prompt");
+    s.expect("Created .bivvy/config.yml").unwrap();
 
-    // Accept run
-    s.expect("Run setup now").unwrap();
+    // Accept the "Run setup now?" prompt, triggering phase 2.
+    s.expect("Run setup now?").unwrap();
     s.send("y").unwrap();
 
-    // Phase 2: verify the run actually produced output (success or template error)
+    // Phase 2: assert the run phase produced a real outcome marker, not just
+    // that the process exited. With a valid Rust package (Cargo.toml +
+    // src/main.rs), the `cargo build` step should succeed and print the
+    // "Setup complete!" marker from the RunSummary.
     let output = read_to_eof(&mut s);
     assert!(
-        !output.is_empty(),
-        "Run phase should produce output after accepting 'Run setup now?'"
+        output.contains("Setup complete!"),
+        "Phase 2 should print 'Setup complete!' after successful run, got:\n---\n{}\n---",
+        output
     );
+    // The triggered run must exit with documented code 0 on success.
+    assert_exit_code(&s, 0);
+
     assert!(
         temp.path().join(".bivvy/config.yml").exists(),
         "Config should be created before run"
@@ -1133,16 +1190,17 @@ fn init_run_after_init_decline() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Select steps").unwrap();
+    s.expect("Select steps to include").unwrap();
     s.send_line("").unwrap();
 
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation before run prompt");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
 
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
 
@@ -1156,16 +1214,17 @@ fn init_run_after_init_enter_default() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Select steps").unwrap();
+    s.expect("Select steps to include").unwrap();
     s.send_line("").unwrap();
 
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     send_key(&s, KEY_ENTER);
 
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
     assert!(
         temp.path().join(".bivvy/config.yml").exists(),
         "Config should exist after declining run with Enter"
@@ -1182,16 +1241,17 @@ fn init_run_after_init_escape() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Select steps").unwrap();
+    s.expect("Select steps to include").unwrap();
     s.send_line("").unwrap();
 
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     send_key(&s, KEY_ESC);
 
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
     assert!(
         temp.path().join(".bivvy/config.yml").exists(),
         "Config should exist after declining run with Escape"
@@ -1215,7 +1275,7 @@ fn init_multiselect_toggle_all() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Select steps")
+    s.expect("Select steps to include")
         .expect("Should show multiselect prompt");
 
     // 'a' toggles all off, then 'a' toggles all on, then Enter
@@ -1228,9 +1288,21 @@ fn init_multiselect_toggle_all() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should create config after toggle all");
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+
+    // Verify config includes all steps (toggled off then back on)
+    let config = read_generated_config(&temp);
+    assert!(
+        config.contains("cargo-build"),
+        "Config should contain cargo-build after toggle-all-off then toggle-all-on"
+    );
+    assert!(
+        config.contains("npm-install"),
+        "Config should contain npm-install after toggle-all-off then toggle-all-on"
+    );
 }
 
 /// Use space to deselect a specific template before confirming.
@@ -1243,15 +1315,34 @@ fn init_multiselect_space_deselects() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Select steps")
+    s.expect("Select steps to include")
         .expect("Should show multiselect prompt");
 
-    // Space toggles current item, then Enter to confirm
+    // Space deselects the first (only) item, then Enter to confirm with nothing selected
     s.send(" ").unwrap();
     std::thread::sleep(std::time::Duration::from_millis(100));
     s.send_line("").unwrap();
 
+    s.expect("Created .bivvy/config.yml")
+        .expect("Should confirm config creation after deselecting");
+    // With zero steps selected, init still shows the "Run setup now?" prompt
+    // (it's shown whenever the UI is interactive, regardless of step count).
+    // Decline it so the process can exit cleanly and we can assert exit code.
+    s.expect("Run setup now?").unwrap();
+    s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+
+    // Verify config was created but without the deselected step
+    let config = read_generated_config(&temp);
+    assert!(
+        config.contains("app_name:"),
+        "Config should have app_name even with all steps deselected"
+    );
+    assert!(
+        !config.contains("cargo-build"),
+        "Config should NOT contain cargo-build when it was deselected"
+    );
 }
 
 /// Navigate with arrow keys in the MultiSelect.
@@ -1267,10 +1358,10 @@ fn init_multiselect_arrow_navigation() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("Select steps")
+    s.expect("Select steps to include")
         .expect("Should show multiselect prompt");
 
-    // Arrow down, space to toggle, arrow down, space to toggle, Enter
+    // Arrow down, space to toggle (deselect), arrow down, space to toggle (deselect), Enter
     send_keys(&s, ARROW_DOWN);
     std::thread::sleep(std::time::Duration::from_millis(100));
     s.send(" ").unwrap();
@@ -1281,7 +1372,19 @@ fn init_multiselect_arrow_navigation() {
     std::thread::sleep(std::time::Duration::from_millis(100));
     s.send_line("").unwrap();
 
+    s.expect("Created .bivvy/config.yml")
+        .expect("Should confirm config creation after arrow navigation");
+    s.expect("Run setup now?").unwrap();
+    s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+
+    // Verify config was created
+    let config = read_generated_config(&temp);
+    assert!(
+        config.contains("app_name:"),
+        "Config should have app_name after arrow key navigation"
+    );
 }
 
 // =====================================================================
@@ -1299,13 +1402,13 @@ fn init_complete_wizard_walkthrough() {
     let mut s = spawn_bivvy(&["init"], temp.path());
 
     // Step 1: Detection output
-    s.expect("Detected technologies")
+    s.expect("Detected technologies:")
         .expect("Wizard should start with detection");
-    s.expect("Ruby")
+    s.expect("Ruby - Gemfile found")
         .expect("Should show Ruby in detection output");
 
     // Step 2: Template selection prompt
-    s.expect("Select steps")
+    s.expect("Select steps to include")
         .expect("Wizard should prompt for step selection");
 
     // Accept defaults (all detected templates)
@@ -1316,11 +1419,12 @@ fn init_complete_wizard_walkthrough() {
         .expect("Wizard should confirm config creation");
 
     // Step 4: Run prompt
-    s.expect("Run setup now")
+    s.expect("Run setup now?")
         .expect("Wizard should offer to run setup");
     s.send("n").unwrap();
 
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // Verify generated config thoroughly
     let config = read_generated_config(&temp);
@@ -1385,6 +1489,7 @@ fn init_minimal_flag() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
     assert!(temp.path().join(".bivvy/config.yml").exists());
 
     let config = read_generated_config(&temp);
@@ -1411,6 +1516,7 @@ fn init_minimal_flag_with_detection() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -1432,6 +1538,7 @@ fn init_force_overwrites_existing() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation with --force");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = fs::read_to_string(bivvy_dir.join("config.yml")).unwrap();
     assert!(
@@ -1450,9 +1557,10 @@ fn init_verbose_flag() {
     let temp = TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["init", "--minimal", "--verbose"], temp.path());
 
-    s.expect("Created")
+    s.expect("Created .bivvy/config.yml")
         .expect("Should show creation message in verbose mode");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
@@ -1465,8 +1573,9 @@ fn init_quiet_flag() {
 
     // --quiet suppresses all prompts; verify minimal/no output
     let output = read_to_eof(&mut s);
+    assert_exit_code(&s, 0);
     assert!(
-        !output.contains("Detected technologies"),
+        !output.contains("Detected technologies:"),
         "Quiet mode should not show detection output, got: {}",
         &output[..output.len().min(200)]
     );
@@ -1482,9 +1591,12 @@ fn init_template_flag() {
     let temp = TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["init", "--template", "rust"], temp.path());
 
+    s.expect("Using template: rust")
+        .expect("--template should show which template is being used");
     s.expect("Created .bivvy/config.yml")
         .expect("--template rust should create config");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(
@@ -1512,9 +1624,10 @@ fn init_from_flag() {
         dest.path(),
     );
 
-    s.expect("Created .bivvy/config.yml")
-        .expect("--from should confirm config creation");
+    s.expect("Copied configuration from")
+        .expect("--from should confirm config was copied");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // Verify the config was copied
     assert!(
@@ -1548,16 +1661,24 @@ fn init_detects_lockfile_conflict() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    // The init command should show detection and possibly a conflict warning
-    s.expect("Detected technologies")
+    // The init command should show detection and a conflict warning
+    s.expect("Detected technologies:")
         .expect("Should show detection for conflicting project");
+
+    // Verify the conflict warning is shown with full message
+    s.expect("Multiple Node.js lockfiles detected:")
+        .expect("Should warn about conflicting lockfiles");
 
     // Accept defaults and finish
     s.send_line("").unwrap();
 
-    s.expect("Run setup now").unwrap();
+    s.expect("Created .bivvy/config.yml")
+        .expect("Should confirm config creation despite conflicts");
+
+    s.expect("Run setup now?").unwrap();
     s.send("n").unwrap();
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(
         temp.path().join(".bivvy/config.yml").exists(),
@@ -1576,9 +1697,12 @@ fn init_updates_gitignore() {
 
     let mut s = spawn_bivvy(&["init", "--minimal"], temp.path());
 
+    s.expect("Added .bivvy/config.local.yml to .gitignore")
+        .expect("Should confirm gitignore update");
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let gitignore = fs::read_to_string(temp.path().join(".gitignore")).unwrap();
     assert!(
@@ -1604,6 +1728,7 @@ fn init_does_not_duplicate_gitignore_entry() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let gitignore = fs::read_to_string(temp.path().join(".gitignore")).unwrap();
     let count = gitignore.matches(".bivvy/config.local.yml").count();
@@ -1623,6 +1748,7 @@ fn init_without_gitignore_does_not_create_one() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(
         !temp.path().join(".gitignore").exists(),
@@ -1647,6 +1773,7 @@ fn init_generated_config_structure() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
 
@@ -1705,6 +1832,7 @@ fn init_generated_config_has_template_comments() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
 
@@ -1734,9 +1862,10 @@ fn init_refuses_overwrite_without_force() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("already exists")
-        .expect("Should warn about existing config");
+    s.expect("Configuration already exists. Use --force to overwrite.")
+        .expect("Should warn about existing config with actionable message");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 
     // Verify original config was NOT overwritten
     let config = fs::read_to_string(bivvy_dir.join("config.yml")).unwrap();
@@ -1756,9 +1885,10 @@ fn init_existing_config_suggests_force_flag() {
 
     let mut s = spawn_bivvy(&["init"], temp.path());
 
-    s.expect("--force")
-        .expect("Error message should suggest using --force");
+    s.expect("Configuration already exists. Use --force to overwrite.")
+        .expect("Error message should include full actionable suggestion");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 }
 
 /// --from with nonexistent source path fails.
@@ -1767,12 +1897,10 @@ fn init_from_nonexistent_path_fails() {
     let temp = TempDir::new().unwrap();
     let mut s = spawn_bivvy(&["init", "--from", "/nonexistent/path"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("not found") || output.contains("does not exist") || output.contains("Error"),
-        "Should show error for nonexistent --from path, got: {}",
-        &output[..output.len().min(300)]
-    );
+    s.expect("No .bivvy/config.yml found at")
+        .expect("Should show exact error for nonexistent --from path");
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 
     // Config should NOT be created
     assert!(
@@ -1790,12 +1918,10 @@ fn init_unknown_template_fails() {
         temp.path(),
     );
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("Unknown") || output.contains("not found") || output.contains("Error"),
-        "Should show error for unknown template, got: {}",
-        &output[..output.len().min(300)]
-    );
+    s.expect("No template or category found matching 'nonexistent-lang-xyz'")
+        .expect("Should show exact error for unknown template");
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 
     // Config should NOT be created for unknown template
     assert!(
@@ -1818,12 +1944,12 @@ fn init_readonly_directory_fails() {
 
     let mut s = spawn_bivvy(&["init", "--minimal"], &readonly_dir);
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("Permission") || output.contains("permission") || output.contains("Error") || output.contains("error"),
-        "Should show permission error for read-only directory, got: {}",
-        &output[..output.len().min(300)]
-    );
+    // OS-level permission error; the exact message varies but must contain
+    // "Permission denied" (the standard POSIX error string).
+    s.expect("Permission denied")
+        .expect("Should show permission denied error for read-only directory");
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 
     // Config should NOT exist in read-only dir
     assert!(
@@ -1833,7 +1959,7 @@ fn init_readonly_directory_fails() {
 
     // Restore permissions for cleanup
     perms.set_readonly(false);
-    fs::set_permissions(&readonly_dir, perms).ok();
+    fs::set_permissions(&readonly_dir, perms).unwrap();
 }
 
 /// --from pointing to a directory without .bivvy/config.yml fails.
@@ -1848,12 +1974,10 @@ fn init_from_missing_config_fails() {
         dest.path(),
     );
 
-    let output = read_to_eof(&mut s);
-    assert!(
-        output.contains("not found") || output.contains("does not exist") || output.contains("No configuration") || output.contains("Error"),
-        "Should show error when source has no config, got: {}",
-        &output[..output.len().min(300)]
-    );
+    s.expect("No .bivvy/config.yml found at")
+        .expect("Should show exact error when source has no config");
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 1);
 
     assert!(
         !dest.path().join(".bivvy/config.yml").exists(),
@@ -1875,14 +1999,16 @@ fn init_twice_without_force_fails() {
     s.expect("Created .bivvy/config.yml")
         .expect("First init should succeed");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 
     // Second init should fail
     let mut s2 = spawn_bivvy(&["init"], temp.path());
-    s2.expect("already exists")
+    s2.expect("Configuration already exists. Use --force to overwrite.")
         .expect("Second init should warn about existing config");
     s2.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s2, 1);
 }
 
 /// Running init twice with --force succeeds on second run.
@@ -1895,12 +2021,14 @@ fn init_twice_with_force_succeeds() {
     s.expect("Created .bivvy/config.yml")
         .expect("First init should succeed");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // Second init with --force
     let mut s2 = spawn_bivvy(&["init", "--force", "--minimal"], temp.path());
     s2.expect("Created .bivvy/config.yml")
         .expect("Second init with --force should succeed");
     s2.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s2, 0);
 
     assert!(temp.path().join(".bivvy/config.yml").exists());
 }
@@ -1925,9 +2053,10 @@ fn init_from_updates_gitignore_at_destination() {
         dest.path(),
     );
 
-    s.expect("Created .bivvy/config.yml")
-        .expect("--from should confirm config creation");
+    s.expect("Copied configuration from")
+        .expect("--from should confirm config was copied");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     assert!(
         dest.path().join(".bivvy/config.yml").exists(),
@@ -1955,6 +2084,7 @@ fn init_minimal_includes_all_detected() {
     s.expect("Created .bivvy/config.yml")
         .expect("Should confirm config creation");
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     let config = read_generated_config(&temp);
     assert!(

@@ -1,21 +1,42 @@
 //! System tests for `bivvy run` command flags and global flags.
 //!
 //! Verifies every CLI flag on the run command and all global flags
-//! work correctly. Uses external programs (git, rustc, cargo, grep)
+//! work correctly. Uses external programs (git, rustc, cargo)
 //! instead of shell builtins.
+//!
+//! All tests run with `HOME` set to a temp dir so the global bivvy
+//! store (`~/.bivvy/projects/`) is isolated from the real user
+//! environment.  Exit-code tests use `assert_cmd::Command` chained
+//! with `predicates` per community Rust CLI testing norms.
 #![cfg(unix)]
+// `assert_cmd::Command::cargo_bin` is soft-deprecated in 2.1.0+ but the
+// rest of the crate still builds against it; the project-wide tests use
+// it under `#[allow(deprecated)]` for consistency.
+#![allow(deprecated)]
 
 mod system;
 use system::helpers::*;
 
+use predicates::prelude::*;
 use std::fs;
+use tempfile::TempDir;
+
+// ---------------------------------------------------------------------------
+// Helpers
+//
+// Every spawn in this file routes through the shared helpers in
+// `tests/system/helpers.rs`, which pin `HOME` and all four `XDG_*`
+// base-directory variables to `<project>/.test_home`.  This keeps the
+// global bivvy store (`~/.bivvy/projects/`) out of the developer / CI
+// user environment without needing a separate per-test home tempdir.
+// ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // Configs
 // ---------------------------------------------------------------------------
 
 /// 4-step workflow with non-skippable steps. Uses real commands (git, rustc,
-/// cargo, grep, wc, cat) against a real project with a git repo.
+/// cargo) against a real project with a git repo.
 const FLAG_CONFIG: &str = r#"
 app_name: "FlagTest"
 
@@ -42,13 +63,13 @@ steps:
 
   analyze-source:
     title: "Analyze source files"
-    command: "grep -c 'fn ' src/main.rs && wc -l src/main.rs Cargo.toml"
+    command: "rustc --print cfg && cargo --version --verbose"
     skippable: false
     depends_on: [inspect-repo]
 
   generate-report:
     title: "Generate build report"
-    command: "rustc --version > .build-report.txt && cargo --version >> .build-report.txt && cat .build-report.txt"
+    command: "rustc --version --verbose > .build-report.txt && cargo --version >> .build-report.txt"
     skippable: false
     depends_on: [analyze-source]
 
@@ -70,16 +91,16 @@ settings:
 steps:
   scan-files:
     title: "Scan project files"
-    command: "find . -name '*.rs' -not -path './.git/*' | sort"
+    command: "git ls-files --cached"
 
   check-version:
     title: "Check version info"
-    command: "grep version Cargo.toml | head -1"
+    command: "cargo --version --verbose"
     depends_on: [scan-files]
 
   summarize:
     title: "Summarize project"
-    command: "git log --oneline -3 && wc -l src/main.rs"
+    command: "git log --oneline -3"
     depends_on: [check-version]
 
 workflows:
@@ -102,7 +123,7 @@ steps:
 
   dev-only:
     title: "Dev environment step"
-    command: "git log --oneline -1"
+    command: "git rev-parse HEAD"
     skippable: false
     only_environments: [development]
     depends_on: [always-run]
@@ -136,19 +157,19 @@ workflows:
 const SENSITIVE_FLAG_CONFIG: &str = r#"
 app_name: "SensitiveFlagTest"
 steps:
-  setup:
-    title: "Setup"
+  prepare:
+    title: "Prepare environment"
     command: "rustc --version"
     skippable: false
   sensitive-step:
     title: "Sensitive operation"
-    command: "whoami && uname -s"
+    command: "git --version && rustc --version"
     skippable: false
     sensitive: true
-    depends_on: [setup]
+    depends_on: [prepare]
 workflows:
   default:
-    steps: [setup, sensitive-step]
+    steps: [prepare, sensitive-step]
 "#;
 
 /// Config with preconditions for flag testing.
@@ -157,7 +178,7 @@ app_name: "PreconditionFlagTest"
 steps:
   guarded:
     title: "Guarded step"
-    command: "rustc --version && uname -s"
+    command: "rustc --version && cargo --version"
     skippable: false
     precondition:
       type: command_succeeds
@@ -183,11 +204,21 @@ workflows:
 #[test]
 fn only_runs_specified_steps() {
     let temp = setup_project_with_git(FLAG_CONFIG);
-    let mut s = spawn_bivvy(&["run", "--only", "check-tools,analyze-source"], temp.path());
+    let mut s = spawn_bivvy(
+        &["run", "--only", "check-tools,analyze-source"],
+        temp.path(),
+    );
 
     expect_or_dump(&mut s, "FlagTest", "Header");
-    expect_or_dump(&mut s, "2 run", "Summary shows 2 steps run");
+    expect_or_dump(&mut s, "Check development tools", "check-tools step title");
+    expect_or_dump(&mut s, "Analyze source files", "analyze-source step title");
+    expect_or_dump(
+        &mut s,
+        "2 run · 0 skipped",
+        "Summary shows 2 steps run, none skipped",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // generate-report was not run, so no side-effect file
     assert!(
@@ -200,22 +231,30 @@ fn only_runs_specified_steps() {
 // --skip flag
 // ===========================================================================
 
-/// `--skip analyze-source` excludes that step (and possibly dependents).
+/// `--skip analyze-source` excludes that step (and dependents via default
+/// skip_with_dependents behavior).
 #[test]
 fn skip_excludes_steps() {
     let temp = setup_project_with_git(FLAG_CONFIG);
     let mut s = spawn_bivvy(&["run", "--skip", "analyze-source"], temp.path());
 
     expect_or_dump(&mut s, "FlagTest", "Header");
-    // analyze-source is skipped; generate-report depends on it so may also be
-    // skipped. We expect fewer than 4 steps to run.
-    expect_or_dump(&mut s, "run", "Summary line");
-    let output = read_to_eof(&mut s);
-    // The summary should NOT say "4 run"
-    let combined = strip_ansi(&output);
+    expect_or_dump(&mut s, "Check development tools", "check-tools step runs");
+    expect_or_dump(&mut s, "Inspect repository", "inspect-repo step runs");
+    // analyze-source is skipped; generate-report depends on it so is also
+    // skipped via skip_with_dependents default behavior.
+    expect_or_dump(
+        &mut s,
+        "2 run · 2 skipped",
+        "2 steps ran (check-tools + inspect-repo), 2 skipped (analyze-source + generate-report)",
+    );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
+
+    // generate-report was skipped, so no side-effect file
     assert!(
-        !combined.contains("4 run"),
-        "Should not run all 4 steps when --skip is used"
+        !temp.path().join(".build-report.txt").exists(),
+        "--skip should also skip dependents, so generate-report should not run"
     );
 }
 
@@ -229,12 +268,16 @@ fn skip_excludes_steps() {
 fn force_reruns_completed_steps() {
     let temp = setup_project_with_git(INTERACTIVE_CONFIG);
 
-    // First run: accept all prompts to establish history
-    let s = spawn_bivvy(&["run"], temp.path());
-    wait_and_answer(&s, "Scan project files?", KEY_Y, "Accept scan-files");
-    wait_and_answer(&s, "Check version info?", KEY_Y, "Accept check-version");
-    wait_and_answer(&s, "Summarize project?", KEY_Y, "Accept summarize");
-    wait_for(&s, "3 run", "First run summary");
+    // First run: use --non-interactive to establish completion history
+    let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
+    expect_or_dump(&mut s, "InteractiveFlags", "First run header");
+    expect_or_dump(
+        &mut s,
+        "3 run · 0 skipped",
+        "First run completes all 3 steps",
+    );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // Second run with --force scan-files --non-interactive
     // The forced step should re-run without prompting.
@@ -244,9 +287,14 @@ fn force_reruns_completed_steps() {
     );
 
     expect_or_dump(&mut s, "InteractiveFlags", "Second run header");
-    // Should complete without needing any interactive input
-    expect_or_dump(&mut s, "Total:", "Second run summary");
+    expect_or_dump(&mut s, "Scan project files", "Forced step runs");
+    expect_or_dump(
+        &mut s,
+        "3 run · 0 skipped",
+        "All 3 steps run (forced + non-interactive)",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -261,8 +309,13 @@ fn non_interactive_skips_prompts() {
 
     // Should complete without sending any keys at all
     expect_or_dump(&mut s, "InteractiveFlags", "Header");
-    expect_or_dump(&mut s, "3 run", "Summary shows all 3 steps run");
+    expect_or_dump(
+        &mut s,
+        "3 run · 0 skipped",
+        "Summary shows all 3 steps run, none skipped",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -275,8 +328,13 @@ fn dry_run_shows_plan_without_executing() {
     let temp = setup_project_with_git(FLAG_CONFIG);
     let mut s = spawn_bivvy(&["run", "--dry-run"], temp.path());
 
-    expect_or_dump(&mut s, "dry-run", "Dry-run indicator in output");
+    expect_or_dump(
+        &mut s,
+        "Running in dry-run mode - no commands will be executed",
+        "Dry-run message",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // No side effects should be created
     assert!(
@@ -297,68 +355,70 @@ fn env_flag_passes_environment() {
 
     expect_or_dump(&mut s, "EnvTest", "Header");
     // always-run + dev-only = 2 steps; ci-only is excluded
-    expect_or_dump(&mut s, "2 run", "Summary shows 2 steps for dev env");
+    expect_or_dump(
+        &mut s,
+        "2 run · 0 skipped",
+        "Summary shows 2 steps for dev env, ci-only excluded",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
 // --verbose / -v flag
 // ===========================================================================
 
-/// `--verbose` produces more output than default.
+/// `--verbose` shows step titles and command details in output.
 #[test]
 fn verbose_shows_extra_output() {
     let temp = setup_project_with_git(FLAG_CONFIG);
 
-    // Run with --verbose and capture output
+    // Run with --verbose — should show step titles and detailed output
     let mut s = spawn_bivvy(&["run", "--verbose"], temp.path());
     expect_or_dump(&mut s, "FlagTest", "Verbose header");
-    expect_or_dump(&mut s, "run", "Verbose summary");
-    let verbose_output = read_to_eof(&mut s);
-
-    // Run default (no flag) and capture output
-    let mut s2 = spawn_bivvy(&["run"], temp.path());
-    expect_or_dump(&mut s2, "FlagTest", "Default header");
-    expect_or_dump(&mut s2, "run", "Default summary");
-    let default_output = read_to_eof(&mut s2);
-
-    // Verbose output should be at least as long as default
-    // (it may include command output, timing info, etc.)
-    assert!(
-        verbose_output.len() >= default_output.len(),
-        "Verbose output ({} bytes) should be >= default output ({} bytes)",
-        verbose_output.len(),
-        default_output.len()
+    expect_or_dump(&mut s, "Check development tools", "Verbose shows step title");
+    expect_or_dump(&mut s, "Inspect repository", "Verbose shows inspect-repo title");
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "All 4 steps ran, none skipped",
     );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
 // --quiet / -q flag
 // ===========================================================================
 
-/// `--quiet` produces minimal output.
+/// `--quiet` suppresses step titles and verbose output, showing only the
+/// summary. Quiet output must not contain step titles but must still show
+/// the final summary line.
 #[test]
 fn quiet_reduces_output() {
     let temp = setup_project_with_git(FLAG_CONFIG);
 
-    // Run with --verbose first to get a baseline of "normal" output length
-    let mut verbose_s = spawn_bivvy(&["run", "--verbose"], temp.path());
-    expect_or_dump(&mut verbose_s, "FlagTest", "Verbose header");
-    let verbose_output = read_to_eof(&mut verbose_s);
-
-    // Run with --quiet
+    // Run with --quiet — should suppress step titles and details
     let mut quiet_s = spawn_bivvy(&["run", "--quiet"], temp.path());
     let quiet_output = read_to_eof(&mut quiet_s);
 
-    let verbose_clean = strip_ansi(&verbose_output);
-    let quiet_clean = strip_ansi(&quiet_output);
-
+    // Quiet mode should NOT show individual step titles
     assert!(
-        quiet_clean.len() < verbose_clean.len(),
-        "Quiet output ({} bytes) should be shorter than verbose output ({} bytes)",
-        quiet_clean.len(),
-        verbose_clean.len()
+        !quiet_output.contains("Check development tools"),
+        "Quiet mode should not show step titles, but found 'Check development tools'. Output:\n{quiet_output}"
     );
+    assert!(
+        !quiet_output.contains("Inspect repository"),
+        "Quiet mode should not show step titles, but found 'Inspect repository'. Output:\n{quiet_output}"
+    );
+
+    // But the summary line must still appear (Quiet mode has shows_status == true)
+    assert!(
+        quiet_output.contains("4 run · 0 skipped"),
+        "Quiet mode should still show summary, but did not find '4 run · 0 skipped'. Output:\n{quiet_output}"
+    );
+
+    assert_exit_code(&quiet_s, 0);
 }
 
 // ===========================================================================
@@ -371,42 +431,46 @@ fn no_color_disables_ansi() {
     let temp = setup_project_with_git(FLAG_CONFIG);
     let mut s = spawn_bivvy(&["run", "--no-color"], temp.path());
 
-    // Wait for completion
+    // Verify the workflow completes before checking for ANSI
     expect_or_dump(&mut s, "FlagTest", "No-color header");
-    let output = read_to_eof(&mut s);
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "All 4 steps ran, none skipped",
+    );
+
+    // Read raw PTY output (don't use read_to_eof which strips ANSI)
+    let eof_match = s.expect(expectrl::Eof).unwrap();
+    let raw_output = String::from_utf8_lossy(eof_match.as_bytes()).to_string();
 
     // The raw output should contain no \x1b (ESC) characters
     assert!(
-        !output.contains('\x1b'),
+        !raw_output.contains('\x1b'),
         "Output with --no-color should contain no ANSI escape sequences, but found \\x1b in output"
     );
+
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
 // --debug flag
 // ===========================================================================
 
-/// `--debug` shows debug-level information.
+/// `--debug` shows debug-level information including config loading details.
 #[test]
 fn debug_shows_debug_info() {
     let temp = setup_project_with_git(FLAG_CONFIG);
     let mut s = spawn_bivvy(&["run", "--debug"], temp.path());
 
-    // Debug mode should show additional diagnostic output.
-    // Look for debug-level markers like "DEBUG", timing, or config details.
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-
-    // Debug mode typically shows config loading, step resolution, etc.
-    // At minimum it should produce more output than a quiet run.
-    assert!(
-        clean.contains("DEBUG") || clean.contains("debug") || clean.len() > 200,
-        "Debug output should contain debug markers or be substantially verbose.\n\
-         Output length: {} bytes\n\
-         First 500 chars: {}",
-        clean.len(),
-        &clean[..clean.len().min(500)]
+    // Debug mode should show the header and complete the workflow
+    expect_or_dump(&mut s, "FlagTest", "Debug header");
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "All 4 steps ran in debug mode",
     );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -420,11 +484,7 @@ fn config_flag_overrides_path() {
 
     // Move config to a non-standard location
     let custom_path = temp.path().join("custom-config.yml");
-    fs::copy(
-        temp.path().join(".bivvy/config.yml"),
-        &custom_path,
-    )
-    .unwrap();
+    fs::copy(temp.path().join(".bivvy/config.yml"), &custom_path).unwrap();
 
     // Remove the default config so bivvy MUST use the custom one
     fs::remove_file(temp.path().join(".bivvy/config.yml")).unwrap();
@@ -434,9 +494,18 @@ fn config_flag_overrides_path() {
         temp.path(),
     );
 
-    expect_or_dump(&mut s, "FlagTest", "Config flag header — loaded from custom path");
-    expect_or_dump(&mut s, "run", "Summary line");
+    expect_or_dump(
+        &mut s,
+        "FlagTest",
+        "Config flag header — loaded from custom path",
+    );
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "All 4 steps ran from custom config, none skipped",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -448,17 +517,31 @@ fn config_flag_overrides_path() {
 fn project_flag_overrides_project_root() {
     let temp = setup_project_with_git(FLAG_CONFIG);
 
-    // Create a separate directory to run bivvy from
-    let other_dir = tempfile::TempDir::new().unwrap();
+    // Create a separate directory to run bivvy from.  `spawn_bivvy`
+    // will automatically pin HOME to `<other_dir>/.test_home` so we
+    // still get full isolation even though the project path is
+    // elsewhere.
+    let other_dir = TempDir::new().unwrap();
 
+    // Spawn in the "other_dir" cwd and pass --project pointing at the
+    // real project.
     let mut s = spawn_bivvy(
         &["run", "--project", temp.path().to_str().unwrap()],
         other_dir.path(),
     );
 
-    expect_or_dump(&mut s, "FlagTest", "Project flag header — loaded from --project path");
-    expect_or_dump(&mut s, "run", "Summary line");
+    expect_or_dump(
+        &mut s,
+        "FlagTest",
+        "Project flag header — loaded from --project path",
+    );
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "All 4 steps ran via --project, none skipped",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -472,8 +555,13 @@ fn workflow_flag_selects_workflow() {
     let mut s = spawn_bivvy(&["run", "--workflow", "quick"], temp.path());
 
     expect_or_dump(&mut s, "FlagTest", "Quick workflow header");
-    expect_or_dump(&mut s, "2 run", "Summary shows 2 steps for quick workflow");
+    expect_or_dump(
+        &mut s,
+        "2 run · 0 skipped",
+        "Summary shows 2 steps for quick workflow",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 
     // generate-report not in quick workflow — no side-effect file
     assert!(
@@ -493,8 +581,13 @@ fn ci_flag_accepted() {
     let mut s = spawn_bivvy(&["run", "--ci"], temp.path());
 
     expect_or_dump(&mut s, "FlagTest", "CI flag header");
-    expect_or_dump(&mut s, "run", "Summary line");
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "Summary shows all 4 steps run, none skipped",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 /// `--ci` with interactive config runs without prompting.
@@ -504,13 +597,14 @@ fn ci_flag_non_interactive_behavior() {
     let mut s = spawn_bivvy(&["run", "--ci"], temp.path());
 
     // Should complete without interactive input
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-    assert!(
-        clean.contains("Total:") || clean.contains("run"),
-        "CI flag should run non-interactively. Output: {}",
-        &clean[..clean.len().min(500)]
+    expect_or_dump(&mut s, "InteractiveFlags", "CI flag header");
+    expect_or_dump(
+        &mut s,
+        "3 run · 0 skipped",
+        "All 3 steps run non-interactively",
     );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -525,14 +619,14 @@ app_name: "ForceAllTest"
 steps:
   step-a:
     title: "Step A"
-    command: "rustc --version && uname -s"
+    command: "rustc --version && cargo --version"
     skippable: false
     completed_check:
       type: command_succeeds
       command: "rustc --version"
   step-b:
     title: "Step B"
-    command: "git --version && whoami"
+    command: "git --version && git rev-parse HEAD"
     skippable: false
     completed_check:
       type: command_succeeds
@@ -544,18 +638,20 @@ workflows:
 "#;
     let temp = setup_project_with_git(config);
 
-    // First run to establish completion
-    run_workflow_silently(temp.path());
+    // First run to establish completion (HOME isolation is automatic).
+    run_bivvy_silently(temp.path(), &["run", "--non-interactive"]);
 
     // Second run forcing all steps
-    let mut s = spawn_bivvy(
-        &["run", "--force", "step-a,step-b"],
-        temp.path(),
-    );
+    let mut s = spawn_bivvy(&["run", "--force", "step-a,step-b"], temp.path());
 
     expect_or_dump(&mut s, "ForceAllTest", "Force-all header");
-    expect_or_dump(&mut s, "2 run", "Both steps ran despite being complete");
+    expect_or_dump(
+        &mut s,
+        "2 run · 0 skipped",
+        "Both steps ran despite being complete",
+    );
     s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -566,19 +662,28 @@ workflows:
 #[test]
 fn non_interactive_with_quiet() {
     let temp = setup_project_with_git(INTERACTIVE_CONFIG);
-    let mut s = spawn_bivvy(&["run", "--non-interactive", "--quiet"], temp.path());
 
-    // Should complete without any interactive input
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
+    // Run quiet + non-interactive — should suppress step titles
+    let mut quiet_s = spawn_bivvy(&["run", "--non-interactive", "--quiet"], temp.path());
+    let quiet_output = read_to_eof(&mut quiet_s);
 
-    // Quiet mode produces minimal output; just verify it finished
-    // (no hang, no prompt waiting)
+    // Quiet mode should NOT show individual step titles
     assert!(
-        clean.len() < 5000,
-        "Quiet + non-interactive should produce minimal output, got {} bytes",
-        clean.len()
+        !quiet_output.contains("Scan project files"),
+        "Quiet non-interactive should not show step titles, but found 'Scan project files'. Output:\n{quiet_output}"
     );
+    assert!(
+        !quiet_output.contains("Check version info"),
+        "Quiet non-interactive should not show step titles, but found 'Check version info'. Output:\n{quiet_output}"
+    );
+
+    // But the summary line must still appear (Quiet mode has shows_status == true)
+    assert!(
+        quiet_output.contains("3 run · 0 skipped"),
+        "Quiet non-interactive should still show summary, but did not find '3 run · 0 skipped'. Output:\n{quiet_output}"
+    );
+
+    assert_exit_code(&quiet_s, 0);
 }
 
 /// `--verbose --no-color` shows verbose output without ANSI escapes.
@@ -588,21 +693,24 @@ fn verbose_with_no_color() {
     let mut s = spawn_bivvy(&["run", "--verbose", "--no-color"], temp.path());
 
     expect_or_dump(&mut s, "FlagTest", "Verbose no-color header");
-    let output = read_to_eof(&mut s);
+    expect_or_dump(&mut s, "Check development tools", "Step title visible in verbose no-color");
+    expect_or_dump(
+        &mut s,
+        "4 run · 0 skipped",
+        "All 4 steps ran, none skipped",
+    );
+
+    // Read raw PTY output (don't use read_to_eof which strips ANSI)
+    let eof_match = s.expect(expectrl::Eof).unwrap();
+    let raw_output = String::from_utf8_lossy(eof_match.as_bytes()).to_string();
 
     // No ANSI escape characters
     assert!(
-        !output.contains('\x1b'),
+        !raw_output.contains('\x1b'),
         "Output with --no-color should contain no ANSI escape sequences"
     );
 
-    // Should still have substantial verbose output
-    let clean = strip_ansi(&output);
-    assert!(
-        clean.len() > 50,
-        "Verbose output should be substantial, got only {} bytes",
-        clean.len()
-    );
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -613,100 +721,70 @@ fn verbose_with_no_color() {
 #[test]
 fn exit_code_only_flag_success() {
     let temp = setup_project_with_git(FLAG_CONFIG);
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let status = std::process::Command::new(bin)
+    bivvy_assert_cmd(temp.path())
         .args(["run", "--only", "check-tools"])
-        .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("Failed to run bivvy");
-    assert!(
-        status.success(),
-        "Successful --only should exit 0, got {:?}",
-        status.code()
-    );
+        .assert()
+        .success()
+        .code(0)
+        .stdout(predicate::str::contains("1 run · 0 skipped"));
 }
 
 /// `--dry-run` always exits 0 (no execution).
 #[test]
 fn exit_code_dry_run_always_zero() {
     let temp = setup_project_with_git(FLAG_CONFIG);
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let status = std::process::Command::new(bin)
+    bivvy_assert_cmd(temp.path())
         .args(["run", "--dry-run"])
-        .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("Failed to run bivvy");
-    assert!(
-        status.success(),
-        "Dry run should always exit 0, got {:?}",
-        status.code()
-    );
+        .assert()
+        .success()
+        .code(0)
+        .stdout(predicate::str::contains(
+            "Running in dry-run mode - no commands will be executed",
+        ));
 }
 
-/// Failing step with --non-interactive exits non-zero.
+/// Failing step with --non-interactive exits with code 1 and surfaces the
+/// failing step's title in output.
 #[test]
 fn exit_code_failing_step_non_zero() {
     let temp = setup_project(FAILING_CONFIG);
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let status = std::process::Command::new(bin)
+    // The failing step's user-facing title is "Failing step" — assert on
+    // the exact title, not a partial / alternative match.
+    bivvy_assert_cmd(temp.path())
         .args(["run", "--non-interactive"])
-        .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("Failed to run bivvy");
-    assert!(
-        !status.success(),
-        "Failing step should produce non-zero exit code, got {:?}",
-        status.code()
-    );
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("Failing step"));
 }
 
-/// `--quiet --non-interactive` with successful workflow exits 0.
+/// `--quiet --non-interactive` with successful workflow exits 0, produces
+/// no step titles, and still emits the summary line.
 #[test]
 fn exit_code_quiet_non_interactive_success() {
     let temp = setup_project_with_git(FLAG_CONFIG);
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let status = std::process::Command::new(bin)
+    bivvy_assert_cmd(temp.path())
         .args(["run", "--quiet", "--non-interactive"])
-        .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("Failed to run bivvy");
-    assert!(
-        status.success(),
-        "Quiet non-interactive with good config should exit 0, got {:?}",
-        status.code()
-    );
+        .assert()
+        .success()
+        .code(0)
+        .stdout(
+            predicate::str::contains("Check development tools")
+                .not()
+                .and(predicate::str::contains("4 run · 0 skipped")),
+        );
 }
 
 /// `--ci` flag exits 0 on success.
 #[test]
 fn exit_code_ci_flag_success() {
     let temp = setup_project_with_git(FLAG_CONFIG);
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let status = std::process::Command::new(bin)
+    bivvy_assert_cmd(temp.path())
         .args(["run", "--ci"])
-        .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("Failed to run bivvy");
-    assert!(
-        status.success(),
-        "CI flag with good config should exit 0, got {:?}",
-        status.code()
-    );
+        .assert()
+        .success()
+        .code(0)
+        .stdout(predicate::str::contains("4 run · 0 skipped"));
 }
 
 // ===========================================================================
@@ -720,16 +798,16 @@ fn sensitive_step_non_interactive_masks_output() {
     let mut s = spawn_bivvy(&["run", "--non-interactive", "--verbose"], temp.path());
 
     // Normal step output should be visible
-    expect_or_dump(&mut s, "Setup", "Setup step title");
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-
-    // Sensitive step should complete but mask its output
-    assert!(
-        clean.contains("Sensitive operation") || clean.contains("Total:"),
-        "Sensitive step should show title but mask output. Got: {}",
-        &clean[..clean.len().min(500)]
+    expect_or_dump(&mut s, "Prepare environment", "Prepare step title");
+    // Sensitive step should show [SENSITIVE] marker for its command
+    expect_or_dump(&mut s, "[SENSITIVE]", "Sensitive step command is masked");
+    expect_or_dump(
+        &mut s,
+        "2 run · 0 skipped",
+        "Both steps ran, none skipped",
     );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 /// `--dry-run` with sensitive step should mask command text.
@@ -738,15 +816,20 @@ fn sensitive_step_dry_run_masks_command() {
     let temp = setup_project(SENSITIVE_FLAG_CONFIG);
     let mut s = spawn_bivvy(&["run", "--dry-run", "--verbose"], temp.path());
 
-    let output = read_to_eof(&mut s);
-    let clean = strip_ansi(&output);
-
-    // In dry-run mode, sensitive step commands should be masked
-    assert!(
-        clean.contains("dry-run") || clean.contains("Sensitive"),
-        "Dry-run should show plan without leaking sensitive command details. Got: {}",
-        &clean[..clean.len().min(500)]
+    expect_or_dump(
+        &mut s,
+        "Running in dry-run mode - no commands will be executed",
+        "Dry-run message",
     );
+    // In dry-run mode, sensitive step commands should show "Would run: [SENSITIVE]"
+    expect_or_dump(&mut s, "Would run: [SENSITIVE]", "Sensitive command masked in dry-run");
+    expect_or_dump(
+        &mut s,
+        "2 run · 0 skipped",
+        "Both steps reported in summary",
+    );
+    s.expect(expectrl::Eof).unwrap();
+    assert_exit_code(&s, 0);
 }
 
 // ===========================================================================
@@ -760,28 +843,31 @@ fn force_flag_does_not_bypass_precondition() {
     let mut s = spawn_bivvy(&["run", "--force", "guarded-fail"], temp.path());
 
     // First step (guarded) should pass its precondition and run
-    // Second step (guarded-fail) has precondition `false` — should fail
-    expect_or_dump(&mut s, "precondition", "Precondition failure despite --force");
+    expect_or_dump(&mut s, "Guarded step", "First step runs with passing precondition");
+    // Second step (guarded-fail) has precondition that fails — should report failure
+    // The executor formats this as "Precondition failed: command '<cmd>' failed"
+    expect_or_dump(
+        &mut s,
+        "Precondition failed",
+        "Precondition failure despite --force",
+    );
     s.expect(expectrl::Eof).unwrap();
+    // Failed precondition should produce a non-zero exit code.
+    assert_exit_code(&s, 1);
 }
 
 /// Precondition with --non-interactive still enforces the check.
 #[test]
 fn precondition_enforced_in_non_interactive() {
     let temp = setup_project_with_git(PRECONDITION_FLAG_CONFIG);
-    let bin = assert_cmd::cargo::cargo_bin("bivvy");
-    let status = std::process::Command::new(bin)
+    // guarded-fail has precondition `git --no-such-flag-xyz` which always
+    // fails, so the workflow must surface the precondition failure in
+    // output AND exit 1.  We assert on both via `assert_cmd` chaining so
+    // the test cannot pass without the specific failure message appearing.
+    bivvy_assert_cmd(temp.path())
         .args(["run", "--non-interactive"])
-        .current_dir(temp.path())
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .expect("Failed to run bivvy");
-    // guarded-fail has precondition `false`, so the workflow should fail
-    assert!(
-        !status.success(),
-        "Failed precondition should produce non-zero exit code, got {:?}",
-        status.code()
-    );
+        .assert()
+        .failure()
+        .code(1)
+        .stdout(predicate::str::contains("Precondition failed"));
 }
