@@ -210,6 +210,7 @@ dependencies = [
  "httpmock",
  "include_dir",
  "indicatif",
+ "insta",
  "libc",
  "marked-yaml",
  "open",
@@ -1154,6 +1155,19 @@ dependencies = [
  "unicode-width",
  "unit-prefix",
  "web-time",
+]
+
+[[package]]
+name = "insta"
+version = "1.47.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b4a6248eb93a4401ed2f37dfe8ea592d3cf05b7cf4f8efa867b6895af7e094e"
+dependencies = [
+ "console",
+ "once_cell",
+ "serde",
+ "similar",
+ "tempfile",
 ]
 
 [[package]]
