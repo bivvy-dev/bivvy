@@ -1,0 +1,5 @@
+---
+source: tests/system_list_tests.rs
+expression: normalized
+---
+✗ Error: Failed to parse config at /private<TEMP>/.bivvy/config.yml: did not find expected ',' or '}' at line 2 column 1, while parsing a flow mapping at line 1 column 4

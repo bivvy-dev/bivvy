@@ -1,0 +1,21 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Check for and install updates
+
+Usage: bivvy update [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>      Path to config file (overrides default .bivvy/config.yml)
+      --check                Check for updates without installing
+      --enable-auto-update   Enable automatic background updates
+  -p, --project <PROJECT>    Path to project root (overrides current directory)
+      --disable-auto-update  Disable automatic background updates
+  -v, --verbose              Show verbose output
+  -q, --quiet                Minimal output
+      --no-color             Disable colored output
+      --debug                Enable debug logging
+      --trust                Trust all remote extends URLs without prompting
+  -h, --help                 Print help
+  -V, --version              Print version

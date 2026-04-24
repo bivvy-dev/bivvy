@@ -1,0 +1,22 @@
+---
+source: tests/system_list_tests.rs
+expression: parsed
+---
+{
+  "environment": "development",
+  "steps": [
+    {
+      "command": "rustc --version",
+      "name": "only",
+      "title": "Only step"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "default",
+      "steps": [
+        "only"
+      ]
+    }
+  ]
+}

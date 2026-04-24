@@ -1,0 +1,15 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+app_name: Minimal
+settings:
+  default_output: verbose
+  auto_update: true
+steps:
+  one:
+    command: git --version
+workflows:
+  default:
+    steps:
+    - one

@@ -1,0 +1,21 @@
+---
+source: tests/system_list_tests.rs
+expression: "parsed[\"workflows\"]"
+---
+[
+  {
+    "name": "default",
+    "steps": [
+      "deps",
+      "build",
+      "test"
+    ]
+  },
+  {
+    "description": "Quick check",
+    "name": "quick",
+    "steps": [
+      "test"
+    ]
+  }
+]

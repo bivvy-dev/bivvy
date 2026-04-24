@@ -1,0 +1,34 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+app_name: MultiWorkflow
+settings:
+  default_output: verbose
+  auto_update: true
+steps:
+  test:
+    command: cargo fmt --version
+    depends_on:
+    - build
+  deploy:
+    command: git --version
+    depends_on:
+    - test
+  build:
+    command: rustc --version
+workflows:
+  default:
+    steps:
+    - build
+    - test
+  release:
+    description: Full release pipeline
+    steps:
+    - build
+    - test
+    - deploy
+  quick:
+    description: Quick check
+    steps:
+    - build

@@ -1,0 +1,14 @@
+---
+source: tests/system_list_tests.rs
+expression: text
+---
+  Environment: development (--env flag)
+
+  Steps:
+    prod_only (skipped in development)
+    staging_only (skipped in development)
+    setup — cargo --version
+      Setup
+
+  Workflows:
+    default: setup → staging_only → prod_only

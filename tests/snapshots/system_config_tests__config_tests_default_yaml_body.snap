@@ -1,0 +1,22 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+app_name: ConfigTest
+settings:
+  default_output: verbose
+  auto_update: true
+steps:
+  deps:
+    title: Install dependencies
+    command: cargo --version
+  build:
+    title: Build project
+    command: rustc --version
+    depends_on:
+    - deps
+workflows:
+  default:
+    steps:
+    - deps
+    - build

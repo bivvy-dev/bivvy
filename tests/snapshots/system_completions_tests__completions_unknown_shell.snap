@@ -1,0 +1,10 @@
+---
+source: tests/system_completions_tests.rs
+expression: text
+---
+error: invalid value 'fakeshell' for '<SHELL>'
+  [possible values: bash, elvish, fish, powershell, zsh]
+
+  tip: a similar value exists: 'powershell'
+
+For more information, try '--help'.

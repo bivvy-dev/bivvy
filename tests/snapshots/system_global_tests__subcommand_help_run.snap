@@ -1,0 +1,28 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Run setup workflow (default if no command specified)
+
+Usage: bivvy run [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>                Path to config file (overrides default .bivvy/config.yml)
+  -w, --workflow <WORKFLOW>            Workflow to run [default: default]
+      --only <ONLY>                    Run only specified steps (comma-separated)
+  -p, --project <PROJECT>              Path to project root (overrides current directory)
+      --skip <SKIP>                    Skip specified steps (comma-separated)
+  -v, --verbose                        Show verbose output
+  -q, --quiet                          Minimal output
+      --skip-behavior <SKIP_BEHAVIOR>  How to handle skipped step dependencies [default: skip_with_dependents]
+  -f, --force <FORCE>                  Force re-run of specified steps (comma-separated)
+      --no-color                       Disable colored output
+      --debug                          Enable debug logging
+      --resume                         Resume an interrupted run
+      --save-preferences               Save prompt answers for future runs
+      --trust                          Trust all remote extends URLs without prompting
+      --dry-run                        Preview commands without executing
+      --non-interactive                Use defaults, no prompts
+  -e, --env <ENV>                      Target environment (e.g., development, ci, staging)
+  -h, --help                           Print help
+  -V, --version                        Print version

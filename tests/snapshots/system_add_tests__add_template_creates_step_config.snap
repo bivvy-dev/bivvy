@@ -1,0 +1,19 @@
+---
+source: tests/system_add_tests.rs
+expression: normalize_config(&config)
+---
+
+app_name: "AddTest"
+steps:
+  existing:
+    command: "rustc --version"
+  bundle-install:
+    template: bundle-install
+    # command: bundle install
+    # completed_check:
+    #   type: command_succeeds
+    #   command: "bundle check"
+    # watches: [Gemfile, Gemfile.lock]
+workflows:
+  default:
+    steps: [existing, bundle-install]

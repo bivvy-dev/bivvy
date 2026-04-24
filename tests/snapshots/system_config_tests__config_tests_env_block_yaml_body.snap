@@ -1,0 +1,18 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+app_name: SecretConfig
+settings:
+  default_output: verbose
+  auto_update: true
+steps:
+  deploy:
+    command: git --version
+    env:
+      DB_PASSWORD: hunter2
+      API_KEY: secret-key-123
+workflows:
+  default:
+    steps:
+    - deploy

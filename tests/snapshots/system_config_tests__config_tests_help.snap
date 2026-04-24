@@ -1,0 +1,21 @@
+---
+source: tests/system_config_tests.rs
+expression: text
+---
+Show resolved configuration
+
+Usage: bivvy config [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>    Path to config file (overrides default .bivvy/config.yml)
+      --json               Output as JSON
+  -p, --project <PROJECT>  Path to project root (overrides current directory)
+      --yaml               Output as YAML
+      --merged             Show fully merged config
+  -v, --verbose            Show verbose output
+  -q, --quiet              Minimal output
+      --no-color           Disable colored output
+      --debug              Enable debug logging
+      --trust              Trust all remote extends URLs without prompting
+  -h, --help               Print help
+  -V, --version            Print version

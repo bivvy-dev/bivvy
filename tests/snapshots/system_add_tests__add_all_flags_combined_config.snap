@@ -1,0 +1,21 @@
+---
+source: tests/system_add_tests.rs
+expression: normalize_config(&config)
+---
+
+app_name: "AddTest"
+steps:
+  existing:
+    command: "rustc --version"
+  my_build:
+    template: cargo-build
+    # command: cargo build
+    # completed_check:
+    #   type: file_exists
+    #   path: "target"
+    # watches: [Cargo.toml, Cargo.lock]
+workflows:
+  default:
+    steps: [existing]
+  ci:
+    steps: [existing, my_build]

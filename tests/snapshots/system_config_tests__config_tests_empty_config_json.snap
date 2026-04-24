@@ -1,0 +1,12 @@
+---
+source: tests/system_config_tests.rs
+expression: parsed
+---
+{
+  "settings": {
+    "auto_update": true,
+    "default_output": "verbose"
+  },
+  "steps": {},
+  "workflows": {}
+}

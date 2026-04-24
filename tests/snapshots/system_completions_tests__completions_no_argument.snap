@@ -1,0 +1,10 @@
+---
+source: tests/system_completions_tests.rs
+expression: text
+---
+error: the following required arguments were not provided:
+  <SHELL>
+
+Usage: bivvy completions <SHELL>
+
+For more information, try '--help'.

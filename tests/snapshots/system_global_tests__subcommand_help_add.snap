@@ -1,0 +1,25 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Add a template step to the configuration
+
+Usage: bivvy add [OPTIONS] <TEMPLATE>
+
+Arguments:
+  <TEMPLATE>  Template to add
+
+Options:
+      --as <NAME>            Step name to use in config (defaults to template name)
+  -c, --config <CONFIG>      Path to config file (overrides default .bivvy/config.yml)
+  -p, --project <PROJECT>    Path to project root (overrides current directory)
+      --workflow <WORKFLOW>  Workflow to add the step to (defaults to "default")
+      --after <AFTER>        Insert after this step in the workflow
+  -v, --verbose              Show verbose output
+      --no-workflow          Don't add to any workflow
+  -q, --quiet                Minimal output
+      --no-color             Disable colored output
+      --debug                Enable debug logging
+      --trust                Trust all remote extends URLs without prompting
+  -h, --help                 Print help
+  -V, --version              Print version

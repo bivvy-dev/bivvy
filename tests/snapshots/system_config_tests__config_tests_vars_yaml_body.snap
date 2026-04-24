@@ -1,0 +1,5 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+✗ Error: Failed to parse config at /private/var/folders/_q/qzh8_t6s15388qqf3p6n3d200000gp/T/.tmp3vhMFq/.bivvy/config.yml: vars: data did not match any variant of untagged enum VarDefinition at line 3 column 3

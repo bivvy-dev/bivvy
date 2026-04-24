@@ -1,0 +1,22 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Initialize Bivvy configuration for a project
+
+Usage: bivvy init [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>      Path to config file (overrides default .bivvy/config.yml)
+      --minimal              Generate minimal config without prompts
+  -p, --project <PROJECT>    Path to project root (overrides current directory)
+      --template <TEMPLATE>  Start from a specific template
+      --from <FROM>          Copy configuration from another project
+  -v, --verbose              Show verbose output
+      --force                Overwrite existing configuration
+  -q, --quiet                Minimal output
+      --no-color             Disable colored output
+      --debug                Enable debug logging
+      --trust                Trust all remote extends URLs without prompting
+  -h, --help                 Print help
+  -V, --version              Print version

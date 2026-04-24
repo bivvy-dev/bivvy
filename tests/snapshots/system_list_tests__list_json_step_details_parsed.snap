@@ -1,0 +1,47 @@
+---
+source: tests/system_list_tests.rs
+expression: parsed
+---
+{
+  "environment": "development",
+  "steps": [
+    {
+      "command": "npm run build",
+      "depends_on": [
+        "deps"
+      ],
+      "name": "build",
+      "title": "Build project"
+    },
+    {
+      "command": "cargo --version",
+      "description": "Install all project dependencies",
+      "name": "deps"
+    },
+    {
+      "command": "cargo fmt --version",
+      "depends_on": [
+        "build"
+      ],
+      "name": "test",
+      "title": "Run tests"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "default",
+      "steps": [
+        "deps",
+        "build",
+        "test"
+      ]
+    },
+    {
+      "description": "Quick check",
+      "name": "quick",
+      "steps": [
+        "test"
+      ]
+    }
+  ]
+}

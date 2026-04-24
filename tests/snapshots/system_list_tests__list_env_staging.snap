@@ -1,0 +1,15 @@
+---
+source: tests/system_list_tests.rs
+expression: text
+---
+  Environment: staging (--env flag)
+
+  Steps:
+    setup — cargo --version
+      Setup
+    prod_only (skipped in staging)
+    staging_only — git log --oneline -1
+      Staging deploy
+
+  Workflows:
+    default: setup → staging_only → prod_only

@@ -1,0 +1,9 @@
+---
+source: tests/system_cache_tests.rs
+expression: stderr
+---
+error: unexpected argument '--nope' found
+
+Usage: bivvy cache list [OPTIONS]
+
+For more information, try '--help'.

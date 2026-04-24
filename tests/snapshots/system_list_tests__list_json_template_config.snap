@@ -1,0 +1,47 @@
+---
+source: tests/system_list_tests.rs
+expression: parsed
+---
+{
+  "environment": "development",
+  "steps": [
+    {
+      "command": "npm run build",
+      "depends_on": [
+        "install",
+        "lint"
+      ],
+      "name": "build",
+      "title": "Build"
+    },
+    {
+      "description": "Install JS dependencies via yarn",
+      "name": "install",
+      "template": "yarn-install"
+    },
+    {
+      "command": "npm run lint",
+      "description": "Run the linter",
+      "name": "lint"
+    }
+  ],
+  "workflows": [
+    {
+      "description": "CI-only pipeline",
+      "name": "ci",
+      "steps": [
+        "lint",
+        "build"
+      ]
+    },
+    {
+      "description": "Full build pipeline",
+      "name": "default",
+      "steps": [
+        "install",
+        "lint",
+        "build"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+settings:
+  default_output: verbose
+  auto_update: true
+steps: {}
+workflows: {}

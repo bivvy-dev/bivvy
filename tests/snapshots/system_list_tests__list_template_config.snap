@@ -1,0 +1,20 @@
+---
+source: tests/system_list_tests.rs
+expression: text
+---
+  Environment: development (--env flag)
+
+  Steps:
+    install (template: yarn-install)
+      Install JS dependencies via yarn
+    lint — npm run lint
+      Run the linter
+    build — npm run build
+      Build
+      └── depends on: install, lint
+
+  Workflows:
+    default: install → lint → build
+      Full build pipeline
+    ci: lint → build
+      CI-only pipeline

@@ -1,0 +1,23 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Show execution history
+
+Usage: bivvy history [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>    Path to config file (overrides default .bivvy/config.yml)
+      --step <STEP>        Filter by step name
+      --limit <LIMIT>      Number of runs to show
+  -p, --project <PROJECT>  Path to project root (overrides current directory)
+      --since <SINCE>      Show runs since duration (e.g., "1h", "7d", "30m")
+  -v, --verbose            Show verbose output
+      --detail             Show detailed view with steps for each run
+  -q, --quiet              Minimal output
+      --json               Output as JSON
+      --no-color           Disable colored output
+      --debug              Enable debug logging
+      --trust              Trust all remote extends URLs without prompting
+  -h, --help               Print help
+  -V, --version            Print version

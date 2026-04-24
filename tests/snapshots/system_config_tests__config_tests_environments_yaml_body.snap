@@ -1,0 +1,27 @@
+---
+source: tests/system_config_tests.rs
+expression: body
+---
+app_name: EnvConfig
+settings:
+  default_output: verbose
+  environments:
+    staging:
+      detect:
+      - env: STAGING
+    production:
+      detect:
+      - env: PRODUCTION
+  auto_update: true
+steps:
+  deploy:
+    command: git --version
+    environments:
+      production:
+        command: cargo --version
+      staging:
+        command: git log --oneline -1
+workflows:
+  default:
+    steps:
+    - deploy

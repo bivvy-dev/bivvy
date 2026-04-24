@@ -1,0 +1,15 @@
+---
+source: tests/system_list_tests.rs
+expression: text
+---
+  Environment: development (--env flag)
+
+  Steps:
+    build — npm run build
+      Build project
+      └── depends on: deps
+    deps — cargo --version
+      Install all project dependencies
+    test — cargo fmt --version
+      Run tests
+      └── depends on: build

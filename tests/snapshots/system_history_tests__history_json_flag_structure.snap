@@ -1,0 +1,18 @@
+---
+source: tests/system_history_tests.rs
+expression: parsed
+---
+[
+  {
+    "duration_ms": "[duration_ms]",
+    "error": null,
+    "status": "Success",
+    "steps_run": [
+      "farewell",
+      "greet"
+    ],
+    "steps_skipped": [],
+    "timestamp": "[timestamp]",
+    "workflow": "default"
+  }
+]

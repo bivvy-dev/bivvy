@@ -1,0 +1,22 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+List available steps and workflows
+
+Usage: bivvy list [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>    Path to config file (overrides default .bivvy/config.yml)
+      --steps-only         List only steps
+  -p, --project <PROJECT>  Path to project root (overrides current directory)
+      --workflows-only     List only workflows
+      --json               Output as JSON
+  -v, --verbose            Show verbose output
+      --env <ENV>          Target environment (e.g., development, ci, staging)
+  -q, --quiet              Minimal output
+      --no-color           Disable colored output
+      --debug              Enable debug logging
+      --trust              Trust all remote extends URLs without prompting
+  -h, --help               Print help
+  -V, --version            Print version

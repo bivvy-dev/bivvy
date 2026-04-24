@@ -1,0 +1,5 @@
+---
+source: tests/system_config_tests.rs
+expression: stable
+---
+✗ Error: Failed to parse config at /private[TEMPDIR]/.bivvy/config.yml: app_name: invalid type: sequence, expected a string at line 1 column 11

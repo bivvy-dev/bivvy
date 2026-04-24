@@ -1,0 +1,30 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Capture and manage feedback
+
+Usage: bivvy feedback [OPTIONS] [MESSAGE]... [COMMAND]
+
+Commands:
+  list     List feedback entries
+  resolve  Resolve a feedback entry
+  session  Show feedback for a session
+  help     Print this message or the help of the given subcommand(s)
+
+Arguments:
+  [MESSAGE]...  Feedback message (when not using a subcommand)
+
+Options:
+  -c, --config <CONFIG>    Path to config file (overrides default .bivvy/config.yml)
+  -p, --project <PROJECT>  Path to project root (overrides current directory)
+  -v, --verbose            Show verbose output
+  -q, --quiet              Minimal output
+  -t, --tag <TAG>          Tags for categorization
+      --no-color           Disable colored output
+      --session <SESSION>  Session ID to attach (defaults to most recent)
+      --debug              Enable debug logging
+      --no-deliver         Skip the delivery prompt (save locally only)
+      --trust              Trust all remote extends URLs without prompting
+  -h, --help               Print help
+  -V, --version            Print version

@@ -1,0 +1,5 @@
+---
+source: tests/system_list_tests.rs
+expression: normalized
+---
+✗ No configuration found. Run 'bivvy init' first.

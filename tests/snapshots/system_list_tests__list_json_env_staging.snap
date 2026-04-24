@@ -1,0 +1,35 @@
+---
+source: tests/system_list_tests.rs
+expression: parsed
+---
+{
+  "environment": "staging",
+  "steps": [
+    {
+      "command": "cargo --version",
+      "name": "prod_only",
+      "skipped": true,
+      "title": "Prod deploy"
+    },
+    {
+      "command": "cargo --version",
+      "name": "setup",
+      "title": "Setup"
+    },
+    {
+      "command": "git log --oneline -1",
+      "name": "staging_only",
+      "title": "Staging deploy"
+    }
+  ],
+  "workflows": [
+    {
+      "name": "default",
+      "steps": [
+        "setup",
+        "staging_only",
+        "prod_only"
+      ]
+    }
+  ]
+}

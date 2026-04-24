@@ -1,0 +1,18 @@
+---
+source: tests/system_cache_tests.rs
+expression: stdout
+---
+Show cache statistics
+
+Usage: bivvy cache stats [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>    Path to config file (overrides default .bivvy/config.yml)
+  -p, --project <PROJECT>  Path to project root (overrides current directory)
+  -v, --verbose            Show verbose output
+  -q, --quiet              Minimal output
+      --no-color           Disable colored output
+      --debug              Enable debug logging
+      --trust              Trust all remote extends URLs without prompting
+  -h, --help               Print help
+  -V, --version            Print version

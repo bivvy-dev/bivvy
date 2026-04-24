@@ -1,0 +1,21 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+Generate shell completions
+
+Usage: bivvy completions [OPTIONS] <SHELL>
+
+Arguments:
+  <SHELL>  Shell to generate completions for [possible values: bash, elvish, fish, powershell, zsh]
+
+Options:
+  -c, --config <CONFIG>    Path to config file (overrides default .bivvy/config.yml)
+  -p, --project <PROJECT>  Path to project root (overrides current directory)
+  -v, --verbose            Show verbose output
+  -q, --quiet              Minimal output
+      --no-color           Disable colored output
+      --debug              Enable debug logging
+      --trust              Trust all remote extends URLs without prompting
+  -h, --help               Print help
+  -V, --version            Print version

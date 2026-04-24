@@ -1,0 +1,19 @@
+---
+source: tests/system_global_tests.rs
+expression: text
+---
+List available templates
+
+Usage: bivvy templates [OPTIONS]
+
+Options:
+  -c, --config <CONFIG>      Path to config file (overrides default .bivvy/config.yml)
+      --category <CATEGORY>  Filter by category (e.g., ruby, node, python)
+  -p, --project <PROJECT>    Path to project root (overrides current directory)
+  -v, --verbose              Show verbose output
+  -q, --quiet                Minimal output
+      --no-color             Disable colored output
+      --debug                Enable debug logging
+      --trust                Trust all remote extends URLs without prompting
+  -h, --help                 Print help
+  -V, --version              Print version
