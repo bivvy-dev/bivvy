@@ -7,7 +7,7 @@
 //! # Example
 //!
 //! ```
-//! use bivvy::ui::{MockUI, OutputMode, Prompt, PromptType, UserInterface};
+//! use bivvy::ui::{MockUI, OutputMode, OutputWriter, Prompt, PromptType};
 //!
 //! let mut ui = MockUI::new();
 //! ui.set_prompt_response("db_name", "myapp_dev");
@@ -26,7 +26,8 @@ use std::collections::{HashMap, VecDeque};
 use crate::error::Result;
 
 use super::{
-    OutputMode, Prompt, PromptResult, PromptType, RunSummary, SpinnerHandle, UserInterface,
+    OutputMode, OutputWriter, Prompt, PromptResult, PromptType, Prompter, ProgressDisplay,
+    RunSummary, SpinnerFactory, SpinnerHandle, UiState, WorkflowDisplay,
 };
 
 /// Mock UI implementation for testing.
@@ -216,11 +217,7 @@ impl MockUI {
     }
 }
 
-impl UserInterface for MockUI {
-    fn output_mode(&self) -> OutputMode {
-        self.mode
-    }
-
+impl OutputWriter for MockUI {
     fn message(&mut self, msg: &str) {
         self.messages.push(msg.to_string());
     }
@@ -237,6 +234,27 @@ impl UserInterface for MockUI {
         self.errors.push(msg.to_string());
     }
 
+    fn show_hint(&mut self, hint: &str) {
+        self.hints.push(hint.to_string());
+    }
+
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        self.error_blocks.push((
+            command.to_string(),
+            output.to_string(),
+            hint.map(|h| h.to_string()),
+        ));
+        self.errors.push(command.to_string());
+        if !output.is_empty() {
+            self.messages.push(output.to_string());
+        }
+        if let Some(h) = hint {
+            self.hints.push(h.to_string());
+        }
+    }
+}
+
+impl Prompter for MockUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
         self.prompts_shown.push(prompt.key.clone());
 
@@ -310,24 +328,26 @@ impl UserInterface for MockUI {
         }
         Ok(PromptResult::String(String::new()))
     }
+}
 
+impl SpinnerFactory for MockUI {
     fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle> {
         self.spinners.push(message.to_string());
         Box::new(MockSpinner::new())
     }
+}
 
+impl ProgressDisplay for MockUI {
     fn show_header(&mut self, title: &str) {
         self.headers.push(title.to_string());
-    }
-
-    fn show_hint(&mut self, hint: &str) {
-        self.hints.push(hint.to_string());
     }
 
     fn show_progress(&mut self, current: usize, total: usize) {
         self.progress.push((current, total));
     }
+}
 
+impl WorkflowDisplay for MockUI {
     fn show_run_header(
         &mut self,
         app_name: &str,
@@ -342,21 +362,6 @@ impl UserInterface for MockUI {
             version.to_string(),
         ));
         self.headers.push(app_name.to_string());
-    }
-
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
-        self.error_blocks.push((
-            command.to_string(),
-            output.to_string(),
-            hint.map(|h| h.to_string()),
-        ));
-        self.errors.push(command.to_string());
-        if !output.is_empty() {
-            self.messages.push(output.to_string());
-        }
-        if let Some(h) = hint {
-            self.hints.push(h.to_string());
-        }
     }
 
     fn show_run_summary(&mut self, summary: &RunSummary) {
@@ -374,6 +379,12 @@ impl UserInterface for MockUI {
                 summary.failed_steps.len()
             ));
         }
+    }
+}
+
+impl UiState for MockUI {
+    fn output_mode(&self) -> OutputMode {
+        self.mode
     }
 
     fn is_interactive(&self) -> bool {

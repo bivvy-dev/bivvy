@@ -7,8 +7,8 @@ use crate::error::{BivvyError, Result};
 use super::progress::format_duration;
 use super::theme::BivvyTheme;
 use super::{
-    OutputMode, Prompt, PromptResult, PromptType, RunSummary, SpinnerHandle, StatusKind,
-    UserInterface,
+    OutputMode, OutputWriter, Prompt, PromptResult, PromptType, Prompter, ProgressDisplay,
+    RunSummary, SpinnerFactory, SpinnerHandle, StatusKind, UiState, WorkflowDisplay,
 };
 
 /// UI implementation for non-interactive mode.
@@ -36,11 +36,7 @@ impl NonInteractiveUI {
     }
 }
 
-impl UserInterface for NonInteractiveUI {
-    fn output_mode(&self) -> OutputMode {
-        self.mode
-    }
-
+impl OutputWriter for NonInteractiveUI {
     fn message(&mut self, msg: &str) {
         if self.mode.shows_status() {
             println!("{}", msg);
@@ -63,6 +59,31 @@ impl UserInterface for NonInteractiveUI {
         eprintln!("✗ {}", msg);
     }
 
+    fn show_hint(&mut self, hint: &str) {
+        if self.mode.shows_status() {
+            println!("  💡 {}", hint);
+        }
+    }
+
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        eprintln!();
+        eprintln!("    ┌─ Command ──────────────────────────");
+        eprintln!("    │ {}", command);
+        if !output.is_empty() {
+            eprintln!("    ├─ Output ───────────────────────────");
+            for line in output.lines() {
+                eprintln!("    │ {}", line);
+            }
+        }
+        eprintln!("    └────────────────────────────────────");
+        if let Some(h) = hint {
+            eprintln!();
+            eprintln!("    Hint: {}", h);
+        }
+    }
+}
+
+impl Prompter for NonInteractiveUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
         let is_multiselect = matches!(prompt.prompt_type, PromptType::MultiSelect { .. });
 
@@ -90,7 +111,9 @@ impl UserInterface for NonInteractiveUI {
             ),
         })
     }
+}
 
+impl SpinnerFactory for NonInteractiveUI {
     fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle> {
         if self.mode.shows_spinners() {
             println!("  {}", message);
@@ -105,7 +128,9 @@ impl UserInterface for NonInteractiveUI {
         }
         Box::new(NoopSpinner { indent })
     }
+}
 
+impl ProgressDisplay for NonInteractiveUI {
     fn show_header(&mut self, title: &str) {
         if self.mode.shows_status() {
             println!("\n{}\n", title);
@@ -117,7 +142,9 @@ impl UserInterface for NonInteractiveUI {
             println!("[{}/{}]", current, total);
         }
     }
+}
 
+impl WorkflowDisplay for NonInteractiveUI {
     fn show_run_header(
         &mut self,
         app_name: &str,
@@ -149,29 +176,6 @@ impl UserInterface for NonInteractiveUI {
                 total,
                 format_duration(elapsed),
             );
-        }
-    }
-
-    fn show_hint(&mut self, hint: &str) {
-        if self.mode.shows_status() {
-            println!("  💡 {}", hint);
-        }
-    }
-
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
-        eprintln!();
-        eprintln!("    ┌─ Command ──────────────────────────");
-        eprintln!("    │ {}", command);
-        if !output.is_empty() {
-            eprintln!("    ├─ Output ───────────────────────────");
-            for line in output.lines() {
-                eprintln!("    │ {}", line);
-            }
-        }
-        eprintln!("    └────────────────────────────────────");
-        if let Some(h) = hint {
-            eprintln!();
-            eprintln!("    Hint: {}", h);
         }
     }
 
@@ -218,6 +222,12 @@ impl UserInterface for NonInteractiveUI {
                 summary.failed_steps.join(", ")
             );
         }
+    }
+}
+
+impl UiState for NonInteractiveUI {
+    fn output_mode(&self) -> OutputMode {
+        self.mode
     }
 
     fn is_interactive(&self) -> bool {

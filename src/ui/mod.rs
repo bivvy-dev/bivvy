@@ -56,13 +56,8 @@ pub(crate) fn is_dumb_term() -> bool {
 use crate::error::Result;
 use indicatif::ProgressBar;
 
-/// Trait for user interface interactions.
-///
-/// This trait allows mocking the UI in tests.
-pub trait UserInterface {
-    /// Get the current output mode.
-    fn output_mode(&self) -> OutputMode;
-
+/// Output methods for displaying messages, warnings, errors, and hints.
+pub trait OutputWriter {
     /// Display a message to the user.
     fn message(&mut self, msg: &str);
 
@@ -75,9 +70,31 @@ pub trait UserInterface {
     /// Display an error message.
     fn error(&mut self, msg: &str);
 
+    /// Show a contextual hint to the user.
+    fn show_hint(&mut self, hint: &str) {
+        self.message(hint);
+    }
+
+    /// Show a bordered error block with command, output, and optional hint.
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+        self.error(command);
+        if !output.is_empty() {
+            self.message(output);
+        }
+        if let Some(h) = hint {
+            self.show_hint(h);
+        }
+    }
+}
+
+/// Interactive prompting.
+pub trait Prompter {
     /// Show a prompt and get user input.
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult>;
+}
 
+/// Spinner creation and management.
+pub trait SpinnerFactory {
     /// Start a spinner for an operation.
     fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle>;
 
@@ -86,25 +103,22 @@ pub trait UserInterface {
         let _ = indent;
         self.start_spinner(message)
     }
+}
 
+/// Headers and progress indicators.
+pub trait ProgressDisplay {
     /// Show a header/banner.
     fn show_header(&mut self, title: &str);
 
     /// Show progress (e.g., "Step 3 of 7").
     fn show_progress(&mut self, current: usize, total: usize);
+}
 
-    /// Check if running in interactive mode.
-    fn is_interactive(&self) -> bool;
-
-    /// Clear the last `count` lines from terminal output.
-    ///
-    /// Used to collapse step headers and prompt output after a spinner finishes.
-    /// No-op in non-interactive or mock UIs.
-    fn clear_lines(&mut self, _count: usize) {}
-
-    /// Change the output mode at runtime.
-    fn set_output_mode(&mut self, mode: OutputMode);
-
+/// Workflow-level display: run headers, progress bars, and summaries.
+///
+/// All methods have default implementations that delegate to
+/// [`OutputWriter`] and [`ProgressDisplay`].
+pub trait WorkflowDisplay: OutputWriter + ProgressDisplay {
     /// Show a rich run header with app name, version, workflow, and step count.
     fn show_run_header(
         &mut self,
@@ -126,22 +140,6 @@ pub trait UserInterface {
     /// Finish and remove the workflow progress bar.
     fn finish_workflow_progress(&mut self) {}
 
-    /// Show a contextual hint to the user.
-    fn show_hint(&mut self, hint: &str) {
-        self.message(hint);
-    }
-
-    /// Show a bordered error block with command, output, and optional hint.
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
-        self.error(command);
-        if !output.is_empty() {
-            self.message(output);
-        }
-        if let Some(h) = hint {
-            self.show_hint(h);
-        }
-    }
-
     /// Show a run summary with step results.
     fn show_run_summary(&mut self, summary: &RunSummary) {
         if summary.success {
@@ -156,6 +154,38 @@ pub trait UserInterface {
             ));
         }
     }
+}
+
+/// Output mode and interactivity state.
+pub trait UiState {
+    /// Get the current output mode.
+    fn output_mode(&self) -> OutputMode;
+
+    /// Check if running in interactive mode.
+    fn is_interactive(&self) -> bool;
+
+    /// Clear the last `count` lines from terminal output.
+    ///
+    /// Used to collapse step headers and prompt output after a spinner finishes.
+    /// No-op in non-interactive or mock UIs.
+    fn clear_lines(&mut self, _count: usize) {}
+
+    /// Change the output mode at runtime.
+    fn set_output_mode(&mut self, mode: OutputMode);
+}
+
+/// Combined trait for all user interface interactions.
+///
+/// This trait allows mocking the UI in tests. It is automatically
+/// implemented for any type that implements all six sub-traits.
+pub trait UserInterface:
+    OutputWriter + Prompter + SpinnerFactory + ProgressDisplay + WorkflowDisplay + UiState
+{
+}
+
+impl<T> UserInterface for T where
+    T: OutputWriter + Prompter + SpinnerFactory + ProgressDisplay + WorkflowDisplay + UiState
+{
 }
 
 /// Summary of a workflow run, used by `show_run_summary`.

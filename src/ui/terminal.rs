@@ -8,8 +8,9 @@ use crate::error::Result;
 
 use super::progress::format_duration;
 use super::{
-    prompt_user, should_use_colors, BivvyTheme, NonInteractiveUI, OutputMode, ProgressSpinner,
-    Prompt, PromptResult, RunSummary, SpinnerHandle, UserInterface,
+    prompt_user, should_use_colors, BivvyTheme, NonInteractiveUI, OutputMode, OutputWriter,
+    ProgressDisplay, ProgressSpinner, Prompt, PromptResult, Prompter, RunSummary, SpinnerFactory,
+    SpinnerHandle, UiState, UserInterface, WorkflowDisplay,
 };
 
 #[cfg(unix)]
@@ -39,11 +40,7 @@ impl TerminalUI {
     }
 }
 
-impl UserInterface for TerminalUI {
-    fn output_mode(&self) -> OutputMode {
-        self.mode
-    }
-
+impl OutputWriter for TerminalUI {
     fn message(&mut self, msg: &str) {
         if self.mode.shows_status() {
             writeln!(self.term, "{}", msg).ok();
@@ -64,109 +61,6 @@ impl UserInterface for TerminalUI {
 
     fn error(&mut self, msg: &str) {
         writeln!(self.term, "{}", self.theme.format_error(msg)).ok();
-    }
-
-    fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
-        // Re-claim the terminal foreground process group before each prompt.
-        // Child processes (completed_check, step commands) may steal the
-        // foreground group when they run. After they exit, nobody restores
-        // it, so our next read_key() call gets EIO. Fix: always re-claim
-        // before prompting.
-        #[cfg(unix)]
-        claim_foreground();
-        prompt_user(prompt, &self.term)
-    }
-
-    fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle> {
-        if self.mode.shows_spinners() {
-            Box::new(ProgressSpinner::new(message))
-        } else {
-            Box::new(ProgressSpinner::hidden())
-        }
-    }
-
-    fn start_spinner_indented(&mut self, message: &str, indent: usize) -> Box<dyn SpinnerHandle> {
-        if self.mode.shows_spinners() {
-            Box::new(ProgressSpinner::with_indent(message, indent))
-        } else {
-            Box::new(ProgressSpinner::hidden())
-        }
-    }
-
-    fn show_header(&mut self, title: &str) {
-        if self.mode.shows_status() {
-            writeln!(self.term, "\n{}\n", self.theme.format_header(title)).ok();
-        }
-    }
-
-    fn show_progress(&mut self, current: usize, total: usize) {
-        if self.mode.shows_status() {
-            writeln!(
-                self.term,
-                "{}",
-                self.theme.dim.apply_to(format!("[{}/{}]", current, total))
-            )
-            .ok();
-        }
-    }
-
-    fn is_interactive(&self) -> bool {
-        self.term.is_term()
-    }
-
-    fn clear_lines(&mut self, count: usize) {
-        if !super::is_dumb_term() {
-            self.term.clear_last_lines(count).ok();
-        }
-    }
-
-    fn set_output_mode(&mut self, mode: OutputMode) {
-        self.mode = mode;
-    }
-
-    fn show_run_header(
-        &mut self,
-        app_name: &str,
-        workflow: &str,
-        step_count: usize,
-        version: &str,
-    ) {
-        if self.mode.shows_status() {
-            let step_label = if step_count == 1 { "step" } else { "steps" };
-            writeln!(
-                self.term,
-                "\n{} {} {} {} {} {}\n",
-                self.theme.header.apply_to("⛺"),
-                self.theme.highlight.apply_to(app_name),
-                self.theme.dim.apply_to(format!("v{}", version)),
-                self.theme.dim.apply_to("·"),
-                self.theme.dim.apply_to(format!("{} workflow", workflow)),
-                self.theme
-                    .dim
-                    .apply_to(format!("· {} {}", step_count, step_label)),
-            )
-            .ok();
-        }
-    }
-
-    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
-        if self.mode.shows_status() {
-            let filled = if total > 0 { (current * 16) / total } else { 0 };
-            let empty = 16 - filled;
-            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty),);
-            writeln!(
-                self.term,
-                "{} {}/{} steps {} {}",
-                self.theme.info.apply_to(format!("[{}]", bar)),
-                current,
-                total,
-                self.theme.dim.apply_to("·"),
-                self.theme
-                    .duration
-                    .apply_to(format!("{} elapsed", format_duration(elapsed))),
-            )
-            .ok();
-        }
     }
 
     fn show_hint(&mut self, hint: &str) {
@@ -218,6 +112,103 @@ impl UserInterface for TerminalUI {
                 "    {} {}",
                 self.theme.hint.apply_to("Hint:"),
                 self.theme.hint.apply_to(h)
+            )
+            .ok();
+        }
+    }
+}
+
+impl Prompter for TerminalUI {
+    fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
+        // Re-claim the terminal foreground process group before each prompt.
+        // Child processes (completed_check, step commands) may steal the
+        // foreground group when they run. After they exit, nobody restores
+        // it, so our next read_key() call gets EIO. Fix: always re-claim
+        // before prompting.
+        #[cfg(unix)]
+        claim_foreground();
+        prompt_user(prompt, &self.term)
+    }
+}
+
+impl SpinnerFactory for TerminalUI {
+    fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle> {
+        if self.mode.shows_spinners() {
+            Box::new(ProgressSpinner::new(message))
+        } else {
+            Box::new(ProgressSpinner::hidden())
+        }
+    }
+
+    fn start_spinner_indented(&mut self, message: &str, indent: usize) -> Box<dyn SpinnerHandle> {
+        if self.mode.shows_spinners() {
+            Box::new(ProgressSpinner::with_indent(message, indent))
+        } else {
+            Box::new(ProgressSpinner::hidden())
+        }
+    }
+}
+
+impl ProgressDisplay for TerminalUI {
+    fn show_header(&mut self, title: &str) {
+        if self.mode.shows_status() {
+            writeln!(self.term, "\n{}\n", self.theme.format_header(title)).ok();
+        }
+    }
+
+    fn show_progress(&mut self, current: usize, total: usize) {
+        if self.mode.shows_status() {
+            writeln!(
+                self.term,
+                "{}",
+                self.theme.dim.apply_to(format!("[{}/{}]", current, total))
+            )
+            .ok();
+        }
+    }
+}
+
+impl WorkflowDisplay for TerminalUI {
+    fn show_run_header(
+        &mut self,
+        app_name: &str,
+        workflow: &str,
+        step_count: usize,
+        version: &str,
+    ) {
+        if self.mode.shows_status() {
+            let step_label = if step_count == 1 { "step" } else { "steps" };
+            writeln!(
+                self.term,
+                "\n{} {} {} {} {} {}\n",
+                self.theme.header.apply_to("⛺"),
+                self.theme.highlight.apply_to(app_name),
+                self.theme.dim.apply_to(format!("v{}", version)),
+                self.theme.dim.apply_to("·"),
+                self.theme.dim.apply_to(format!("{} workflow", workflow)),
+                self.theme
+                    .dim
+                    .apply_to(format!("· {} {}", step_count, step_label)),
+            )
+            .ok();
+        }
+    }
+
+    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
+        if self.mode.shows_status() {
+            let filled = if total > 0 { (current * 16) / total } else { 0 };
+            let empty = 16 - filled;
+            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty),);
+            writeln!(
+                self.term,
+                "{} {}/{} steps {} {}",
+                self.theme.info.apply_to(format!("[{}]", bar)),
+                current,
+                total,
+                self.theme.dim.apply_to("·"),
+                self.theme
+                    .duration
+                    .apply_to(format!("{} elapsed", format_duration(elapsed))),
             )
             .ok();
         }
@@ -289,6 +280,26 @@ impl UserInterface for TerminalUI {
             b.apply_to("└────────────────────────────────────")
         )
         .ok();
+    }
+}
+
+impl UiState for TerminalUI {
+    fn output_mode(&self) -> OutputMode {
+        self.mode
+    }
+
+    fn is_interactive(&self) -> bool {
+        self.term.is_term()
+    }
+
+    fn clear_lines(&mut self, count: usize) {
+        if !super::is_dumb_term() {
+            self.term.clear_last_lines(count).ok();
+        }
+    }
+
+    fn set_output_mode(&mut self, mode: OutputMode) {
+        self.mode = mode;
     }
 }
 

@@ -471,7 +471,7 @@ fn format_requirement_status(theme: &BivvyTheme, status: &RequirementStatus) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::ui::MockUI;
+    use crate::ui::{MockUI, UiState};
     use std::fs;
     use tempfile::TempDir;
 
