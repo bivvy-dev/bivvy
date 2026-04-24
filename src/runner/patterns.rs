@@ -101,6 +101,10 @@ lazy_regex!(
 );
 lazy_regex!(RE_BUNDLER_GEM_NOT_FOUND, r"Could not find gem '([^']+)'");
 lazy_regex!(
+    RE_BUNDLER_VERSION_MISSING,
+    r"Could not find 'bundler' \(([^)]+)\)"
+);
+lazy_regex!(
     RE_NPM_MODULE_NOT_FOUND,
     r"Cannot find module|MODULE_NOT_FOUND"
 );
@@ -184,6 +188,24 @@ pub fn built_in_patterns() -> Vec<ErrorPattern> {
                     label: "bundle install".to_string(),
                     command: "bundle install".to_string(),
                     explanation: "Required gem not found".to_string(),
+                    confidence: Confidence::High,
+                })
+            },
+        },
+        ErrorPattern {
+            name: "bundler_version_missing",
+            regex: RE_BUNDLER_VERSION_MISSING.as_str(),
+            context: PatternContext::CommandContains("bundle"),
+            confidence: Confidence::High,
+            suggest: |caps, _ctx| {
+                let version = caps.get(1)?.as_str();
+                Some(FixSuggestion {
+                    label: format!("gem install bundler:{}", version),
+                    command: format!("gem install bundler:{}", version),
+                    explanation: format!(
+                        "Bundler {} is required by Gemfile.lock but not installed",
+                        version
+                    ),
                     confidence: Confidence::High,
                 })
             },
@@ -457,6 +479,24 @@ mod tests {
         let error = "Bundler could not find compatible versions for gem \"rails\"";
         let fix = find_fix(error, &ctx).unwrap();
         assert_eq!(fix.command, "bundle update");
+    }
+
+    #[test]
+    fn bundler_version_missing_matches() {
+        let ctx = bundle_context();
+        let error = "Could not find 'bundler' (4.0.9) required by your /path/to/Gemfile.lock.";
+        let fix = find_fix(error, &ctx).unwrap();
+        assert_eq!(fix.command, "gem install bundler:4.0.9");
+    }
+
+    #[test]
+    fn bundler_version_missing_extracts_version() {
+        let ctx = bundle_context();
+        let error = "Could not find 'bundler' (2.5.6) required by your Gemfile.lock.";
+        let fix = find_fix(error, &ctx).unwrap();
+        assert!(fix.command.contains("2.5.6"));
+        assert!(fix.label.contains("2.5.6"));
+        assert!(fix.explanation.contains("2.5.6"));
     }
 
     #[test]
