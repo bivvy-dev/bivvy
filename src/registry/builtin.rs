@@ -500,6 +500,19 @@ mod tests {
     }
 
     #[test]
+    fn all_template_name_variants_resolve_in_registry() {
+        let loader = BuiltinLoader::new().unwrap();
+        for variant in super::super::TemplateName::ALL {
+            assert!(
+                loader.get(variant.as_str()).is_some(),
+                "TemplateName::{:?} maps to '{}' which doesn't exist in the builtin registry",
+                variant,
+                variant.as_str()
+            );
+        }
+    }
+
+    #[test]
     fn expected_detectors_exist() {
         let detectors = load_detectors().unwrap();
         let expected = [

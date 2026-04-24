@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::registry::TemplateName;
+
 use super::{
     conflicts::{Conflict, ConflictDetector},
     package_manager::{PackageManager, PackageManagerDetection, PackageManagerDetector},
@@ -20,7 +22,7 @@ pub struct FullDetection {
 /// A suggested template from detection.
 #[derive(Debug, Clone)]
 pub struct SuggestedTemplate {
-    pub name: String,
+    pub name: TemplateName,
     pub category: String,
     pub reason: String,
     pub priority: u32,
@@ -55,16 +57,16 @@ impl DetectionRunner {
         // System package manager (priority 10)
         if let Some(ref system_pm) = pm.system {
             let (name, category) = match system_pm {
-                PackageManager::Homebrew => ("brew", "system"),
-                PackageManager::Chocolatey => ("chocolatey", "windows"),
-                PackageManager::Apt => ("apt", "system"),
-                PackageManager::Yum => ("yum", "system"),
-                PackageManager::Pacman => ("pacman", "system"),
-                _ => ("unknown", "system"),
+                PackageManager::Homebrew => (TemplateName::BrewBundle, "system"),
+                PackageManager::Chocolatey => (TemplateName::ChocoInstall, "windows"),
+                PackageManager::Apt => (TemplateName::AptInstall, "system"),
+                PackageManager::Yum => (TemplateName::YumInstall, "system"),
+                PackageManager::Pacman => (TemplateName::PacmanInstall, "system"),
+                _ => return suggestions,
             };
 
             suggestions.push(SuggestedTemplate {
-                name: name.to_string(),
+                name,
                 category: category.to_string(),
                 reason: "System package manager detected".to_string(),
                 priority: 10,
@@ -74,18 +76,18 @@ impl DetectionRunner {
         // Version manager (priority 20)
         if let Some(ref vm) = pm.version_manager {
             let name = match vm {
-                PackageManager::Mise => "mise-tools",
-                PackageManager::Asdf => "asdf-tools",
-                PackageManager::Volta => "volta-setup",
-                PackageManager::Fnm => "fnm-setup",
-                PackageManager::Nvm => "nvm-node",
-                PackageManager::Rbenv => "rbenv-ruby",
-                PackageManager::Pyenv => "pyenv-python",
-                _ => "unknown",
+                PackageManager::Mise => TemplateName::MiseTools,
+                PackageManager::Asdf => TemplateName::AsdfTools,
+                PackageManager::Volta => TemplateName::VoltaSetup,
+                PackageManager::Fnm => TemplateName::FnmSetup,
+                PackageManager::Nvm => TemplateName::NvmNode,
+                PackageManager::Rbenv => TemplateName::RbenvRuby,
+                PackageManager::Pyenv => TemplateName::PyenvPython,
+                _ => return suggestions,
             };
 
             suggestions.push(SuggestedTemplate {
-                name: name.to_string(),
+                name,
                 category: "version_manager".to_string(),
                 reason: format!("{:?} detected", vm),
                 priority: 20,
@@ -94,9 +96,9 @@ impl DetectionRunner {
 
         // Language templates from project detection (priority 30)
         for detail in &project.details {
-            if let Some(ref template) = detail.suggested_template {
+            if let Some(template) = detail.suggested_template {
                 suggestions.push(SuggestedTemplate {
-                    name: template.clone(),
+                    name: template,
                     category: "language".to_string(),
                     reason: detail.details.first().cloned().unwrap_or_default(),
                     priority: 30,
@@ -114,6 +116,7 @@ impl DetectionRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::registry::TemplateName;
     use std::fs;
     use tempfile::TempDir;
 
@@ -137,7 +140,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "bundle-install"));
+            .any(|t| t.name == TemplateName::BundleInstall));
     }
 
     #[test]
@@ -163,11 +166,11 @@ mod tests {
         let mise_pos = detection
             .suggested_templates
             .iter()
-            .position(|t| t.name == "mise");
+            .position(|t| t.name == TemplateName::MiseTools);
         let bundler_pos = detection
             .suggested_templates
             .iter()
-            .position(|t| t.name == "bundle-install");
+            .position(|t| t.name == TemplateName::BundleInstall);
 
         if let (Some(mise), Some(bundler)) = (mise_pos, bundler_pos) {
             assert!(
@@ -187,7 +190,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "composer-install"));
+            .any(|t| t.name == TemplateName::ComposerInstall));
     }
 
     #[test]
@@ -200,7 +203,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "terraform-init"));
+            .any(|t| t.name == TemplateName::TerraformInit));
     }
 
     #[test]
@@ -213,7 +216,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "gradle-deps"));
+            .any(|t| t.name == TemplateName::GradleDeps));
     }
 
     #[test]
@@ -226,7 +229,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "mix-deps-get"));
+            .any(|t| t.name == TemplateName::MixDepsGet));
     }
 
     #[test]
@@ -240,11 +243,11 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "composer-install"));
+            .any(|t| t.name == TemplateName::ComposerInstall));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "laravel-setup"));
+            .any(|t| t.name == TemplateName::LaravelSetup));
     }
 
     #[test]
@@ -257,7 +260,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "cdk-synth"));
+            .any(|t| t.name == TemplateName::CdkSynth));
     }
 
     #[test]
@@ -270,7 +273,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "docker-compose-up"));
+            .any(|t| t.name == TemplateName::DockerComposeUp));
     }
 
     #[test]
@@ -283,7 +286,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "helm-deps"));
+            .any(|t| t.name == TemplateName::HelmDeps));
     }
 
     #[test]
@@ -296,7 +299,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "pulumi-install"));
+            .any(|t| t.name == TemplateName::PulumiInstall));
     }
 
     #[test]
@@ -311,11 +314,11 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "bundle-install"));
+            .any(|t| t.name == TemplateName::BundleInstall));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "rails-db"));
+            .any(|t| t.name == TemplateName::RailsDb));
     }
 
     #[test]
@@ -330,7 +333,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "prisma-migrate"));
+            .any(|t| t.name == TemplateName::PrismaMigrate));
     }
 
     #[test]
@@ -341,7 +344,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "env-copy"));
+            .any(|t| t.name == TemplateName::EnvCopy));
     }
 
     #[test]
@@ -352,7 +355,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "pre-commit-install"));
+            .any(|t| t.name == TemplateName::PreCommitInstall));
     }
 
     #[test]
@@ -363,7 +366,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "nx-build"));
+            .any(|t| t.name == TemplateName::NxBuild));
     }
 
     #[test]
@@ -378,15 +381,15 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "bundle-install"));
+            .any(|t| t.name == TemplateName::BundleInstall));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "npm-install"));
+            .any(|t| t.name == TemplateName::NpmInstall));
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "cargo-build"));
+            .any(|t| t.name == TemplateName::CargoBuild));
     }
 
     #[test]
@@ -399,7 +402,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "maven-resolve"));
+            .any(|t| t.name == TemplateName::MavenResolve));
     }
 
     #[test]
@@ -412,7 +415,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "dotnet-restore"));
+            .any(|t| t.name == TemplateName::DotnetRestore));
     }
 
     #[test]
@@ -425,7 +428,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "deno-install"));
+            .any(|t| t.name == TemplateName::DenoInstall));
     }
 
     #[test]
@@ -437,7 +440,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "nextjs-build"));
+            .any(|t| t.name == TemplateName::NextjsBuild));
     }
 
     #[test]
@@ -449,7 +452,7 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "django-migrate"));
+            .any(|t| t.name == TemplateName::DjangoMigrate));
     }
 
     #[test]
@@ -467,6 +470,6 @@ mod tests {
         assert!(detection
             .suggested_templates
             .iter()
-            .any(|t| t.name == "spring-boot-build"));
+            .any(|t| t.name == TemplateName::SpringBootBuild));
     }
 }

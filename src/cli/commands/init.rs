@@ -311,7 +311,7 @@ impl Command for InitCommand {
         if self.args.minimal || !ui.is_interactive() {
             // Just use detected templates
             for suggestion in &detection.suggested_templates {
-                steps.push(suggestion.name.clone());
+                steps.push(suggestion.name.to_string());
             }
         } else if !detection.suggested_templates.is_empty() {
             // Interactive multi-select checklist
@@ -320,7 +320,7 @@ impl Command for InitCommand {
                 .iter()
                 .map(|s| PromptOption {
                     label: format!("{} — {}", s.name, s.reason),
-                    value: s.name.clone(),
+                    value: s.name.to_string(),
                 })
                 .collect();
 

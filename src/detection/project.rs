@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::registry::TemplateName;
+
 use super::file_detection::{any_file_exists, file_exists};
 use super::types::DetectionResult;
 
@@ -48,7 +50,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Ruby")
                     .with_detail("Gemfile found")
-                    .with_template("bundle-install"),
+                    .with_template(TemplateName::BundleInstall),
             );
 
             // Rails (detected alongside Ruby)
@@ -58,7 +60,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Rails")
                         .with_detail("Rails application detected")
-                        .with_template("rails-db"),
+                        .with_template(TemplateName::RailsDb),
                 );
             }
         }
@@ -78,10 +80,10 @@ impl ProjectDetector {
             );
 
             let template = match lockfile.as_deref() {
-                Some("yarn.lock") => "yarn-install",
-                Some("pnpm-lock.yaml") => "pnpm-install",
-                Some("bun.lockb") => "bun-install",
-                _ => "npm-install",
+                Some("yarn.lock") => TemplateName::YarnInstall,
+                Some("pnpm-lock.yaml") => TemplateName::PnpmInstall,
+                Some("bun.lockb") => TemplateName::BunInstall,
+                _ => TemplateName::NpmInstall,
             };
 
             details.push(
@@ -100,7 +102,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Next.js")
                         .with_detail("Next.js config found")
-                        .with_template("nextjs-build"),
+                        .with_template(TemplateName::NextjsBuild),
                 );
             }
 
@@ -114,7 +116,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Vite")
                         .with_detail("Vite config found")
-                        .with_template("vite-build"),
+                        .with_template(TemplateName::ViteBuild),
                 );
             }
 
@@ -125,7 +127,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Remix")
                         .with_detail("Remix application detected")
-                        .with_template("remix-build"),
+                        .with_template(TemplateName::RemixBuild),
                 );
             }
         }
@@ -138,11 +140,11 @@ impl ProjectDetector {
             all_types.push(ProjectType::Python);
 
             let template = if file_exists(project_root, "poetry.lock") {
-                "poetry-install"
+                TemplateName::PoetryInstall
             } else if file_exists(project_root, "uv.lock") {
-                "uv-sync"
+                TemplateName::UvSync
             } else {
-                "pip-install"
+                TemplateName::PipInstall
             };
 
             details.push(
@@ -158,7 +160,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Alembic")
                         .with_detail("Alembic configuration found")
-                        .with_template("alembic-migrate"),
+                        .with_template(TemplateName::AlembicMigrate),
                 );
             }
 
@@ -167,7 +169,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Django")
                         .with_detail("manage.py found")
-                        .with_template("django-migrate"),
+                        .with_template(TemplateName::DjangoMigrate),
                 );
             }
         }
@@ -178,7 +180,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Rust")
                     .with_detail("Cargo.toml found")
-                    .with_template("cargo-build"),
+                    .with_template(TemplateName::CargoBuild),
             );
 
             // Diesel (detected alongside Rust)
@@ -186,7 +188,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Diesel")
                         .with_detail("diesel.toml found")
-                        .with_template("diesel-migrate"),
+                        .with_template(TemplateName::DieselMigrate),
                 );
             }
         }
@@ -197,7 +199,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Go")
                     .with_detail("go.mod found")
-                    .with_template("go-mod-download"),
+                    .with_template(TemplateName::GoModDownload),
             );
         }
 
@@ -207,7 +209,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("PHP")
                     .with_detail("composer.json found")
-                    .with_template("composer-install"),
+                    .with_template(TemplateName::ComposerInstall),
             );
 
             // Laravel (detected alongside PHP, not as a separate project type)
@@ -215,7 +217,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Laravel")
                         .with_detail("artisan found")
-                        .with_template("laravel-setup"),
+                        .with_template(TemplateName::LaravelSetup),
                 );
             }
         }
@@ -228,7 +230,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Kotlin/JVM")
                     .with_detail("Gradle build file found")
-                    .with_template("gradle-deps"),
+                    .with_template(TemplateName::GradleDeps),
             );
 
             // Spring Boot (detected alongside Gradle)
@@ -238,7 +240,7 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Spring Boot")
                         .with_detail("Spring Boot application detected")
-                        .with_template("spring-boot-build"),
+                        .with_template(TemplateName::SpringBootBuild),
                 );
             }
         }
@@ -249,7 +251,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Elixir")
                     .with_detail("mix.exs found")
-                    .with_template("mix-deps-get"),
+                    .with_template(TemplateName::MixDepsGet),
             );
         }
 
@@ -259,7 +261,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Swift")
                     .with_detail("Package.swift found")
-                    .with_template("swift-resolve"),
+                    .with_template(TemplateName::SwiftResolve),
             );
         }
 
@@ -269,7 +271,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Terraform")
                     .with_detail("Terraform files found")
-                    .with_template("terraform-init"),
+                    .with_template(TemplateName::TerraformInit),
             );
         }
 
@@ -278,7 +280,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("AWS CDK")
                     .with_detail("cdk.json found")
-                    .with_template("cdk-synth"),
+                    .with_template(TemplateName::CdkSynth),
             );
         }
 
@@ -288,7 +290,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Maven (Java)")
                     .with_detail("pom.xml found")
-                    .with_template("maven-resolve"),
+                    .with_template(TemplateName::MavenResolve),
             );
         }
 
@@ -307,7 +309,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found(".NET")
                     .with_detail(".NET solution or project found")
-                    .with_template("dotnet-restore"),
+                    .with_template(TemplateName::DotnetRestore),
             );
         }
 
@@ -324,13 +326,13 @@ impl ProjectDetector {
                 details.push(
                     DetectionResult::found("Flutter")
                         .with_detail("pubspec.yaml found")
-                        .with_template("flutter-pub-get"),
+                        .with_template(TemplateName::FlutterPubGet),
                 );
             } else {
                 details.push(
                     DetectionResult::found("Dart")
                         .with_detail("pubspec.yaml found")
-                        .with_template("dart-pub-get"),
+                        .with_template(TemplateName::DartPubGet),
                 );
             }
         }
@@ -344,7 +346,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Deno")
                     .with_detail("Deno configuration found")
-                    .with_template("deno-install"),
+                    .with_template(TemplateName::DenoInstall),
             );
         }
 
@@ -363,7 +365,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Docker Compose")
                     .with_detail("Docker Compose file found")
-                    .with_template("docker-compose-up"),
+                    .with_template(TemplateName::DockerComposeUp),
             );
         }
 
@@ -372,7 +374,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Helm")
                     .with_detail("Chart.yaml found")
-                    .with_template("helm-deps"),
+                    .with_template(TemplateName::HelmDeps),
             );
         }
 
@@ -381,7 +383,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Pulumi")
                     .with_detail("Pulumi.yaml found")
-                    .with_template("pulumi-install"),
+                    .with_template(TemplateName::PulumiInstall),
             );
         }
 
@@ -396,7 +398,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Ansible")
                     .with_detail("Ansible configuration found")
-                    .with_template("ansible-install"),
+                    .with_template(TemplateName::AnsibleInstall),
             );
         }
 
@@ -405,7 +407,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Prisma")
                     .with_detail("Prisma schema found")
-                    .with_template("prisma-migrate"),
+                    .with_template(TemplateName::PrismaMigrate),
             );
         }
 
@@ -422,7 +424,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Environment setup")
                     .with_detail("Environment template file found")
-                    .with_template("env-copy"),
+                    .with_template(TemplateName::EnvCopy),
             );
         }
 
@@ -431,7 +433,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("pre-commit")
                     .with_detail(".pre-commit-config.yaml found")
-                    .with_template("pre-commit-install"),
+                    .with_template(TemplateName::PreCommitInstall),
             );
         }
 
@@ -440,7 +442,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Nx")
                     .with_detail("Nx workspace detected")
-                    .with_template("nx-build"),
+                    .with_template(TemplateName::NxBuild),
             );
         }
 
@@ -448,7 +450,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Turborepo")
                     .with_detail("Turborepo workspace detected")
-                    .with_template("turbo-build"),
+                    .with_template(TemplateName::TurboBuild),
             );
         }
 
@@ -456,7 +458,7 @@ impl ProjectDetector {
             details.push(
                 DetectionResult::found("Lerna")
                     .with_detail("Lerna monorepo detected")
-                    .with_template("lerna-bootstrap"),
+                    .with_template(TemplateName::LernaBootstrap),
             );
         }
 
@@ -504,7 +506,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("yarn-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::YarnInstall)));
     }
 
     #[test]
@@ -519,7 +521,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("poetry-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::PoetryInstall)));
     }
 
     #[test]
@@ -534,7 +536,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("composer-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::ComposerInstall)));
     }
 
     #[test]
@@ -549,7 +551,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("terraform-init".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::TerraformInit)));
     }
 
     #[test]
@@ -563,7 +565,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("gradle-deps".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::GradleDeps)));
     }
 
     #[test]
@@ -577,7 +579,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("gradle-deps".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::GradleDeps)));
     }
 
     #[test]
@@ -591,7 +593,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("terraform-init".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::TerraformInit)));
     }
 
     #[test]
@@ -605,7 +607,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("mix-deps-get".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::MixDepsGet)));
     }
 
     #[test]
@@ -620,11 +622,11 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("composer-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::ComposerInstall)));
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("laravel-setup".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::LaravelSetup)));
     }
 
     #[test]
@@ -637,7 +639,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("cdk-synth".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::CdkSynth)));
     }
 
     #[test]
@@ -675,11 +677,11 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("bundle-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::BundleInstall)));
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("rails-db".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::RailsDb)));
     }
 
     #[test]
@@ -694,7 +696,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("prisma-migrate".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::PrismaMigrate)));
     }
 
     #[test]
@@ -709,11 +711,11 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("cargo-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::CargoBuild)));
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("diesel-migrate".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DieselMigrate)));
     }
 
     #[test]
@@ -728,7 +730,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("alembic-migrate".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::AlembicMigrate)));
     }
 
     #[test]
@@ -751,7 +753,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("maven-resolve".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::MavenResolve)));
     }
 
     #[test]
@@ -765,7 +767,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("dotnet-restore".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DotnetRestore)));
     }
 
     #[test]
@@ -789,7 +791,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("dart-pub-get".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DartPubGet)));
     }
 
     #[test]
@@ -804,7 +806,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("flutter-pub-get".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::FlutterPubGet)));
     }
 
     #[test]
@@ -818,7 +820,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("deno-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DenoInstall)));
     }
 
     #[test]
@@ -831,7 +833,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("docker-compose-up".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DockerComposeUp)));
     }
 
     #[test]
@@ -844,7 +846,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("docker-compose-up".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DockerComposeUp)));
     }
 
     #[test]
@@ -857,7 +859,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("helm-deps".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::HelmDeps)));
     }
 
     #[test]
@@ -870,7 +872,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("pulumi-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::PulumiInstall)));
     }
 
     #[test]
@@ -883,7 +885,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("ansible-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::AnsibleInstall)));
     }
 
     #[test]
@@ -896,7 +898,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("ansible-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::AnsibleInstall)));
     }
 
     #[test]
@@ -909,7 +911,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("nextjs-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::NextjsBuild)));
     }
 
     #[test]
@@ -921,7 +923,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("nextjs-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::NextjsBuild)));
     }
 
     #[test]
@@ -934,7 +936,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("vite-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::ViteBuild)));
     }
 
     #[test]
@@ -947,7 +949,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("remix-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::RemixBuild)));
     }
 
     #[test]
@@ -960,7 +962,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("remix-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::RemixBuild)));
     }
 
     #[test]
@@ -973,7 +975,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("django-migrate".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::DjangoMigrate)));
     }
 
     #[test]
@@ -992,11 +994,11 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("gradle-deps".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::GradleDeps)));
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("spring-boot-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::SpringBootBuild)));
     }
 
     #[test]
@@ -1007,7 +1009,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("env-copy".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::EnvCopy)));
     }
 
     #[test]
@@ -1019,7 +1021,7 @@ mod tests {
         assert!(!detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("env-copy".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::EnvCopy)));
     }
 
     #[test]
@@ -1030,7 +1032,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("env-copy".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::EnvCopy)));
     }
 
     #[test]
@@ -1041,7 +1043,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("pre-commit-install".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::PreCommitInstall)));
     }
 
     #[test]
@@ -1052,7 +1054,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("nx-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::NxBuild)));
     }
 
     #[test]
@@ -1063,7 +1065,7 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("turbo-build".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::TurboBuild)));
     }
 
     #[test]
@@ -1074,6 +1076,6 @@ mod tests {
         assert!(detection
             .details
             .iter()
-            .any(|d| d.suggested_template == Some("lerna-bootstrap".to_string())));
+            .any(|d| d.suggested_template == Some(TemplateName::LernaBootstrap)));
     }
 }

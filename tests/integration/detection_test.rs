@@ -13,6 +13,7 @@ use bivvy::detection::package_manager::{PackageManager, PackageManagerDetector};
 use bivvy::detection::project::{ProjectDetector, ProjectType};
 use bivvy::detection::runner::DetectionRunner;
 use bivvy::detection::types::Detection;
+use bivvy::registry::TemplateName;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -124,7 +125,7 @@ fn detect_ruby_project_type() -> Result<(), Box<dyn std::error::Error>> {
     assert!(ruby_detail.detected);
     assert_eq!(
         ruby_detail.suggested_template,
-        Some("bundle-install".to_string())
+        Some(TemplateName::BundleInstall)
     );
 
     Ok(())
@@ -146,7 +147,7 @@ fn detect_node_project_type() -> Result<(), Box<dyn std::error::Error>> {
     assert!(node_detail.detected);
     assert_eq!(
         node_detail.suggested_template,
-        Some("npm-install".to_string())
+        Some(TemplateName::NpmInstall)
     );
 
     Ok(())
@@ -164,7 +165,7 @@ fn detect_node_yarn_template() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
     assert_eq!(
         node_detail.suggested_template,
-        Some("yarn-install".to_string())
+        Some(TemplateName::YarnInstall)
     );
 
     Ok(())
@@ -182,7 +183,7 @@ fn detect_node_pnpm_template() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
     assert_eq!(
         node_detail.suggested_template,
-        Some("pnpm-install".to_string())
+        Some(TemplateName::PnpmInstall)
     );
 
     Ok(())
@@ -200,7 +201,7 @@ fn detect_node_bun_template() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
     assert_eq!(
         node_detail.suggested_template,
-        Some("bun-install".to_string())
+        Some(TemplateName::BunInstall)
     );
 
     Ok(())
@@ -220,7 +221,7 @@ fn detect_node_defaults_to_npm_without_lockfile() -> Result<(), Box<dyn std::err
         .unwrap();
     assert_eq!(
         node_detail.suggested_template,
-        Some("npm-install".to_string())
+        Some(TemplateName::NpmInstall)
     );
 
     Ok(())
@@ -238,7 +239,7 @@ fn detect_python_pip_project() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .find(|d| d.name == "Python")
         .unwrap();
-    assert_eq!(detail.suggested_template, Some("pip-install".to_string()));
+    assert_eq!(detail.suggested_template, Some(TemplateName::PipInstall));
 
     Ok(())
 }
@@ -257,7 +258,7 @@ fn detect_python_poetry_project() -> Result<(), Box<dyn std::error::Error>> {
         .unwrap();
     assert_eq!(
         detail.suggested_template,
-        Some("poetry-install".to_string())
+        Some(TemplateName::PoetryInstall)
     );
 
     Ok(())
@@ -275,7 +276,7 @@ fn detect_python_uv_project() -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .find(|d| d.name == "Python")
         .unwrap();
-    assert_eq!(detail.suggested_template, Some("uv-sync".to_string()));
+    assert_eq!(detail.suggested_template, Some(TemplateName::UvSync));
 
     Ok(())
 }
@@ -302,7 +303,7 @@ fn detect_rust_project_type() -> Result<(), Box<dyn std::error::Error>> {
 
     let detail = detection.details.iter().find(|d| d.name == "Rust").unwrap();
     assert!(detail.detected);
-    assert_eq!(detail.suggested_template, Some("cargo-build".to_string()));
+    assert_eq!(detail.suggested_template, Some(TemplateName::CargoBuild));
 
     Ok(())
 }
@@ -318,7 +319,7 @@ fn detect_go_project_type() -> Result<(), Box<dyn std::error::Error>> {
     assert!(detail.detected);
     assert_eq!(
         detail.suggested_template,
-        Some("go-mod-download".to_string())
+        Some(TemplateName::GoModDownload)
     );
 
     Ok(())
@@ -337,7 +338,7 @@ fn detect_swift_project_type() -> Result<(), Box<dyn std::error::Error>> {
         .find(|d| d.name == "Swift")
         .unwrap();
     assert!(detail.detected);
-    assert_eq!(detail.suggested_template, Some("swift-resolve".to_string()));
+    assert_eq!(detail.suggested_template, Some(TemplateName::SwiftResolve));
 
     Ok(())
 }
@@ -986,12 +987,12 @@ fn full_detection_ruby_project_suggests_bundler() -> Result<(), Box<dyn std::err
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "bundle-install"));
+        .any(|t| t.name == TemplateName::BundleInstall));
     assert!(
         detection
             .suggested_templates
             .iter()
-            .find(|t| t.name == "bundle-install")
+            .find(|t| t.name == TemplateName::BundleInstall)
             .unwrap()
             .category
             == "language"
@@ -1009,7 +1010,7 @@ fn full_detection_node_yarn_project() -> Result<(), Box<dyn std::error::Error>> 
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "yarn-install"));
+        .any(|t| t.name == TemplateName::YarnInstall));
     assert!(detection
         .package_managers
         .language_managers
@@ -1031,15 +1032,15 @@ fn full_detection_multi_language_suggests_all_templates() -> Result<(), Box<dyn 
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "bundle-install"));
+        .any(|t| t.name == TemplateName::BundleInstall));
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "npm-install"));
+        .any(|t| t.name == TemplateName::NpmInstall));
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "go-mod-download"));
+        .any(|t| t.name == TemplateName::GoModDownload));
 
     Ok(())
 }
@@ -1059,11 +1060,11 @@ fn full_detection_with_version_manager() -> Result<(), Box<dyn std::error::Error
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "mise-tools"));
+        .any(|t| t.name == TemplateName::MiseTools));
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "bundle-install"));
+        .any(|t| t.name == TemplateName::BundleInstall));
 
     Ok(())
 }
@@ -1090,11 +1091,11 @@ fn full_detection_template_priority_ordering() -> Result<(), Box<dyn std::error:
     let mise_pos = detection
         .suggested_templates
         .iter()
-        .position(|t| t.name == "mise-tools");
+        .position(|t| t.name == TemplateName::MiseTools);
     let bundler_pos = detection
         .suggested_templates
         .iter()
-        .position(|t| t.name == "bundle-install");
+        .position(|t| t.name == TemplateName::BundleInstall);
 
     if let (Some(mise), Some(bundler)) = (mise_pos, bundler_pos) {
         assert!(
@@ -1164,15 +1165,15 @@ fn full_detection_realistic_rails_project() -> Result<(), Box<dyn std::error::Er
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "mise-tools"));
+        .any(|t| t.name == TemplateName::MiseTools));
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "bundle-install"));
+        .any(|t| t.name == TemplateName::BundleInstall));
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "yarn-install"));
+        .any(|t| t.name == TemplateName::YarnInstall));
 
     // No conflicts (only one Node lockfile, only one version manager config)
     assert!(!detection
@@ -1199,7 +1200,7 @@ fn full_detection_realistic_python_api_project() -> Result<(), Box<dyn std::erro
     assert!(detection
         .suggested_templates
         .iter()
-        .any(|t| t.name == "poetry-install"));
+        .any(|t| t.name == TemplateName::PoetryInstall));
     assert!(detection
         .package_managers
         .language_managers

@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::registry::TemplateName;
+
 /// Trait for detection implementations.
 pub trait Detection {
     /// The name of this detector.
@@ -30,7 +32,7 @@ pub struct DetectionResult {
     pub details: Vec<String>,
 
     /// Suggested template to use.
-    pub suggested_template: Option<String>,
+    pub suggested_template: Option<TemplateName>,
 }
 
 impl DetectionResult {
@@ -77,8 +79,8 @@ impl DetectionResult {
     }
 
     /// Set the suggested template.
-    pub fn with_template(mut self, template: &str) -> Self {
-        self.suggested_template = Some(template.to_string());
+    pub fn with_template(mut self, template: TemplateName) -> Self {
+        self.suggested_template = Some(template);
         self
     }
 }
@@ -121,12 +123,12 @@ mod tests {
             .with_kind(DetectionKind::FileExists("Gemfile".to_string()))
             .with_confidence(0.9)
             .with_detail("Gemfile found")
-            .with_template("bundler");
+            .with_template(TemplateName::BundleInstall);
 
         assert!(result.detected);
         assert_eq!(result.confidence, 0.9);
         assert_eq!(result.details, vec!["Gemfile found"]);
-        assert_eq!(result.suggested_template, Some("bundler".to_string()));
+        assert_eq!(result.suggested_template, Some(TemplateName::BundleInstall));
     }
 
     #[test]

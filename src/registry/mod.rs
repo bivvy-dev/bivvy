@@ -37,6 +37,7 @@ pub mod remote;
 pub mod resolver;
 pub mod source;
 pub mod template;
+pub mod template_name;
 
 // Re-exports
 pub use builtin::BuiltinLoader;
@@ -51,3 +52,4 @@ pub use template::{
     Detection, EnvironmentImpact, InputType, Platform, Template, TemplateInput, TemplateSource,
     TemplateStep,
 };
+pub use template_name::TemplateName;
