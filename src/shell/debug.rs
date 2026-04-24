@@ -62,6 +62,12 @@ pub fn spawn_debug_shell(
             message: format!("Debug shell error: {}", e),
         })?;
 
+    // Re-claim foreground after the interactive debug shell exits.
+    // The debug shell uses `-i` which steals the foreground group;
+    // without this, bivvy's subsequent terminal I/O would fail.
+    #[cfg(unix)]
+    crate::shell::command::claim_foreground();
+
     Ok(())
 }
 

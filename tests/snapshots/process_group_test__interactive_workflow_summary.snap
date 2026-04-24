@@ -1,0 +1,17 @@
+---
+source: tests/process_group_test.rs
+expression: normalize_for_snapshot(&summary)
+---
+      ✓ Yes
+[3/3] ✓ check-cargo ([TIME])
+
+[████████████████] 3/3 steps · [TIME] elapsed
+
+┌─ Summary ──────────────────────────
+│ ✓ check-toolchain      [TIME]
+│ ✓ check-git            [TIME]
+│ ✓ check-cargo          [TIME]
+├────────────────────────────────────
+│ Total: [TIME] · 3 run · 0 skipped
+└────────────────────────────────────
+Run `bivvy status` to verify setup health.

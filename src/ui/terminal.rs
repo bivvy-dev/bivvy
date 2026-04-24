@@ -12,25 +12,8 @@ use super::{
     Prompt, PromptResult, RunSummary, SpinnerHandle, UserInterface,
 };
 
-/// Re-claim the terminal foreground process group.
-///
-/// Child processes spawned by step commands or completed_checks may steal
-/// the foreground group. When they exit without restoring it, subsequent
-/// terminal reads (read_key, dialoguer prompts) fail with EIO. This
-/// function re-claims the foreground so prompts work after commands run.
-///
-/// Safe to call multiple times — no-op if already foreground or if
-/// /dev/tty is unavailable (non-TTY, CI, piped environments).
 #[cfg(unix)]
-fn claim_foreground() {
-    unsafe {
-        let tty_fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR);
-        if tty_fd >= 0 {
-            libc::tcsetpgrp(tty_fd, libc::getpgrp());
-            libc::close(tty_fd);
-        }
-    }
-}
+use crate::shell::command::claim_foreground;
 
 /// Interactive terminal UI implementation.
 pub struct TerminalUI {
@@ -132,7 +115,9 @@ impl UserInterface for TerminalUI {
     }
 
     fn clear_lines(&mut self, count: usize) {
-        self.term.clear_last_lines(count).ok();
+        if !super::is_dumb_term() {
+            self.term.clear_last_lines(count).ok();
+        }
     }
 
     fn set_output_mode(&mut self, mode: OutputMode) {

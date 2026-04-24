@@ -44,6 +44,15 @@ pub use theme::{should_use_colors, BivvyTheme};
 
 use std::time::Duration;
 
+/// Returns true when `TERM=dumb`.
+///
+/// Dumb terminals don't support cursor movement, so interactive redraws
+/// (clear-and-repaint cycles) produce garbage output. When true, prompts
+/// render forward-only and `clear_lines` becomes a no-op.
+pub(crate) fn is_dumb_term() -> bool {
+    std::env::var("TERM").map(|v| v == "dumb").unwrap_or(false)
+}
+
 use crate::error::Result;
 use indicatif::ProgressBar;
 

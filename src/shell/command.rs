@@ -9,6 +9,29 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
+/// Re-claim the terminal foreground process group.
+///
+/// After a child process exits, the parent shell (especially zsh) may
+/// reclaim the foreground group, leaving bivvy as a background process.
+/// Any subsequent terminal I/O would then trigger SIGTTOU/SIGTTIN.
+/// This function re-asserts bivvy's ownership of the foreground group.
+///
+/// Safe to call multiple times — no-op if already foreground or if
+/// `/dev/tty` is unavailable (non-TTY, CI, piped environments).
+#[cfg(unix)]
+pub(crate) fn claim_foreground() {
+    // SAFETY: libc calls to open/close /dev/tty and set the foreground
+    // process group. SIGTTOU is already ignored (main.rs) so tcsetpgrp
+    // won't suspend us even if we're currently backgrounded.
+    unsafe {
+        let tty_fd = libc::open(c"/dev/tty".as_ptr(), libc::O_RDWR);
+        if tty_fd >= 0 {
+            libc::tcsetpgrp(tty_fd, libc::getpgrp());
+            libc::close(tty_fd);
+        }
+    }
+}
+
 /// Result of executing a shell command.
 #[derive(Debug, Clone)]
 pub struct CommandResult {
@@ -104,6 +127,14 @@ pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult>
     cmd.arg(shell_flag);
     cmd.arg(command);
 
+    // Isolate child in its own process group so zsh's job control
+    // doesn't reclaim the foreground when the child exits.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
     // Set working directory
     if let Some(cwd) = &options.cwd {
         cmd.current_dir(cwd);
@@ -196,6 +227,14 @@ pub fn execute_streaming(
     cmd.arg(shell_flag);
     cmd.arg(command);
 
+    // Isolate child in its own process group so zsh's job control
+    // doesn't reclaim the foreground when the child exits.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        cmd.process_group(0);
+    }
+
     if let Some(cwd) = &options.cwd {
         cmd.current_dir(cwd);
     }
@@ -258,6 +297,10 @@ pub fn execute_streaming(
         command: command.to_string(),
         code: None,
     })?;
+
+    // Re-claim foreground after the child's process group exits.
+    #[cfg(unix)]
+    claim_foreground();
 
     let duration = start.elapsed();
 

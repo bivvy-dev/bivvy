@@ -1,0 +1,15 @@
+---
+source: tests/process_group_test.rs
+expression: normalize_for_snapshot(&summary)
+---
+  › Abort
+
+[██████████░░░░░░] 2/3 steps · [TIME] elapsed
+
+┌─ Summary ──────────────────────────
+│ ✓ will-succeed         [TIME]
+│ ✗ will-fail            [TIME]
+├────────────────────────────────────
+│ Total: [TIME] · 2 run · 0 skipped
+└────────────────────────────────────
+Workflow aborted by user. Re-run to resume.

@@ -135,7 +135,11 @@ impl Command for RunCommand {
             match crate::config::load_config_file(override_path) {
                 Ok(c) => c,
                 Err(e) => {
-                    ui.error(&format!("Failed to load config from {}: {}", override_path.display(), e));
+                    ui.error(&format!(
+                        "Failed to load config from {}: {}",
+                        override_path.display(),
+                        e
+                    ));
                     return Ok(CommandResult::failure(2));
                 }
             }

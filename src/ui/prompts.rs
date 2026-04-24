@@ -124,6 +124,13 @@ fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
         return prompt_yes_no(prompt, options, term);
     }
 
+    // Dumb terminals don't support cursor movement, so dialoguer's
+    // clear-and-repaint cycles produce non-deterministic garbage.
+    // Use a forward-only renderer instead.
+    if super::is_dumb_term() && term.is_term() {
+        return prompt_select_dumb(prompt, options, term);
+    }
+
     let labels: Vec<_> = options.iter().map(|o| o.label.as_str()).collect();
 
     let default_idx = prompt
@@ -140,6 +147,58 @@ fn prompt_select(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
         .map_err(map_dialoguer_err)?;
 
     Ok(PromptResult::String(options[selection].value.clone()))
+}
+
+/// Forward-only select prompt for dumb terminals.
+///
+/// Renders options once, accepts arrow keys and Enter without redrawing.
+/// No cursor-movement sequences are emitted, so PTY output is deterministic.
+fn prompt_select_dumb(
+    prompt: &Prompt,
+    options: &[PromptOption],
+    term: &Term,
+) -> Result<PromptResult> {
+    let default_idx = prompt
+        .default
+        .as_ref()
+        .and_then(|d| options.iter().position(|o| o.value == *d))
+        .unwrap_or(0);
+
+    let mut sel = default_idx;
+
+    let _raw_guard = RawModeGuard::enter(term).map_err(BivvyError::Io)?;
+
+    term.write_line(&prompt.question).map_err(BivvyError::Io)?;
+
+    for (i, opt) in options.iter().enumerate() {
+        let line = if i == sel {
+            format!("  › {}", opt.label)
+        } else {
+            format!("  · {}", opt.label)
+        };
+        term.write_line(&line).map_err(BivvyError::Io)?;
+    }
+    term.flush().map_err(BivvyError::Io)?;
+
+    loop {
+        let key = term.read_key().map_err(BivvyError::Io)?;
+
+        match key {
+            Key::Enter | Key::Char(' ') => {
+                drop(_raw_guard);
+                term.write_line(&format!("  › {}", options[sel].label))
+                    .map_err(BivvyError::Io)?;
+                return Ok(PromptResult::String(options[sel].value.clone()));
+            }
+            Key::ArrowDown | Key::Tab | Key::Char('j') => {
+                sel = (sel + 1) % options.len();
+            }
+            Key::ArrowUp | Key::BackTab | Key::Char('k') => {
+                sel = (sel + options.len() - 1) % options.len();
+            }
+            _ => {}
+        }
+    }
 }
 
 /// RAII guard that restores the terminal cursor when dropped.
@@ -227,7 +286,6 @@ impl RawModeGuard {
     }
 }
 
-
 /// Custom yes/no prompt with `›`/`·` indicators and `y`/`n` keyboard shortcuts.
 ///
 /// Renders options below the prompt question, indented to align with
@@ -253,6 +311,8 @@ impl RawModeGuard {
 /// `yes_no_prompt_does_not_crash_on_non_tty` and
 /// `yes_no_and_multi_option_selects_error_consistently`.
 fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Result<PromptResult> {
+    let dumb = super::is_dumb_term();
+
     let default_idx = prompt
         .default
         .as_ref()
@@ -293,30 +353,35 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
     term.write_line(&prompt.question).map_err(BivvyError::Io)?;
 
     // Hide cursor with RAII guard — cursor is restored on drop (panic, Ctrl+C, early return).
-    let _cursor_guard = CursorGuard::new(term).map_err(BivvyError::Io)?;
+    // Dumb terminals don't support cursor visibility, so skip the CSI sequence.
+    let _cursor_guard = if dumb {
+        None
+    } else {
+        Some(CursorGuard::new(term).map_err(BivvyError::Io)?)
+    };
+
+    // Draw initial option lines
+    for (i, opt) in options.iter().enumerate() {
+        let line = if i == sel {
+            format!(
+                "{}{} {}",
+                pad,
+                active_prefix.apply_to("›"),
+                active_style.apply_to(&opt.label)
+            )
+        } else {
+            format!(
+                "{}{} {}",
+                pad,
+                inactive_prefix.apply_to("·"),
+                inactive_style.apply_to(&opt.label)
+            )
+        };
+        term.write_line(&line).map_err(BivvyError::Io)?;
+    }
+    term.flush().map_err(BivvyError::Io)?;
 
     loop {
-        // Draw option lines
-        for (i, opt) in options.iter().enumerate() {
-            let line = if i == sel {
-                format!(
-                    "{}{} {}",
-                    pad,
-                    active_prefix.apply_to("›"),
-                    active_style.apply_to(&opt.label)
-                )
-            } else {
-                format!(
-                    "{}{} {}",
-                    pad,
-                    inactive_prefix.apply_to("·"),
-                    inactive_style.apply_to(&opt.label)
-                )
-            };
-            term.write_line(&line).map_err(BivvyError::Io)?;
-        }
-        term.flush().map_err(BivvyError::Io)?;
-
         // Read key — terminal is already in raw mode so read_key() is a
         // no-op mode switch (raw→raw). Characters are available immediately.
         let key = term.read_key().map_err(BivvyError::Io)?;
@@ -350,28 +415,58 @@ fn prompt_yes_no(prompt: &Prompt, options: &[PromptOption], term: &Term) -> Resu
             // processing (OPOST) so \n maps to \r\n correctly.
             drop(_raw_guard);
 
-            // Clear option lines
-            term.clear_last_lines(options.len())
-                .map_err(BivvyError::Io)?;
-            // Clear the prompt question line
-            term.clear_last_lines(1).map_err(BivvyError::Io)?;
-            // Re-print prompt question, then answer on a new line with indicator
             let (icon, answer_label) = if options[idx].value == "yes" {
                 (Style::new().green().apply_to("✓"), "Yes")
             } else {
                 (Style::new().dim().apply_to("·"), "No")
             };
-            term.write_line(&prompt.question).map_err(BivvyError::Io)?;
-            term.write_line(&format!("{}{} {}", pad, icon, answer_label))
-                .map_err(BivvyError::Io)?;
+
+            if dumb {
+                // Forward-only: print answer below the options, no clearing.
+                term.write_line(&format!("{}{} {}", pad, icon, answer_label))
+                    .map_err(BivvyError::Io)?;
+            } else {
+                // Clear option lines
+                term.clear_last_lines(options.len())
+                    .map_err(BivvyError::Io)?;
+                // Clear the prompt question line
+                term.clear_last_lines(1).map_err(BivvyError::Io)?;
+                // Re-print prompt question, then answer on a new line with indicator
+                term.write_line(&prompt.question).map_err(BivvyError::Io)?;
+                term.write_line(&format!("{}{} {}", pad, icon, answer_label))
+                    .map_err(BivvyError::Io)?;
+            }
 
             // _cursor_guard is dropped here, restoring the cursor.
             return Ok(PromptResult::String(options[idx].value.clone()));
         }
 
-        // Clear option lines for redraw
-        term.clear_last_lines(options.len())
-            .map_err(BivvyError::Io)?;
+        if !dumb {
+            // Clear option lines for redraw (cursor movement not supported on dumb)
+            term.clear_last_lines(options.len())
+                .map_err(BivvyError::Io)?;
+
+            // Redraw option lines with updated selection
+            for (i, opt) in options.iter().enumerate() {
+                let line = if i == sel {
+                    format!(
+                        "{}{} {}",
+                        pad,
+                        active_prefix.apply_to("›"),
+                        active_style.apply_to(&opt.label)
+                    )
+                } else {
+                    format!(
+                        "{}{} {}",
+                        pad,
+                        inactive_prefix.apply_to("·"),
+                        inactive_style.apply_to(&opt.label)
+                    )
+                };
+                term.write_line(&line).map_err(BivvyError::Io)?;
+            }
+            term.flush().map_err(BivvyError::Io)?;
+        }
     }
 }
 
