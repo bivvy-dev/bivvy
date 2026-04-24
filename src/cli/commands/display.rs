@@ -4,7 +4,7 @@
 //! needs to render [`StepStatus`] values consistently.
 
 use crate::state::StepStatus;
-use crate::ui::{StatusKind, UserInterface};
+use crate::ui::{OutputWriter, StatusKind};
 
 /// Return a StatusKind for a step status.
 pub fn status_kind(status: &StepStatus) -> StatusKind {
@@ -22,7 +22,7 @@ pub fn status_symbol(status: &StepStatus) -> &'static str {
 }
 
 /// Print a single step's status line, styled by severity.
-pub fn show_step_status(ui: &mut dyn UserInterface, name: &str, status: &StepStatus) {
+pub fn show_step_status(ui: &mut dyn OutputWriter, name: &str, status: &StepStatus) {
     let kind = status_kind(status);
     let line = format!("  {} {}", kind.icon(), name);
     match status {
