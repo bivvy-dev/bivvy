@@ -555,7 +555,7 @@ settings:
         let config = load_merged_config(temp.path()).unwrap();
 
         assert_eq!(config.app_name, Some("TestApp".to_string()));
-        assert_eq!(config.settings.default_output, OutputMode::Quiet);
+        assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
         assert!(config.steps.contains_key("test"));
     }
 

@@ -85,7 +85,7 @@ steps:
     assert_eq!(config.app_name, Some("BaseApp".to_string()));
 
     // Setting overridden by local
-    assert_eq!(config.settings.default_output, OutputMode::Quiet);
+    assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
 
     // Step command overridden by local
     assert_eq!(

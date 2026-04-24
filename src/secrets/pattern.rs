@@ -256,13 +256,15 @@ settings:
 
         let parsed: BivvyConfig = serde_yaml::from_str(config).unwrap();
 
-        assert_eq!(parsed.settings.secret_env.len(), 2);
+        assert_eq!(parsed.settings.env_vars.secret_env.len(), 2);
         assert!(parsed
             .settings
+            .env_vars
             .secret_env
             .contains(&"MY_CUSTOM_SECRET".to_string()));
         assert!(parsed
             .settings
+            .env_vars
             .secret_env
             .contains(&"ANOTHER_SECRET".to_string()));
     }
@@ -278,7 +280,7 @@ settings:
 "#;
 
         let parsed: BivvyConfig = serde_yaml::from_str(config).unwrap();
-        let matcher = SecretMatcher::with_builtins_and_custom(&parsed.settings.secret_env);
+        let matcher = SecretMatcher::with_builtins_and_custom(&parsed.settings.env_vars.secret_env);
 
         assert!(matcher.is_secret("MY_CUSTOM_SECRET"));
         assert!(matcher.is_secret("API_KEY")); // Built-in still works

@@ -173,7 +173,7 @@ impl Command for RunCommand {
         // Apply config default_output when no CLI flag was explicitly set.
         // OutputMode::Normal means the user didn't pass --verbose or --quiet.
         if ui.output_mode() == OutputMode::Normal {
-            ui.set_output_mode(config.settings.default_output.into());
+            ui.set_output_mode(config.settings.output.default_output.into());
         }
 
         // Resolve environment (before header so we can use resolved workflow)
@@ -191,6 +191,7 @@ impl Command for RunCommand {
         // Get provided_requirements from environment config
         let provided_requirements: HashSet<String> = config
             .settings
+            .environment_profiles
             .environments
             .get(&env_name)
             .map(|env_config| env_config.provided_requirements.iter().cloned().collect())
@@ -200,6 +201,7 @@ impl Command for RunCommand {
         let workflow_name = if self.args.workflow == "default" {
             config
                 .settings
+                .environment_profiles
                 .environments
                 .get(&env_name)
                 .and_then(|env_config| env_config.default_workflow.clone())
@@ -937,7 +939,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let mut config = crate::config::BivvyConfig::default();
-        config.settings.default_environment = Some("production".to_string());
+        config.settings.environment_profiles.default_environment = Some("production".to_string());
         let resolved = cmd.resolve_environment(&config);
 
         assert_eq!(resolved.name, "production");
@@ -957,7 +959,7 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let mut config = crate::config::BivvyConfig::default();
-        config.settings.default_environment = Some("production".to_string());
+        config.settings.environment_profiles.default_environment = Some("production".to_string());
         let resolved = cmd.resolve_environment(&config);
 
         assert_eq!(resolved.name, "ci");

@@ -47,10 +47,10 @@ pub struct BivvyConfig {
     pub vars: HashMap<String, VarDefinition>,
 }
 
-/// Global settings that apply to all workflows and steps
+/// Output-related settings (verbosity, logging).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
-pub struct Settings {
+pub struct OutputSettings {
     /// Default output mode: verbose, quiet, silent
     #[serde(default = "default_output")]
     pub default_output: OutputMode,
@@ -62,19 +62,22 @@ pub struct Settings {
     /// Log file path (relative to project root)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub log_path: Option<PathBuf>,
+}
 
-    /// Global environment variables
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub env: HashMap<String, String>,
+impl Default for OutputSettings {
+    fn default() -> Self {
+        Self {
+            default_output: default_output(),
+            logging: false,
+            log_path: None,
+        }
+    }
+}
 
-    /// Global env file to load
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env_file: Option<PathBuf>,
-
-    /// Additional secret patterns to mask
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub secret_env: Vec<String>,
-
+/// Execution-related settings (parallelism, history, updates).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExecutionSettings {
     /// Enable parallel execution
     #[serde(default, skip_serializing_if = "is_false")]
     pub parallel: bool,
@@ -93,14 +96,6 @@ pub struct Settings {
     )]
     pub history_retention: usize,
 
-    /// Default environment name (used when no --env flag and no auto-detection)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub default_environment: Option<String>,
-
-    /// Named environment configurations
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub environments: HashMap<String, EnvironmentConfig>,
-
     /// Enable automatic background updates.
     ///
     /// When true, bivvy checks for new versions in the background after each
@@ -110,23 +105,69 @@ pub struct Settings {
     pub auto_update: bool,
 }
 
-impl Default for Settings {
+impl Default for ExecutionSettings {
     fn default() -> Self {
         Self {
-            default_output: default_output(),
-            logging: false,
-            log_path: None,
-            env: HashMap::new(),
-            env_file: None,
-            secret_env: Vec::new(),
             parallel: false,
             max_parallel: default_max_parallel(),
             history_retention: default_history_retention(),
-            default_environment: None,
-            environments: HashMap::new(),
             auto_update: default_auto_update(),
         }
     }
+}
+
+/// Environment variable settings (global env, env files, secret patterns).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvVarSettings {
+    /// Global environment variables
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+
+    /// Global env file to load
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_file: Option<PathBuf>,
+
+    /// Additional secret patterns to mask
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub secret_env: Vec<String>,
+}
+
+/// Environment profile settings (named environments, default environment).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvironmentProfileSettings {
+    /// Default environment name (used when no --env flag and no auto-detection)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_environment: Option<String>,
+
+    /// Named environment configurations
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub environments: HashMap<String, EnvironmentConfig>,
+}
+
+/// Global settings that apply to all workflows and steps.
+///
+/// Uses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat
+/// (e.g., `settings.default_output` in YAML, not `settings.output.default_output`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Settings {
+    /// Output-related settings (verbosity, logging)
+    #[serde(flatten)]
+    pub output: OutputSettings,
+
+    /// Execution-related settings (parallelism, history, updates)
+    #[serde(flatten)]
+    pub execution: ExecutionSettings,
+
+    /// Environment variable settings (global env, env files, secrets)
+    #[serde(flatten)]
+    pub env_vars: EnvVarSettings,
+
+    /// Environment profile settings (named environments, default)
+    #[serde(flatten)]
+    pub environment_profiles: EnvironmentProfileSettings,
 }
 
 fn default_output() -> OutputMode {
@@ -688,9 +729,9 @@ mod tests {
     #[test]
     fn empty_config_has_defaults() {
         let config: BivvyConfig = serde_yaml::from_str("").unwrap();
-        assert_eq!(config.settings.default_output, OutputMode::Verbose);
-        assert_eq!(config.settings.max_parallel, 4);
-        assert_eq!(config.settings.history_retention, 50);
+        assert_eq!(config.settings.output.default_output, OutputMode::Verbose);
+        assert_eq!(config.settings.execution.max_parallel, 4);
+        assert_eq!(config.settings.execution.history_retention, 50);
         assert!(config.steps.is_empty());
         assert!(config.workflows.is_empty());
     }
@@ -704,7 +745,7 @@ settings:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.app_name, Some("MyApp".to_string()));
-        assert_eq!(config.settings.default_output, OutputMode::Quiet);
+        assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
     }
 
     #[test]
@@ -734,17 +775,17 @@ settings:
   max_parallel: 8
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.settings.logging);
+        assert!(config.settings.output.logging);
         assert_eq!(
-            config.settings.log_path,
+            config.settings.output.log_path,
             Some(PathBuf::from("logs/bivvy.log"))
         );
         assert_eq!(
-            config.settings.env.get("RAILS_ENV"),
+            config.settings.env_vars.env.get("RAILS_ENV"),
             Some(&"development".to_string())
         );
-        assert!(config.settings.parallel);
-        assert_eq!(config.settings.max_parallel, 8);
+        assert!(config.settings.execution.parallel);
+        assert_eq!(config.settings.execution.max_parallel, 8);
     }
 
     #[test]
@@ -1368,8 +1409,12 @@ app_name: "TestApp"
     #[test]
     fn settings_default_environment_defaults_none() {
         let config: BivvyConfig = serde_yaml::from_str("").unwrap();
-        assert!(config.settings.default_environment.is_none());
-        assert!(config.settings.environments.is_empty());
+        assert!(config
+            .settings
+            .environment_profiles
+            .default_environment
+            .is_none());
+        assert!(config.settings.environment_profiles.environments.is_empty());
     }
 
     #[test]
@@ -1380,7 +1425,7 @@ settings:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(
-            config.settings.default_environment,
+            config.settings.environment_profiles.default_environment,
             Some("staging".to_string())
         );
     }
@@ -1404,16 +1449,16 @@ settings:
           value: staging
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(config.settings.environments.len(), 2);
+        assert_eq!(config.settings.environment_profiles.environments.len(), 2);
 
-        let ci = &config.settings.environments["ci"];
+        let ci = &config.settings.environment_profiles.environments["ci"];
         assert_eq!(ci.detect.len(), 2);
         assert_eq!(ci.detect[0].env, "CI");
         assert!(ci.detect[0].value.is_none());
         assert_eq!(ci.default_workflow, Some("ci".to_string()));
         assert_eq!(ci.provided_requirements, vec!["docker", "node"]);
 
-        let staging = &config.settings.environments["staging"];
+        let staging = &config.settings.environment_profiles.environments["staging"];
         assert_eq!(staging.detect.len(), 1);
         assert_eq!(staging.detect[0].env, "DEPLOY_ENV");
         assert_eq!(staging.detect[0].value, Some("staging".to_string()));

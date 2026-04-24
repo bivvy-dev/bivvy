@@ -16,6 +16,7 @@ const BUILTIN_ENVIRONMENTS: &[&str] = &["ci", "docker", "codespace", "developmen
 fn defined_environments(config: &BivvyConfig) -> HashSet<&str> {
     let mut envs: HashSet<&str> = config
         .settings
+        .environment_profiles
         .environments
         .keys()
         .map(|s| s.as_str())
@@ -152,7 +153,7 @@ impl LintRule for EnvironmentDefaultWorkflowMissingRule {
     fn check(&self, config: &BivvyConfig) -> Vec<LintDiagnostic> {
         let mut diagnostics = Vec::new();
 
-        for (env_name, env_config) in &config.settings.environments {
+        for (env_name, env_config) in &config.settings.environment_profiles.environments {
             if let Some(ref workflow) = env_config.default_workflow {
                 if !config.workflows.contains_key(workflow) {
                     diagnostics.push(
@@ -268,7 +269,7 @@ impl LintRule for CustomEnvironmentShadowsBuiltinRule {
         let mut diagnostics = Vec::new();
         let builtins: HashSet<&str> = BUILTIN_ENVIRONMENTS.iter().copied().collect();
 
-        for env_name in config.settings.environments.keys() {
+        for env_name in config.settings.environment_profiles.environments.keys() {
             if builtins.contains(env_name.as_str()) {
                 diagnostics.push(
                     LintDiagnostic::new(
@@ -647,7 +648,7 @@ mod tests {
             steps,
             ..Default::default()
         };
-        config.settings.environments = settings_envs;
+        config.settings.environment_profiles.environments = settings_envs;
 
         let diagnostics = rule.check(&config);
         assert!(diagnostics.is_empty());
@@ -758,7 +759,7 @@ mod tests {
             },
         );
         let mut config = BivvyConfig::default();
-        config.settings.environments = envs;
+        config.settings.environment_profiles.environments = envs;
         config
             .workflows
             .insert("default".to_string(), WorkflowConfig::default());
@@ -783,7 +784,7 @@ mod tests {
             },
         );
         let mut config = BivvyConfig::default();
-        config.settings.environments = envs;
+        config.settings.environment_profiles.environments = envs;
         config
             .workflows
             .insert("quick".to_string(), WorkflowConfig::default());
@@ -805,7 +806,7 @@ mod tests {
             },
         );
         let mut config = BivvyConfig::default();
-        config.settings.environments = envs;
+        config.settings.environment_profiles.environments = envs;
 
         let diagnostics = rule.check(&config);
         assert!(diagnostics.is_empty());
@@ -923,7 +924,7 @@ mod tests {
             },
         );
         let mut config = BivvyConfig::default();
-        config.settings.environments = envs;
+        config.settings.environment_profiles.environments = envs;
 
         let diagnostics = rule.check(&config);
         assert_eq!(diagnostics.len(), 1);
@@ -939,7 +940,7 @@ mod tests {
         let mut envs = HashMap::new();
         envs.insert("staging".to_string(), EnvironmentConfig::default());
         let mut config = BivvyConfig::default();
-        config.settings.environments = envs;
+        config.settings.environment_profiles.environments = envs;
 
         let diagnostics = rule.check(&config);
         assert!(diagnostics.is_empty());

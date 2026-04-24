@@ -122,6 +122,7 @@ impl ResolvedEnvironment {
     /// Priority: explicit flag > config default > auto-detection > fallback.
     pub fn resolve_from_config(flag: Option<&str>, settings: &Settings) -> Self {
         let custom_rules: BTreeMap<String, Vec<DetectRule>> = settings
+            .environment_profiles
             .environments
             .iter()
             .filter(|(_, env_config)| !env_config.detect.is_empty())
@@ -139,7 +140,11 @@ impl ResolvedEnvironment {
             .collect();
 
         let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
-        Self::resolve(flag, settings.default_environment.as_deref(), &detector)
+        Self::resolve(
+            flag,
+            settings.environment_profiles.default_environment.as_deref(),
+            &detector,
+        )
     }
 
     /// Check whether the resolved environment is known (defined in config or a built-in).
@@ -193,7 +198,7 @@ pub fn known_environments(config: &BivvyConfig) -> Vec<String> {
     }
 
     // 2. Custom environments from settings.environments
-    for name in config.settings.environments.keys() {
+    for name in config.settings.environment_profiles.environments.keys() {
         envs.insert(name.clone());
     }
 
@@ -215,6 +220,7 @@ pub fn known_environments(config: &BivvyConfig) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::schema::EnvironmentProfileSettings;
 
     #[test]
     fn flag_takes_highest_priority() {
@@ -416,7 +422,10 @@ mod tests {
 
         let config = BivvyConfig {
             settings: Settings {
-                environments,
+                environment_profiles: EnvironmentProfileSettings {
+                    environments,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             ..Default::default()
@@ -515,7 +524,10 @@ mod tests {
 
         let config = BivvyConfig {
             settings: Settings {
-                environments,
+                environment_profiles: EnvironmentProfileSettings {
+                    environments,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             ..Default::default()
@@ -576,7 +588,10 @@ mod tests {
 
         let config = BivvyConfig {
             settings: Settings {
-                environments,
+                environment_profiles: EnvironmentProfileSettings {
+                    environments,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
             steps,

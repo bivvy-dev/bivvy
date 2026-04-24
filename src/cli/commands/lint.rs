@@ -111,7 +111,7 @@ impl Command for LintCommand {
 
         // Apply config default_output when no CLI flag was explicitly set
         if ui.output_mode() == OutputMode::Normal {
-            ui.set_output_mode(config.settings.default_output.into());
+            ui.set_output_mode(config.settings.output.default_output.into());
         }
 
         // Create rule registry with built-in rules
