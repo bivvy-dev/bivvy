@@ -75,9 +75,9 @@ impl DetectionRunner {
         if let Some(ref vm) = pm.version_manager {
             let name = match vm {
                 PackageManager::Mise => "mise-tools",
-                PackageManager::Asdf => "asdf",
-                PackageManager::Volta => "volta",
-                PackageManager::Fnm => "fnm",
+                PackageManager::Asdf => "asdf-tools",
+                PackageManager::Volta => "volta-setup",
+                PackageManager::Fnm => "fnm-setup",
                 PackageManager::Nvm => "nvm-node",
                 PackageManager::Rbenv => "rbenv-ruby",
                 PackageManager::Pyenv => "pyenv-python",
