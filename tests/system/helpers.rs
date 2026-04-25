@@ -413,74 +413,88 @@ pub fn assert_exit_code(s: &Session, expected: i32) {
     );
 }
 
-// ── Poll-based PTY interaction ───────────────────────────────────────
+// ── Low-level PTY primitives ────────────────────────────────────────
 //
-// These use `libc::poll()` + manual `O_NONBLOCK` management instead of
-// expectrl's `expect()` to avoid the macOS PTY hang.
+// Two safe abstractions over libc that contain all the `unsafe` for
+// poll-based PTY interaction.  Every higher-level helper below is built
+// on these two functions.
+//
+// Why not use expectrl's `expect()`?  On macOS, expectrl's rapid
+// O_NONBLOCK toggling on the master fd can race with bivvy's terminal
+// writes and hang.  The poll-based approach here avoids that.
+
+/// Write bytes to a PTY session's master file descriptor.
+fn pty_write(s: &Session, data: &[u8]) {
+    use std::os::unix::io::AsRawFd;
+    let fd = s.get_stream().as_raw_fd();
+    // SAFETY: fd is a valid, open PTY master fd obtained from the Session.
+    // data is a valid byte slice that outlives the call.  For the short
+    // payloads used in interactive testing (single keys, escape sequences,
+    // short lines), partial writes are not a concern.
+    unsafe {
+        libc::write(fd, data.as_ptr() as *const _, data.len());
+    }
+}
+
+/// Poll for available data on a PTY fd and drain it into `accumulated`.
+///
+/// Temporarily sets `O_NONBLOCK` to drain all buffered data without
+/// blocking, then restores the original flags.  Returns `true` if the
+/// poll indicated data was ready (even if the subsequent read returned 0).
+fn poll_and_drain(
+    fd: std::os::unix::io::RawFd,
+    accumulated: &mut String,
+    poll_timeout_ms: i32,
+) -> bool {
+    // SAFETY: poll() with a single stack-allocated pollfd is a standard
+    // POSIX syscall.  The pollfd is valid for the duration of the call.
+    let ready = unsafe {
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        libc::poll(&mut pfd, 1, poll_timeout_ms)
+    };
+
+    if ready > 0 {
+        let mut buf = [0u8; 4096];
+        // SAFETY: fcntl F_GETFL/F_SETFL and read() are standard POSIX
+        // calls on a valid PTY fd.  O_NONBLOCK is set temporarily to
+        // drain all available data, then the original flags are restored.
+        // The buffer is stack-allocated and valid for each read() call.
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            loop {
+                let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
+                if n <= 0 {
+                    break;
+                }
+                let chunk = String::from_utf8_lossy(&buf[..n as usize]);
+                accumulated.push_str(&chunk);
+            }
+            libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+        }
+        true
+    } else {
+        false
+    }
+}
+
+// ── Poll-based PTY interaction ───────────────────────────────────────
 
 /// Send a single byte to the PTY master fd.
 pub fn send_key(s: &Session, key: u8) {
-    use std::os::unix::io::AsRawFd;
-    let fd = s.get_stream().as_raw_fd();
-    unsafe {
-        libc::write(fd, &key as *const u8 as *const _, 1);
-    }
+    pty_write(s, &[key]);
 }
 
 /// Wait for `pattern` in PTY output, then send `key`.
 ///
 /// Uses poll-based reading to avoid macOS PTY hangs.
 pub fn wait_and_answer(s: &Session, pattern: &str, key: u8, context: &str) {
-    use std::os::unix::io::AsRawFd;
-    use std::time::Instant;
-
-    let fd = s.get_stream().as_raw_fd();
-    let mut accumulated = String::new();
-    let start = Instant::now();
-    let mut buf = [0u8; 4096];
-
-    loop {
-        if start.elapsed() > TIMEOUT {
-            let clean = strip_ansi(&accumulated);
-            panic!(
-                "{context}\n\
-                 Expected: {pattern:?}\n\
-                 Timed out after {TIMEOUT:?}\n\
-                 Accumulated PTY output (ANSI stripped):\n\
-                 ---\n{clean}\n---"
-            );
-        }
-
-        let ready = unsafe {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            libc::poll(&mut pfd, 1, 100)
-        };
-
-        if ready > 0 {
-            unsafe {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                loop {
-                    let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                    if n <= 0 {
-                        break;
-                    }
-                    let chunk = String::from_utf8_lossy(&buf[..n as usize]);
-                    accumulated.push_str(&chunk);
-                }
-                libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-            }
-
-            if accumulated.contains(pattern) {
-                send_key(s, key);
-                return;
-            }
-        }
-    }
+    wait_for(s, pattern, context);
+    send_key(s, key);
 }
 
 /// Wait for `pattern` in PTY output without sending a key.
@@ -491,7 +505,6 @@ pub fn wait_for(s: &Session, pattern: &str, context: &str) {
     let fd = s.get_stream().as_raw_fd();
     let mut accumulated = String::new();
     let start = Instant::now();
-    let mut buf = [0u8; 4096];
 
     loop {
         if start.elapsed() > TIMEOUT {
@@ -505,94 +518,19 @@ pub fn wait_for(s: &Session, pattern: &str, context: &str) {
             );
         }
 
-        let ready = unsafe {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            libc::poll(&mut pfd, 1, 100)
-        };
+        poll_and_drain(fd, &mut accumulated, 100);
 
-        if ready > 0 {
-            unsafe {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                loop {
-                    let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                    if n <= 0 {
-                        break;
-                    }
-                    let chunk = String::from_utf8_lossy(&buf[..n as usize]);
-                    accumulated.push_str(&chunk);
-                }
-                libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-            }
-
-            if accumulated.contains(pattern) {
-                return;
-            }
+        if accumulated.contains(pattern) {
+            return;
         }
     }
 }
 
 /// Wait for a pattern and send a full line (text + newline).
 pub fn wait_and_send_line(s: &Session, pattern: &str, line: &str, context: &str) {
-    use std::os::unix::io::AsRawFd;
-    use std::time::Instant;
-
-    let fd = s.get_stream().as_raw_fd();
-    let mut accumulated = String::new();
-    let start = Instant::now();
-    let mut buf = [0u8; 4096];
-
-    loop {
-        if start.elapsed() > TIMEOUT {
-            let clean = strip_ansi(&accumulated);
-            panic!(
-                "{context}\n\
-                 Expected: {pattern:?}\n\
-                 Timed out after {TIMEOUT:?}\n\
-                 Accumulated PTY output (ANSI stripped):\n\
-                 ---\n{clean}\n---"
-            );
-        }
-
-        let ready = unsafe {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            libc::poll(&mut pfd, 1, 100)
-        };
-
-        if ready > 0 {
-            unsafe {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                loop {
-                    let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                    if n <= 0 {
-                        break;
-                    }
-                    let chunk = String::from_utf8_lossy(&buf[..n as usize]);
-                    accumulated.push_str(&chunk);
-                }
-                libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-            }
-
-            if accumulated.contains(pattern) {
-                // Write the line followed by newline
-                let payload = format!("{line}\n");
-                let bytes = payload.as_bytes();
-                unsafe {
-                    libc::write(fd, bytes.as_ptr() as *const _, bytes.len());
-                }
-                return;
-            }
-        }
-    }
+    wait_for(s, pattern, context);
+    let payload = format!("{line}\n");
+    pty_write(s, payload.as_bytes());
 }
 
 // ── Common key constants ─────────────────────────────────────────────
@@ -616,63 +554,11 @@ pub const ARROW_UP: &[u8] = b"\x1b[A";
 
 /// Send a multi-byte key sequence (e.g. arrow keys).
 pub fn send_keys(s: &Session, keys: &[u8]) {
-    use std::os::unix::io::AsRawFd;
-    let fd = s.get_stream().as_raw_fd();
-    unsafe {
-        libc::write(fd, keys.as_ptr() as *const _, keys.len());
-    }
+    pty_write(s, keys);
 }
 
 /// Wait for a pattern, then send a multi-byte key sequence.
 pub fn wait_and_send_keys(s: &Session, pattern: &str, keys: &[u8], context: &str) {
-    use std::os::unix::io::AsRawFd;
-    use std::time::Instant;
-
-    let fd = s.get_stream().as_raw_fd();
-    let mut accumulated = String::new();
-    let start = Instant::now();
-    let mut buf = [0u8; 4096];
-
-    loop {
-        if start.elapsed() > TIMEOUT {
-            let clean = strip_ansi(&accumulated);
-            panic!(
-                "{context}\n\
-                 Expected: {pattern:?}\n\
-                 Timed out after {TIMEOUT:?}\n\
-                 Accumulated PTY output (ANSI stripped):\n\
-                 ---\n{clean}\n---"
-            );
-        }
-
-        let ready = unsafe {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            libc::poll(&mut pfd, 1, 100)
-        };
-
-        if ready > 0 {
-            unsafe {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                loop {
-                    let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                    if n <= 0 {
-                        break;
-                    }
-                    let chunk = String::from_utf8_lossy(&buf[..n as usize]);
-                    accumulated.push_str(&chunk);
-                }
-                libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-            }
-
-            if accumulated.contains(pattern) {
-                send_keys(s, keys);
-                return;
-            }
-        }
-    }
+    wait_for(s, pattern, context);
+    send_keys(s, keys);
 }

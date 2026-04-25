@@ -132,6 +132,70 @@ fn assert_not_suspended(output: &str, context: &str) {
     );
 }
 
+// ── Low-level PTY primitives ───────────────────────────────────────
+//
+// Two safe abstractions over libc that contain all the `unsafe` for
+// poll-based PTY interaction.
+
+/// Write bytes to a PTY session's master file descriptor.
+fn pty_write(session: &Session, data: &[u8]) {
+    use std::os::unix::io::AsRawFd;
+    let fd = session.get_stream().as_raw_fd();
+    // SAFETY: fd is a valid, open PTY master fd obtained from the Session.
+    // data is a valid byte slice that outlives the call.  For the short
+    // payloads used in interactive testing (single keys, escape sequences,
+    // short lines), partial writes are not a concern.
+    unsafe {
+        libc::write(fd, data.as_ptr() as *const _, data.len());
+    }
+}
+
+/// Poll for available data on a PTY fd and drain it into `accumulated`.
+///
+/// Temporarily sets `O_NONBLOCK` to drain all buffered data without
+/// blocking, then restores the original flags.  Returns `true` if the
+/// poll indicated data was ready.
+fn poll_and_drain(
+    fd: std::os::unix::io::RawFd,
+    accumulated: &mut String,
+    poll_timeout_ms: i32,
+) -> bool {
+    // SAFETY: poll() with a single stack-allocated pollfd is a standard
+    // POSIX syscall.  The pollfd is valid for the duration of the call.
+    let ready = unsafe {
+        let mut pfd = libc::pollfd {
+            fd,
+            events: libc::POLLIN,
+            revents: 0,
+        };
+        libc::poll(&mut pfd, 1, poll_timeout_ms)
+    };
+
+    if ready > 0 {
+        let mut buf = [0u8; 4096];
+        // SAFETY: fcntl F_GETFL/F_SETFL and read() are standard POSIX
+        // calls on a valid PTY fd.  O_NONBLOCK is set temporarily to
+        // drain all available data, then the original flags are restored.
+        // The buffer is stack-allocated and valid for each read() call.
+        unsafe {
+            let flags = libc::fcntl(fd, libc::F_GETFL);
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            loop {
+                let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
+                if n <= 0 {
+                    break;
+                }
+                let chunk = String::from_utf8_lossy(&buf[..n as usize]);
+                accumulated.push_str(&chunk);
+            }
+            libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+        }
+        true
+    } else {
+        false
+    }
+}
+
 // ── PTY interaction helpers ─────────────────────────────────────────
 
 /// Poll-based wait for a pattern in PTY output. Returns the full
@@ -143,7 +207,6 @@ fn wait_for(session: &Session, pattern: &str, context: &str) -> String {
     let fd = session.get_stream().as_raw_fd();
     let mut accumulated = String::new();
     let start = Instant::now();
-    let mut buf = [0u8; 4096];
 
     loop {
         if start.elapsed() > TIMEOUT {
@@ -157,33 +220,10 @@ fn wait_for(session: &Session, pattern: &str, context: &str) -> String {
             );
         }
 
-        let ready = unsafe {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            libc::poll(&mut pfd, 1, 200)
-        };
+        poll_and_drain(fd, &mut accumulated, 200);
 
-        if ready > 0 {
-            unsafe {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                loop {
-                    let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                    if n <= 0 {
-                        break;
-                    }
-                    let chunk = String::from_utf8_lossy(&buf[..n as usize]);
-                    accumulated.push_str(&chunk);
-                }
-                libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-            }
-
-            if strip_ansi(&accumulated).contains(pattern) {
-                return strip_ansi(&accumulated);
-            }
+        if strip_ansi(&accumulated).contains(pattern) {
+            return strip_ansi(&accumulated);
         }
     }
 }
@@ -197,26 +237,18 @@ fn wait_and_send(session: &Session, pattern: &str, key: u8, context: &str) -> St
 
 /// Send a single byte to the PTY.
 fn send_key(session: &Session, key: u8) {
-    use std::os::unix::io::AsRawFd;
-    let fd = session.get_stream().as_raw_fd();
-    unsafe {
-        libc::write(fd, &key as *const u8 as *const _, 1);
-    }
+    pty_write(session, &[key]);
 }
 
 /// Send a byte sequence to the PTY.
 fn send_bytes(session: &Session, bytes: &[u8]) {
-    use std::os::unix::io::AsRawFd;
-    let fd = session.get_stream().as_raw_fd();
-    unsafe {
-        libc::write(fd, bytes.as_ptr() as *const _, bytes.len());
-    }
+    pty_write(session, bytes);
 }
 
 /// Send a command string to the PTY (with trailing newline).
 fn send_line(session: &Session, line: &str) {
     let payload = format!("{line}\n");
-    send_bytes(session, payload.as_bytes());
+    pty_write(session, payload.as_bytes());
 }
 
 /// Assert the exit code of the last command run in zsh.
