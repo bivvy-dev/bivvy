@@ -4,11 +4,14 @@ use anyhow::Result;
 use std::process::Command;
 
 use super::{check_for_updates, detect_install_method, InstallMethod, UpdateInfo};
-use crate::ui::{Prompt, PromptResult, PromptType, UserInterface};
+use crate::ui::{OutputWriter, Prompt, PromptResult, PromptType, UserInterface};
 
 /// Check for updates and prompt user if update available.
 ///
 /// Returns true if an update was executed.
+///
+/// Requires full `UserInterface` — uses `OutputWriter` (messages),
+/// `Prompter` (confirm prompt), and `UiState` (interactivity check).
 pub fn check_and_prompt_update(ui: &mut dyn UserInterface) -> Result<bool> {
     // Only check in interactive mode
     if !ui.is_interactive() {
@@ -90,7 +93,9 @@ fn execute_update(method: &InstallMethod) -> Result<()> {
 }
 
 /// Show update notification without prompting.
-pub fn show_update_notification(ui: &mut dyn UserInterface) {
+///
+/// Only requires `OutputWriter` — displays a message but does not prompt.
+pub fn show_update_notification(ui: &mut dyn OutputWriter) {
     if let Some(info) = check_for_updates() {
         if info.update_available {
             ui.message(&format!(

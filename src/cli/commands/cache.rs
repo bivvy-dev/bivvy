@@ -6,7 +6,7 @@ use anyhow::Result;
 use clap::{Args, Subcommand};
 
 use crate::cache::{default_cache_dir, format_duration, CacheStore, CacheValidator};
-use crate::ui::{Prompt, PromptResult, PromptType, UserInterface};
+use crate::ui::{OutputWriter, Prompt, PromptResult, PromptType, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -173,7 +173,8 @@ fn clear_cache(
     Ok(0)
 }
 
-fn show_stats(store: &CacheStore, ui: &mut dyn UserInterface) -> Result<i32> {
+/// Only requires `OutputWriter` — displays statistics but does not prompt.
+fn show_stats(store: &CacheStore, ui: &mut dyn OutputWriter) -> Result<i32> {
     let entries = store.list()?;
     let total_size = store.total_size()?;
     let expired_count = entries.iter().filter(|e| e.is_expired()).count();

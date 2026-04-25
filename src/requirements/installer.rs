@@ -7,7 +7,7 @@
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::status::{GapResult, RequirementStatus};
-use crate::ui::{Prompt, PromptType, UserInterface};
+use crate::ui::{OutputWriter, Prompt, PromptType, UserInterface};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
@@ -188,7 +188,7 @@ fn handle_gap_interactive(
     }
 }
 
-fn handle_gap_non_interactive(gap: &GapResult, ui: &mut dyn UserInterface) -> Outcome {
+fn handle_gap_non_interactive(gap: &GapResult, ui: &mut dyn OutputWriter) -> Outcome {
     match &gap.status {
         RequirementStatus::Satisfied => Outcome::Resolved,
         RequirementStatus::SystemOnly { warning, .. } => {

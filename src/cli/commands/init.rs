@@ -11,7 +11,9 @@ use crate::detection::DetectionRunner;
 use crate::error::Result;
 use crate::registry::builtin::BuiltinLoader;
 use crate::registry::template::Template;
-use crate::ui::{hints, Prompt, PromptOption, PromptResult, PromptType, UserInterface};
+use crate::ui::{
+    hints, OutputWriter, Prompt, PromptOption, PromptResult, PromptType, UserInterface,
+};
 
 use super::dispatcher::{Command, CommandResult};
 use super::run::RunCommand;
@@ -142,7 +144,9 @@ impl InitCommand {
     }
 
     /// Execute `--from`: copy config from another project.
-    fn execute_from(&self, ui: &mut dyn UserInterface, from_path: &str) -> Result<CommandResult> {
+    ///
+    /// Only requires `OutputWriter` — displays messages but does not prompt.
+    fn execute_from(&self, ui: &mut dyn OutputWriter, from_path: &str) -> Result<CommandResult> {
         let source = Path::new(from_path).join(".bivvy/config.yml");
         if !source.exists() {
             ui.error(&format!(
@@ -238,7 +242,9 @@ impl InitCommand {
     }
 
     /// Update gitignore to exclude local overrides.
-    fn update_gitignore(&self, ui: &mut dyn UserInterface) -> Result<()> {
+    ///
+    /// Only requires `OutputWriter` — displays a message but does not prompt.
+    fn update_gitignore(&self, ui: &mut dyn OutputWriter) -> Result<()> {
         let gitignore_entry = ".bivvy/config.local.yml";
         let gitignore_path = self.project_root.join(".gitignore");
 

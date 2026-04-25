@@ -9,7 +9,7 @@ use crate::cli::args::HistoryArgs;
 use crate::error::Result;
 use crate::state::{ProjectId, RunRecord, StateStore};
 use crate::ui::theme::BivvyTheme;
-use crate::ui::{format_duration, format_relative_time, StatusKind, UserInterface};
+use crate::ui::{format_duration, format_relative_time, OutputWriter, StatusKind, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -79,7 +79,9 @@ impl HistoryCommand {
     }
 
     /// Show detailed info for a run.
-    fn show_run_detail(ui: &mut dyn UserInterface, run: &RunRecord, theme: &BivvyTheme) {
+    ///
+    /// Only requires `OutputWriter` — displays messages and errors but does not prompt.
+    fn show_run_detail(ui: &mut dyn OutputWriter, run: &RunRecord, theme: &BivvyTheme) {
         if !run.steps_run.is_empty() {
             ui.message(&format!(
                 "        {} {}",

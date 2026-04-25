@@ -4,7 +4,7 @@
 //! It also provides flags to enable or disable automatic background updates.
 
 use crate::error::Result;
-use crate::ui::UserInterface;
+use crate::ui::{OutputWriter, UserInterface};
 use crate::updates::{
     auto_update::is_auto_update_enabled, check_for_updates_fresh, detect_install_method, VERSION,
 };
@@ -117,7 +117,9 @@ impl Command for UpdateCommand {
 }
 
 /// Write the auto_update setting to the system config at `~/.bivvy/config.yml`.
-fn set_auto_update(ui: &mut dyn UserInterface, enabled: bool) -> Result<CommandResult> {
+///
+/// Only requires `OutputWriter` — displays confirmation messages but does not prompt.
+fn set_auto_update(ui: &mut dyn OutputWriter, enabled: bool) -> Result<CommandResult> {
     let home = dirs::home_dir().ok_or_else(|| {
         crate::error::BivvyError::Other(anyhow::anyhow!("Could not determine home directory"))
     })?;
