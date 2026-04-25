@@ -9,23 +9,11 @@ use crate::registry::template::Template;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// A fully resolved step ready for execution.
-#[derive(Debug, Clone)]
-pub struct ResolvedStep {
-    /// Step name (key from config).
-    pub name: String,
-
-    /// Display title.
-    pub title: String,
-
-    /// Description.
-    pub description: Option<String>,
-
+/// Resolved execution fields (command, checks, watches, retry, sudo).
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedExecution {
     /// Command to execute.
     pub command: String,
-
-    /// Dependencies.
-    pub depends_on: Vec<String>,
 
     /// Completion check.
     pub completed_check: Option<CompletedCheck>,
@@ -33,6 +21,32 @@ pub struct ResolvedStep {
     /// Precondition that must pass before running.
     pub precondition: Option<CompletedCheck>,
 
+    /// Files to watch.
+    pub watches: Vec<String>,
+
+    /// Retry count.
+    pub retry: u32,
+
+    /// Requires sudo.
+    pub requires_sudo: bool,
+}
+
+/// Resolved environment variable fields.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedEnvironmentVars {
+    /// Environment variables.
+    pub env: HashMap<String, String>,
+
+    /// Path to env file to load before executing this step.
+    pub env_file: Option<PathBuf>,
+
+    /// Don't fail if env_file is missing.
+    pub env_file_optional: bool,
+}
+
+/// Resolved behavior fields (skippable, required, etc.).
+#[derive(Debug, Clone)]
+pub struct ResolvedBehavior {
     /// Whether step can be skipped.
     pub skippable: bool,
 
@@ -45,45 +59,85 @@ pub struct ResolvedStep {
     /// Continue on failure.
     pub allow_failure: bool,
 
-    /// Retry count.
-    pub retry: u32,
+    /// Sensitive step.
+    pub sensitive: bool,
+}
 
-    /// Environment variables.
-    pub env: HashMap<String, String>,
+impl Default for ResolvedBehavior {
+    fn default() -> Self {
+        Self {
+            skippable: true,
+            required: false,
+            prompt_if_complete: true,
+            allow_failure: false,
+            sensitive: false,
+        }
+    }
+}
 
-    /// Files to watch.
-    pub watches: Vec<String>,
-
+/// Resolved lifecycle hooks.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedHooks {
     /// Before hooks.
     pub before: Vec<String>,
 
     /// After hooks.
     pub after: Vec<String>,
+}
 
-    /// Sensitive step.
-    pub sensitive: bool,
+/// Resolved output settings.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedOutput {
+    /// Interactive prompts to execute before this step runs.
+    pub prompts: Vec<PromptConfig>,
+}
 
-    /// Requires sudo.
-    pub requires_sudo: bool,
+/// Resolved environment scoping.
+#[derive(Debug, Clone, Default)]
+pub struct ResolvedScoping {
+    /// Restrict this step to specific environments.
+    /// Empty means "run in all environments".
+    pub only_environments: Vec<String>,
+}
+
+/// A fully resolved step ready for execution.
+#[derive(Debug, Clone)]
+pub struct ResolvedStep {
+    /// Step name (key from config).
+    pub name: String,
+
+    /// Display title.
+    pub title: String,
+
+    /// Description.
+    pub description: Option<String>,
+
+    /// Dependencies.
+    pub depends_on: Vec<String>,
 
     /// System-level prerequisites this step requires.
     pub requires: Vec<String>,
 
-    /// Restrict this step to specific environments.
-    /// Empty means "run in all environments".
-    pub only_environments: Vec<String>,
-
     /// Resolved template input values for interpolation.
     pub inputs: HashMap<String, String>,
 
-    /// Interactive prompts to execute before this step runs.
-    pub prompts: Vec<PromptConfig>,
+    /// Execution settings (command, checks, watches, retry, sudo).
+    pub execution: ResolvedExecution,
 
-    /// Path to env file to load before executing this step.
-    pub env_file: Option<PathBuf>,
+    /// Environment variable settings.
+    pub env_vars: ResolvedEnvironmentVars,
 
-    /// Don't fail if env_file is missing.
-    pub env_file_optional: bool,
+    /// Behavior settings (skippable, required, etc.).
+    pub behavior: ResolvedBehavior,
+
+    /// Lifecycle hooks (before, after).
+    pub hooks: ResolvedHooks,
+
+    /// Output settings (prompts).
+    pub output: ResolvedOutput,
+
+    /// Environment scoping.
+    pub scoping: ResolvedScoping,
 }
 
 impl ResolvedStep {
@@ -114,48 +168,60 @@ impl ResolvedStep {
                 .description
                 .clone()
                 .or_else(|| step.description.clone()),
-            command: config
-                .execution
-                .command
-                .clone()
-                .or_else(|| step.command.clone())
-                .unwrap_or_default(),
             depends_on: config.depends_on.clone(),
-            completed_check: config
-                .execution
-                .completed_check
-                .clone()
-                .or_else(|| step.completed_check.clone()),
-            precondition: config
-                .execution
-                .precondition
-                .clone()
-                .or_else(|| step.precondition.clone()),
-            skippable: config.behavior.skippable,
-            required: config.behavior.required,
-            prompt_if_complete: config.behavior.prompt_if_complete,
-            allow_failure: config.behavior.allow_failure,
-            retry: config.execution.retry,
-            env: merge_env(&step.env, &config.env_vars.env),
-            watches: if config.execution.watches.is_empty() {
-                step.watches.clone()
-            } else {
-                config.execution.watches.clone()
-            },
-            before: config.hooks.before.clone(),
-            after: config.hooks.after.clone(),
-            sensitive: config.behavior.sensitive,
-            requires_sudo: config.execution.requires_sudo,
             requires: merge_requires(&step.requires, &config.requires),
-            only_environments: config.scoping.only_environments.clone(),
             inputs: resolved_inputs.clone(),
-            prompts: merge_template_prompts(
-                &config.output_settings.prompts,
-                &template.inputs,
-                &resolved_inputs,
-            ),
-            env_file: config.env_vars.env_file.clone(),
-            env_file_optional: config.env_vars.env_file_optional,
+            execution: ResolvedExecution {
+                command: config
+                    .execution
+                    .command
+                    .clone()
+                    .or_else(|| step.command.clone())
+                    .unwrap_or_default(),
+                completed_check: config
+                    .execution
+                    .completed_check
+                    .clone()
+                    .or_else(|| step.completed_check.clone()),
+                precondition: config
+                    .execution
+                    .precondition
+                    .clone()
+                    .or_else(|| step.precondition.clone()),
+                watches: if config.execution.watches.is_empty() {
+                    step.watches.clone()
+                } else {
+                    config.execution.watches.clone()
+                },
+                retry: config.execution.retry,
+                requires_sudo: config.execution.requires_sudo,
+            },
+            env_vars: ResolvedEnvironmentVars {
+                env: merge_env(&step.env, &config.env_vars.env),
+                env_file: config.env_vars.env_file.clone(),
+                env_file_optional: config.env_vars.env_file_optional,
+            },
+            behavior: ResolvedBehavior {
+                skippable: config.behavior.skippable,
+                required: config.behavior.required,
+                prompt_if_complete: config.behavior.prompt_if_complete,
+                allow_failure: config.behavior.allow_failure,
+                sensitive: config.behavior.sensitive,
+            },
+            hooks: ResolvedHooks {
+                before: config.hooks.before.clone(),
+                after: config.hooks.after.clone(),
+            },
+            output: ResolvedOutput {
+                prompts: merge_template_prompts(
+                    &config.output_settings.prompts,
+                    &template.inputs,
+                    &resolved_inputs,
+                ),
+            },
+            scoping: ResolvedScoping {
+                only_environments: config.scoping.only_environments.clone(),
+            },
         };
 
         if let Some(env_name) = environment {
@@ -176,27 +242,39 @@ impl ResolvedStep {
             name: name.to_string(),
             title: config.title.clone().unwrap_or_else(|| name.to_string()),
             description: config.description.clone(),
-            command: config.execution.command.clone().unwrap_or_default(),
             depends_on: config.depends_on.clone(),
-            completed_check: config.execution.completed_check.clone(),
-            precondition: config.execution.precondition.clone(),
-            skippable: config.behavior.skippable,
-            required: config.behavior.required,
-            prompt_if_complete: config.behavior.prompt_if_complete,
-            allow_failure: config.behavior.allow_failure,
-            retry: config.execution.retry,
-            env: config.env_vars.env.clone(),
-            watches: config.execution.watches.clone(),
-            before: config.hooks.before.clone(),
-            after: config.hooks.after.clone(),
-            sensitive: config.behavior.sensitive,
-            requires_sudo: config.execution.requires_sudo,
             requires: config.requires.clone(),
-            only_environments: config.scoping.only_environments.clone(),
             inputs: HashMap::new(),
-            prompts: config.output_settings.prompts.clone(),
-            env_file: config.env_vars.env_file.clone(),
-            env_file_optional: config.env_vars.env_file_optional,
+            execution: ResolvedExecution {
+                command: config.execution.command.clone().unwrap_or_default(),
+                completed_check: config.execution.completed_check.clone(),
+                precondition: config.execution.precondition.clone(),
+                watches: config.execution.watches.clone(),
+                retry: config.execution.retry,
+                requires_sudo: config.execution.requires_sudo,
+            },
+            env_vars: ResolvedEnvironmentVars {
+                env: config.env_vars.env.clone(),
+                env_file: config.env_vars.env_file.clone(),
+                env_file_optional: config.env_vars.env_file_optional,
+            },
+            behavior: ResolvedBehavior {
+                skippable: config.behavior.skippable,
+                required: config.behavior.required,
+                prompt_if_complete: config.behavior.prompt_if_complete,
+                allow_failure: config.behavior.allow_failure,
+                sensitive: config.behavior.sensitive,
+            },
+            hooks: ResolvedHooks {
+                before: config.hooks.before.clone(),
+                after: config.hooks.after.clone(),
+            },
+            output: ResolvedOutput {
+                prompts: config.output_settings.prompts.clone(),
+            },
+            scoping: ResolvedScoping {
+                only_environments: config.scoping.only_environments.clone(),
+            },
         };
 
         if let Some(env_name) = environment {
@@ -220,41 +298,41 @@ impl ResolvedStep {
             self.description = Some(d.clone());
         }
         if let Some(cmd) = &overrides.command {
-            self.command = cmd.clone();
+            self.execution.command = cmd.clone();
         }
         for (k, v) in &overrides.env {
             match v {
                 Some(val) => {
-                    self.env.insert(k.clone(), val.clone());
+                    self.env_vars.env.insert(k.clone(), val.clone());
                 }
                 None => {
-                    self.env.remove(k);
+                    self.env_vars.env.remove(k);
                 }
             }
         }
         if let Some(check) = &overrides.completed_check {
-            self.completed_check = Some(check.clone());
+            self.execution.completed_check = Some(check.clone());
         }
         if let Some(check) = &overrides.precondition {
-            self.precondition = Some(check.clone());
+            self.execution.precondition = Some(check.clone());
         }
         if let Some(v) = overrides.skippable {
-            self.skippable = v;
+            self.behavior.skippable = v;
         }
         if let Some(v) = overrides.allow_failure {
-            self.allow_failure = v;
+            self.behavior.allow_failure = v;
         }
         if let Some(v) = overrides.requires_sudo {
-            self.requires_sudo = v;
+            self.execution.requires_sudo = v;
         }
         if let Some(v) = overrides.sensitive {
-            self.sensitive = v;
+            self.behavior.sensitive = v;
         }
         if let Some(hooks) = &overrides.before {
-            self.before = hooks.clone();
+            self.hooks.before = hooks.clone();
         }
         if let Some(hooks) = &overrides.after {
-            self.after = hooks.clone();
+            self.hooks.after = hooks.clone();
         }
         if let Some(deps) = &overrides.depends_on {
             self.depends_on = deps.clone();
@@ -263,10 +341,10 @@ impl ResolvedStep {
             self.requires = reqs.clone();
         }
         if let Some(w) = &overrides.watches {
-            self.watches = w.clone();
+            self.execution.watches = w.clone();
         }
         if let Some(r) = overrides.retry {
-            self.retry = r;
+            self.execution.retry = r;
         }
     }
 }
@@ -404,8 +482,8 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.title, "Template Title");
-        assert_eq!(resolved.command, "template command");
-        assert!(resolved.env.contains_key("TEMPLATE_VAR"));
+        assert_eq!(resolved.execution.command, "template command");
+        assert!(resolved.env_vars.env.contains_key("TEMPLATE_VAR"));
     }
 
     #[test]
@@ -424,7 +502,7 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(resolved.title, "Custom Title");
-        assert_eq!(resolved.command, "custom command");
+        assert_eq!(resolved.execution.command, "custom command");
     }
 
     #[test]
@@ -440,11 +518,11 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(
-            resolved.env.get("TEMPLATE_VAR"),
+            resolved.env_vars.env.get("TEMPLATE_VAR"),
             Some(&"from_template".to_string())
         );
         assert_eq!(
-            resolved.env.get("CONFIG_VAR"),
+            resolved.env_vars.env.get("CONFIG_VAR"),
             Some(&"from_config".to_string())
         );
     }
@@ -462,7 +540,7 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert_eq!(
-            resolved.env.get("TEMPLATE_VAR"),
+            resolved.env_vars.env.get("TEMPLATE_VAR"),
             Some(&"overridden".to_string())
         );
     }
@@ -481,7 +559,7 @@ mod tests {
         let resolved = ResolvedStep::from_config("inline", &config, None);
 
         assert_eq!(resolved.title, "Inline Step");
-        assert_eq!(resolved.command, "echo inline");
+        assert_eq!(resolved.execution.command, "echo inline");
     }
 
     #[test]
@@ -500,7 +578,7 @@ mod tests {
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
-        assert_eq!(resolved.watches, vec!["template.lock".to_string()]);
+        assert_eq!(resolved.execution.watches, vec!["template.lock".to_string()]);
     }
 
     #[test]
@@ -517,7 +595,7 @@ mod tests {
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
-        assert_eq!(resolved.watches, vec!["config.lock".to_string()]);
+        assert_eq!(resolved.execution.watches, vec!["config.lock".to_string()]);
     }
 
     #[test]
@@ -592,9 +670,9 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, None);
-        assert!(resolved.precondition.is_some());
+        assert!(resolved.execution.precondition.is_some());
         assert!(matches!(
-            resolved.precondition,
+            resolved.execution.precondition,
             Some(crate::config::CompletedCheck::CommandSucceeds { .. })
         ));
     }
@@ -603,7 +681,7 @@ mod tests {
     fn resolved_step_precondition_defaults_none() {
         let config = StepConfig::default();
         let resolved = ResolvedStep::from_config("test", &config, None);
-        assert!(resolved.precondition.is_none());
+        assert!(resolved.execution.precondition.is_none());
     }
 
     #[test]
@@ -637,7 +715,7 @@ mod tests {
 
         let resolved = ResolvedStep::from_config("test", &config, Some("ci"));
         if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
-            &resolved.precondition
+            &resolved.execution.precondition
         {
             assert_eq!(
                 command, "exit 1",
@@ -661,11 +739,11 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         assert!(
-            resolved.precondition.is_some(),
+            resolved.execution.precondition.is_some(),
             "precondition from template should be inherited"
         );
         if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
-            &resolved.precondition
+            &resolved.execution.precondition
         {
             assert_eq!(command, "test $(git branch --show-current) = main");
         } else {
@@ -694,7 +772,7 @@ mod tests {
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
         if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
-            &resolved.precondition
+            &resolved.execution.precondition
         {
             assert_eq!(
                 command, "config check",
@@ -743,7 +821,7 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.command, "echo ci");
+        assert_eq!(resolved.execution.command, "echo ci");
     }
 
     #[test]
@@ -796,8 +874,8 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.env.get("BASE_VAR"), Some(&"base".to_string()));
-        assert_eq!(resolved.env.get("CI"), Some(&"true".to_string()));
+        assert_eq!(resolved.env_vars.env.get("BASE_VAR"), Some(&"base".to_string()));
+        assert_eq!(resolved.env_vars.env.get("CI"), Some(&"true".to_string()));
     }
 
     #[test]
@@ -830,8 +908,8 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert!(!resolved.env.contains_key("DEBUG"));
-        assert_eq!(resolved.env.get("KEEP"), Some(&"yes".to_string()));
+        assert!(!resolved.env_vars.env.contains_key("DEBUG"));
+        assert_eq!(resolved.env_vars.env.get("KEEP"), Some(&"yes".to_string()));
     }
 
     #[test]
@@ -850,7 +928,7 @@ mod tests {
         resolved.apply_environment_overrides(&overrides);
 
         assert_eq!(resolved.title, "Original");
-        assert_eq!(resolved.command, "echo original");
+        assert_eq!(resolved.execution.command, "echo original");
     }
 
     #[test]
@@ -876,7 +954,7 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, Some("ci"));
-        assert_eq!(resolved.command, "echo ci-mode");
+        assert_eq!(resolved.execution.command, "echo ci-mode");
     }
 
     #[test]
@@ -902,7 +980,7 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, Some("staging"));
-        assert_eq!(resolved.command, "echo dev-mode");
+        assert_eq!(resolved.execution.command, "echo dev-mode");
     }
 
     #[test]
@@ -928,7 +1006,7 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, None);
-        assert_eq!(resolved.command, "echo dev-mode");
+        assert_eq!(resolved.execution.command, "echo dev-mode");
     }
 
     #[test]
@@ -952,7 +1030,7 @@ mod tests {
 
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), Some("ci"));
-        assert_eq!(resolved.command, "echo ci-command");
+        assert_eq!(resolved.execution.command, "echo ci-command");
     }
 
     #[test]
@@ -976,7 +1054,7 @@ mod tests {
 
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-        assert_eq!(resolved.command, "template command");
+        assert_eq!(resolved.execution.command, "template command");
     }
 
     #[test]
@@ -994,14 +1072,14 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, None);
-        assert_eq!(resolved.only_environments, vec!["ci", "staging"]);
+        assert_eq!(resolved.scoping.only_environments, vec!["ci", "staging"]);
     }
 
     #[test]
     fn from_config_empty_only_environments() {
         let config = StepConfig::default();
         let resolved = ResolvedStep::from_config("test", &config, None);
-        assert!(resolved.only_environments.is_empty());
+        assert!(resolved.scoping.only_environments.is_empty());
     }
 
     #[test]
@@ -1017,7 +1095,7 @@ mod tests {
 
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-        assert_eq!(resolved.only_environments, vec!["ci"]);
+        assert_eq!(resolved.scoping.only_environments, vec!["ci"]);
     }
 
     // --- 7B: Resolution override tests ---
@@ -1078,7 +1156,7 @@ mod tests {
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
-        assert!(!resolved.skippable);
+        assert!(!resolved.behavior.skippable);
 
         let overrides = StepEnvironmentOverride {
             skippable: Some(true),
@@ -1086,7 +1164,7 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert!(resolved.skippable);
+        assert!(resolved.behavior.skippable);
     }
 
     #[test]
@@ -1112,7 +1190,7 @@ mod tests {
         resolved.apply_environment_overrides(&overrides);
 
         assert!(matches!(
-            resolved.completed_check,
+            resolved.execution.completed_check,
             Some(crate::config::CompletedCheck::CommandSucceeds { .. })
         ));
     }
@@ -1156,7 +1234,7 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.watches, vec!["package.json"]);
+        assert_eq!(resolved.execution.watches, vec!["package.json"]);
     }
 
     #[test]
@@ -1169,7 +1247,7 @@ mod tests {
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
-        assert_eq!(resolved.retry, 0);
+        assert_eq!(resolved.execution.retry, 0);
 
         let overrides = StepEnvironmentOverride {
             retry: Some(3),
@@ -1177,7 +1255,7 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.retry, 3);
+        assert_eq!(resolved.execution.retry, 3);
     }
 
     #[test]
@@ -1209,7 +1287,7 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.env.get("RAILS_ENV"), Some(&"test".to_string()));
+        assert_eq!(resolved.env_vars.env.get("RAILS_ENV"), Some(&"test".to_string()));
     }
 
     // --- Template input resolution tests ---
@@ -1319,8 +1397,8 @@ mod tests {
 
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-        assert_eq!(resolved.prompts.len(), 1);
-        assert_eq!(resolved.prompts[0].key, "bump");
+        assert_eq!(resolved.output.prompts.len(), 1);
+        assert_eq!(resolved.output.prompts[0].key, "bump");
     }
 
     #[test]
@@ -1346,7 +1424,7 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, None);
-        assert_eq!(resolved.prompts.len(), 1);
-        assert_eq!(resolved.prompts[0].key, "name");
+        assert_eq!(resolved.output.prompts.len(), 1);
+        assert_eq!(resolved.output.prompts[0].key, "name");
     }
 }

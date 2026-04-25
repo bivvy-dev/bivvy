@@ -55,7 +55,7 @@ steps:
     let resolved =
         ResolvedStep::from_template("deps", template, &step_config, &HashMap::new(), None);
 
-    assert!(!resolved.command.is_empty());
+    assert!(!resolved.execution.command.is_empty());
     assert_eq!(resolved.name, "deps");
 }
 

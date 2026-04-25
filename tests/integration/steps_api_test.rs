@@ -1,6 +1,6 @@
 //! Integration tests for the steps public API.
 
-use bivvy::config::{CompletedCheck, InterpolationContext, StepConfig};
+use bivvy::config::{CompletedCheck, ExecutionConfig, EnvironmentVarsConfig, InterpolationContext, StepConfig};
 use bivvy::steps::{
     execute_step, run_check, CheckResult, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
 };
@@ -22,14 +22,17 @@ fn full_step_execution_workflow() {
 
     // 1. Create step config
     let config = StepConfig {
-        command: Some("echo 'setup complete'".to_string()),
+        execution: ExecutionConfig {
+            command: Some("echo 'setup complete'".to_string()),
+            ..Default::default()
+        },
         ..Default::default()
     };
 
     // 2. Resolve step
     let step = ResolvedStep::from_config("setup", &config, None);
     assert_eq!(step.name, "setup");
-    assert_eq!(step.command, "echo 'setup complete'");
+    assert_eq!(step.execution.command, "echo 'setup complete'");
 
     // 3. Execute step
     let ctx = InterpolationContext::new();
@@ -71,16 +74,16 @@ fn step_skipping_with_completed_check() {
     fs::write(temp.path().join("installed.marker"), "done").unwrap();
 
     // Create step with completed check
-    let mut config = StepConfig {
-        command: Some("echo 'should not run'".to_string()),
-        completed_check: Some(CompletedCheck::FileExists {
-            path: "installed.marker".to_string(),
-        }),
+    let config = StepConfig {
+        execution: ExecutionConfig {
+            command: Some("echo 'should not run'".to_string()),
+            completed_check: Some(CompletedCheck::FileExists {
+                path: "installed.marker".to_string(),
+            }),
+            ..Default::default()
+        },
         ..Default::default()
     };
-    config.completed_check = Some(CompletedCheck::FileExists {
-        path: "installed.marker".to_string(),
-    });
 
     let step = ResolvedStep::from_config("install", &config, None);
 
@@ -124,7 +127,10 @@ fn dry_run_does_not_execute() {
     let temp = TempDir::new().unwrap();
 
     let config = StepConfig {
-        command: Some("touch should_not_exist.txt".to_string()),
+        execution: ExecutionConfig {
+            command: Some("touch should_not_exist.txt".to_string()),
+            ..Default::default()
+        },
         ..Default::default()
     };
     let step = ResolvedStep::from_config("touch", &config, None);
@@ -150,12 +156,18 @@ fn environment_variable_handling() {
     step_env.insert("STEP_VAR".to_string(), "from_step".to_string());
 
     let config = StepConfig {
-        command: Some(if cfg!(windows) {
-            "echo %STEP_VAR% %GLOBAL_VAR%".to_string()
-        } else {
-            "echo $STEP_VAR $GLOBAL_VAR".to_string()
-        }),
-        env: step_env,
+        execution: ExecutionConfig {
+            command: Some(if cfg!(windows) {
+                "echo %STEP_VAR% %GLOBAL_VAR%".to_string()
+            } else {
+                "echo $STEP_VAR $GLOBAL_VAR".to_string()
+            }),
+            ..Default::default()
+        },
+        env_vars: EnvironmentVarsConfig {
+            env: step_env,
+            ..Default::default()
+        },
         ..Default::default()
     };
     let step = ResolvedStep::from_config("env_test", &config, None);

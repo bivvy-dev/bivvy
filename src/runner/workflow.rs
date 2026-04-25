@@ -153,9 +153,9 @@ impl<'a> WorkflowRunner<'a> {
             .filter(|s| options.only.is_empty() || options.only.contains(*s))
             .filter(|s| {
                 if let Some(step) = self.steps.get(*s) {
-                    if !step.only_environments.is_empty() {
+                    if !step.scoping.only_environments.is_empty() {
                         if let Some(ref active_env) = options.active_environment {
-                            if !step.only_environments.iter().any(|e| e == active_env) {
+                            if !step.scoping.only_environments.iter().any(|e| e == active_env) {
                                 env_skipped.push(s.to_string());
                                 return false;
                             }
@@ -224,16 +224,16 @@ impl<'a> WorkflowRunner<'a> {
 
             // State-aware completed check for Marker type
             if !options.force.contains(step_name) {
-                if let Some(crate::config::CompletedCheck::Marker) = &step.completed_check {
+                if let Some(crate::config::CompletedCheck::Marker) = &step.execution.completed_check {
                     if let Some(ref state_store) = state {
                         let state_ctx = crate::steps::StateCheckContext {
                             step_name,
-                            watches: &step.watches,
+                            watches: &step.execution.watches,
                             state: state_store,
                             project_root,
                         };
                         let check_result = run_check_with_state(
-                            step.completed_check.as_ref().unwrap(),
+                            step.execution.completed_check.as_ref().unwrap(),
                             project_root,
                             Some(&state_ctx),
                         );
@@ -286,9 +286,9 @@ impl<'a> WorkflowRunner<'a> {
                     StepStatus::Skipped => crate::state::StepStatus::Skipped,
                     _ => crate::state::StepStatus::NeverRun,
                 };
-                let watches_hash = if !step.watches.is_empty() {
+                let watches_hash = if !step.execution.watches.is_empty() {
                     let detector = crate::state::ChangeDetector::new(state_store, project_root);
-                    detector.compute_watches_hash(&step.watches)
+                    detector.compute_watches_hash(&step.execution.watches)
                 } else {
                     None
                 };
@@ -306,7 +306,7 @@ impl<'a> WorkflowRunner<'a> {
 
             if status == StepStatus::Failed {
                 all_success = false;
-                if !step.allow_failure {
+                if !step.behavior.allow_failure {
                     failed_steps.insert(step_name.clone());
                 }
             }
@@ -366,9 +366,9 @@ impl<'a> WorkflowRunner<'a> {
             .filter(|s| options.only.is_empty() || options.only.contains(*s))
             .filter(|s| {
                 if let Some(step) = self.steps.get(*s) {
-                    if !step.only_environments.is_empty() {
+                    if !step.scoping.only_environments.is_empty() {
                         if let Some(ref active_env) = options.active_environment {
-                            if !step.only_environments.iter().any(|e| e == active_env) {
+                            if !step.scoping.only_environments.iter().any(|e| e == active_env) {
                                 env_skipped.push(s.to_string());
                                 return false;
                             }
@@ -507,7 +507,7 @@ impl<'a> WorkflowRunner<'a> {
             let effective_prompt_if_complete = step_overrides
                 .get(step_name)
                 .and_then(|o| o.prompt_if_complete)
-                .unwrap_or(step.prompt_if_complete);
+                .unwrap_or(step.behavior.prompt_if_complete);
 
             let mut needs_force = options.force.contains(step_name);
             let mut already_prompted = false;
@@ -515,11 +515,11 @@ impl<'a> WorkflowRunner<'a> {
 
             // Check if already complete (unless forced)
             if !needs_force && !options.dry_run {
-                if let Some(ref check) = step.completed_check {
+                if let Some(ref check) = step.execution.completed_check {
                     let check_result = if let Some(ref state_store) = state {
                         let state_ctx = crate::steps::StateCheckContext {
                             step_name,
-                            watches: &step.watches,
+                            watches: &step.execution.watches,
                             state: state_store,
                             project_root,
                         };
@@ -529,7 +529,7 @@ impl<'a> WorkflowRunner<'a> {
                     };
                     if check_result.complete {
                         if interactive && effective_prompt_if_complete {
-                            if step.skippable {
+                            if step.behavior.skippable {
                                 // Show step header, then ask if they want to re-run
                                 ui.message(&step_header);
                                 let prompt = Prompt {
@@ -597,7 +597,7 @@ impl<'a> WorkflowRunner<'a> {
 
             // In interactive mode, prompt before running skippable steps
             // (skip if already prompted by completed check)
-            if interactive && step.skippable && !already_prompted {
+            if interactive && step.behavior.skippable && !already_prompted {
                 // Show step header, then prompt with indented title
                 ui.message(&step_header);
                 let prompt = Prompt {
@@ -641,7 +641,7 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             // Sensitive confirmation (skip in dry-run — nothing will actually execute)
-            if step.sensitive && interactive && !options.dry_run {
+            if step.behavior.sensitive && interactive && !options.dry_run {
                 let prompt = Prompt {
                     key: format!("sensitive_{}", step_name),
                     question: "Handles sensitive data. Continue?".to_string(),
@@ -662,7 +662,7 @@ impl<'a> WorkflowRunner<'a> {
 
                 let answer = ui.prompt(&prompt)?;
                 if answer.as_string() != "yes" {
-                    if step.skippable {
+                    if step.behavior.skippable {
                         ui.message(&format!(
                             "{}{}",
                             step_pad,
@@ -688,8 +688,8 @@ impl<'a> WorkflowRunner<'a> {
             // No extra blank line needed — spinner renders indented below step header
 
             // Execute step-level prompts (template inputs / interactive params)
-            if !step.prompts.is_empty() {
-                for prompt_config in &step.prompts {
+            if !step.output.prompts.is_empty() {
+                for prompt_config in &step.output.prompts {
                     // Skip if the value is already available in the context
                     if context.resolve(&prompt_config.key).is_some() {
                         continue;
@@ -732,7 +732,7 @@ impl<'a> WorkflowRunner<'a> {
             // Build step context for pattern matching
             let step_ctx = StepContext {
                 name: step_name,
-                command: &step.command,
+                command: &step.execution.command,
                 requires: &step.requires,
                 template: None,
             };
@@ -746,17 +746,17 @@ impl<'a> WorkflowRunner<'a> {
             // Outer loop: step execution (retry/fix re-enter here)
             'step_execution: loop {
                 // Fresh spinner per attempt — hide command text for sensitive steps
-                let display_command = if step.sensitive {
+                let display_command = if step.behavior.sensitive {
                     "[SENSITIVE]".to_string()
                 } else {
-                    step.command.clone()
+                    step.execution.command.clone()
                 };
                 let attempt_label = if retry_count > 0 {
                     format!(
                         "Running `{}`... (attempt {}/{})",
                         display_command,
                         retry_count + 1,
-                        step.retry + 1
+                        step.execution.retry + 1
                     )
                 } else {
                     format!("Running `{}`...", display_command)
@@ -875,22 +875,22 @@ impl<'a> WorkflowRunner<'a> {
                         let output_was_streamed =
                             !ui.is_interactive() && output_mode == OutputMode::Verbose;
                         if !output_was_streamed {
-                            ui.show_error_block(&step.command, &combined_output, hint.as_deref());
+                            ui.show_error_block(&step.execution.command, &combined_output, hint.as_deref());
                         }
 
                         // allow_failure: record and move on, no recovery menu
-                        if step.allow_failure {
+                        if step.behavior.allow_failure {
                             final_result = Some(result);
                             break 'step_execution;
                         }
 
                         // Auto-retry before showing recovery menu
-                        if retry_count < step.retry {
+                        if retry_count < step.execution.retry {
                             retry_count += 1;
                             ui.message(&format!(
                                 "    Retrying... (attempt {}/{})",
                                 retry_count + 1,
-                                step.retry + 1
+                                step.execution.retry + 1
                             ));
                             continue 'step_execution;
                         }
@@ -931,7 +931,7 @@ impl<'a> WorkflowRunner<'a> {
                                 RecoveryAction::Fix(cmd) | RecoveryAction::CustomFix(cmd) => {
                                     if recovery::confirm_fix(ui, step_name, &cmd)? {
                                         let fix_ok =
-                                            recovery::run_fix(&cmd, project_root, &step.env)?;
+                                            recovery::run_fix(&cmd, project_root, &step.env_vars.env)?;
                                         fix_history.insert(cmd.clone());
                                         if fix_ok {
                                             ui.message("    Fix command succeeded.");
@@ -950,7 +950,7 @@ impl<'a> WorkflowRunner<'a> {
                                     crate::shell::debug::spawn_debug_shell(
                                         step_name,
                                         project_root,
-                                        &step.env,
+                                        &step.env_vars.env,
                                         global_env,
                                     )?;
                                     // After shell exit, re-show recovery menu
@@ -996,9 +996,9 @@ impl<'a> WorkflowRunner<'a> {
                         StepStatus::Skipped => crate::state::StepStatus::Skipped,
                         _ => crate::state::StepStatus::NeverRun,
                     };
-                    let watches_hash = if !step.watches.is_empty() {
+                    let watches_hash = if !step.execution.watches.is_empty() {
                         let detector = crate::state::ChangeDetector::new(state_store, project_root);
-                        detector.compute_watches_hash(&step.watches)
+                        detector.compute_watches_hash(&step.execution.watches)
                     } else {
                         None
                     };
@@ -1016,7 +1016,7 @@ impl<'a> WorkflowRunner<'a> {
                 if status == StepStatus::Failed {
                     all_success = false;
                     // Skip does NOT add to failed_steps (user made active choice)
-                    if !step.allow_failure && !skipped_by_user {
+                    if !step.behavior.allow_failure && !skipped_by_user {
                         failed_steps.insert(step_name.clone());
                     }
                 }
@@ -1121,6 +1121,10 @@ fn config_prompt_to_ui_prompt(config: &crate::config::schema::PromptConfig) -> P
 mod tests {
     use super::*;
     use crate::config::schema::StepOverride;
+    use crate::steps::{
+        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
+        ResolvedScoping,
+    };
     use crate::ui::MockUI;
     use std::fs;
     use tempfile::TempDir;
@@ -1130,27 +1134,18 @@ mod tests {
             name: name.to_string(),
             title: name.to_string(),
             description: None,
-            command: command.to_string(),
             depends_on,
-            completed_check: None,
-            precondition: None,
-            skippable: true,
-            required: false,
-            prompt_if_complete: true,
-            allow_failure: false,
-            retry: 0,
-            env: HashMap::new(),
-            watches: vec![],
-            before: vec![],
-            after: vec![],
-            sensitive: false,
-            requires_sudo: false,
             requires: vec![],
-            only_environments: vec![],
             inputs: HashMap::new(),
-            prompts: vec![],
-            env_file: None,
-            env_file_optional: false,
+            execution: ResolvedExecution {
+                command: command.to_string(),
+                ..Default::default()
+            },
+            env_vars: ResolvedEnvironmentVars::default(),
+            behavior: ResolvedBehavior::default(),
+            hooks: ResolvedHooks::default(),
+            output: ResolvedOutput::default(),
+            scoping: ResolvedScoping::default(),
         }
     }
 
@@ -1427,27 +1422,19 @@ mod tests {
             name: name.to_string(),
             title: name.to_string(),
             description: None,
-            command: command.to_string(),
             depends_on: vec![],
-            completed_check: check,
-            precondition: None,
-            skippable: true,
-            required: false,
-            prompt_if_complete: true,
-            allow_failure: false,
-            retry: 0,
-            env: HashMap::new(),
-            watches: vec![],
-            before: vec![],
-            after: vec![],
-            sensitive: false,
-            requires_sudo: false,
             requires: vec![],
-            only_environments: vec![],
             inputs: HashMap::new(),
-            prompts: vec![],
-            env_file: None,
-            env_file_optional: false,
+            execution: ResolvedExecution {
+                command: command.to_string(),
+                completed_check: check,
+                ..Default::default()
+            },
+            env_vars: ResolvedEnvironmentVars::default(),
+            behavior: ResolvedBehavior::default(),
+            hooks: ResolvedHooks::default(),
+            output: ResolvedOutput::default(),
+            scoping: ResolvedScoping::default(),
         }
     }
 
@@ -1798,7 +1785,7 @@ mod tests {
                 path: "marker.txt".to_string(),
             }),
         );
-        step.prompt_if_complete = false;
+        step.behavior.prompt_if_complete = false;
 
         let mut steps = HashMap::new();
         steps.insert("install".to_string(), step);
@@ -1844,7 +1831,7 @@ mod tests {
         .unwrap();
 
         let mut step = make_step("deploy", "echo deployed", vec![]);
-        step.sensitive = true;
+        step.behavior.sensitive = true;
 
         let mut steps = HashMap::new();
         steps.insert("deploy".to_string(), step);
@@ -1893,8 +1880,8 @@ mod tests {
         .unwrap();
 
         let mut step = make_step("deploy", "echo deployed", vec![]);
-        step.sensitive = true;
-        step.skippable = false;
+        step.behavior.sensitive = true;
+        step.behavior.skippable = false;
 
         let mut steps = HashMap::new();
         steps.insert("deploy".to_string(), step);
@@ -2099,7 +2086,7 @@ mod tests {
         .unwrap();
 
         let mut failing_step = make_step("failing", "exit 1", vec![]);
-        failing_step.allow_failure = true;
+        failing_step.behavior.allow_failure = true;
 
         let mut steps = HashMap::new();
         steps.insert("failing".to_string(), failing_step);
@@ -2153,8 +2140,8 @@ mod tests {
         // A step with a before-hook that fails causes execute_step to return Err.
         // With allow_failure, the workflow should continue to the next step.
         let mut broken_step = make_step("broken", "echo main", vec![]);
-        broken_step.before = vec!["exit 1".to_string()];
-        broken_step.allow_failure = true;
+        broken_step.hooks.before = vec!["exit 1".to_string()];
+        broken_step.behavior.allow_failure = true;
 
         let mut steps = HashMap::new();
         steps.insert("broken".to_string(), broken_step);
@@ -2205,7 +2192,7 @@ mod tests {
         // Previously this returned Err and aborted the entire run.
         // Now it should produce a WorkflowResult with success=false.
         let mut broken_step = make_step("broken", "echo main", vec![]);
-        broken_step.before = vec!["exit 1".to_string()];
+        broken_step.hooks.before = vec!["exit 1".to_string()];
 
         let mut steps = HashMap::new();
         steps.insert("broken".to_string(), broken_step);
@@ -2249,8 +2236,8 @@ mod tests {
         .unwrap();
 
         let mut broken_step = make_step("broken", "echo main", vec![]);
-        broken_step.before = vec!["exit 1".to_string()];
-        broken_step.allow_failure = true;
+        broken_step.hooks.before = vec!["exit 1".to_string()];
+        broken_step.behavior.allow_failure = true;
 
         let mut steps = HashMap::new();
         steps.insert("broken".to_string(), broken_step);
@@ -2356,7 +2343,7 @@ mod tests {
 
         // Step a fails but has allow_failure; b and c form a chain
         let mut step_a = make_step("a", "exit 1", vec![]);
-        step_a.allow_failure = true;
+        step_a.behavior.allow_failure = true;
 
         let mut steps = HashMap::new();
         steps.insert("a".to_string(), step_a);
@@ -2614,7 +2601,7 @@ mod tests {
         .unwrap();
 
         let mut step = make_step("required", "echo required", vec![]);
-        step.skippable = false;
+        step.behavior.skippable = false;
 
         let mut steps = HashMap::new();
         steps.insert("required".to_string(), step);
@@ -3138,7 +3125,7 @@ mod tests {
             make_step("always", "echo always", vec![]),
         );
         let mut ci_step = make_step("ci_only", "echo ci", vec![]);
-        ci_step.only_environments = vec!["ci".to_string()];
+        ci_step.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("ci_only".to_string(), ci_step);
 
         let runner = WorkflowRunner::new(&config, steps);
@@ -3176,7 +3163,7 @@ mod tests {
             make_step("always", "echo always", vec![]),
         );
         let mut ci_step = make_step("ci_only", "echo ci", vec![]);
-        ci_step.only_environments = vec!["ci".to_string()];
+        ci_step.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("ci_only".to_string(), ci_step);
 
         let runner = WorkflowRunner::new(&config, steps);
@@ -3211,7 +3198,7 @@ mod tests {
         let mut steps = HashMap::new();
         // Empty only_environments = run in all environments
         let step = make_step("always", "echo always", vec![]);
-        assert!(step.only_environments.is_empty());
+        assert!(step.scoping.only_environments.is_empty());
         steps.insert("always".to_string(), step);
 
         let runner = WorkflowRunner::new(&config, steps);
@@ -3246,11 +3233,11 @@ mod tests {
         steps.insert("a".to_string(), make_step("a", "echo a", vec![]));
 
         let mut b = make_step("b", "echo b", vec![]);
-        b.only_environments = vec!["ci".to_string()];
+        b.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("b".to_string(), b);
 
         let mut c = make_step("c", "echo c", vec![]);
-        c.only_environments = vec!["staging".to_string()];
+        c.scoping.only_environments = vec!["staging".to_string()];
         steps.insert("c".to_string(), c);
 
         let runner = WorkflowRunner::new(&config, steps);
@@ -3289,7 +3276,7 @@ mod tests {
             make_step("always", "echo always", vec![]),
         );
         let mut ci_step = make_step("ci_only", "echo ci", vec![]);
-        ci_step.only_environments = vec!["ci".to_string()];
+        ci_step.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("ci_only".to_string(), ci_step);
 
         let runner = WorkflowRunner::new(&config, steps);
@@ -3618,7 +3605,7 @@ mod tests {
         .unwrap();
 
         let mut step = make_step("flaky", "exit 1", vec![]);
-        step.retry = 2;
+        step.execution.retry = 2;
 
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), step);
@@ -3675,7 +3662,7 @@ mod tests {
         .unwrap();
 
         let mut step = make_step("flaky", &cmd, vec![]);
-        step.retry = 1;
+        step.execution.retry = 1;
 
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), step);
@@ -3725,7 +3712,7 @@ mod tests {
         .unwrap();
 
         let mut failing_step = make_step("failing", "exit 1", vec![]);
-        failing_step.allow_failure = true;
+        failing_step.behavior.allow_failure = true;
 
         let mut steps = HashMap::new();
         steps.insert("failing".to_string(), failing_step);
@@ -3835,7 +3822,7 @@ mod tests {
         .unwrap();
 
         let mut step = make_step("flaky", &cmd, vec![]);
-        step.retry = 1;
+        step.execution.retry = 1;
 
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), step);

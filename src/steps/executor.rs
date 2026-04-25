@@ -229,7 +229,7 @@ pub fn execute_step(
 
     // Check if already complete (unless forced)
     if !options.force {
-        if let Some(ref check) = step.completed_check {
+        if let Some(ref check) = step.execution.completed_check {
             let check_result = run_check(check, project_root);
             if check_result.complete {
                 return Ok(StepResult::skipped(&step.name, check_result));
@@ -238,7 +238,7 @@ pub fn execute_step(
     }
 
     // Check preconditions (never bypassed by --force)
-    if let Some(ref precondition) = step.precondition {
+    if let Some(ref precondition) = step.execution.precondition {
         let check_result = run_check_interpolated(precondition, project_root, context)?;
         if !check_result.complete {
             return Ok(StepResult::failure(
@@ -252,10 +252,10 @@ pub fn execute_step(
 
     // Dry run mode
     if options.dry_run {
-        let display = if step.sensitive {
+        let display = if step.behavior.sensitive {
             "Would run: [SENSITIVE]".to_string()
         } else {
-            let command = resolve_string(&step.command, context)?;
+            let command = resolve_string(&step.execution.command, context)?;
             format!("Would run: {}", command)
         };
         return Ok(StepResult::success(
@@ -270,9 +270,9 @@ pub fn execute_step(
     let mut env = global_env.clone();
 
     // Load env_file if specified
-    if let Some(ref env_file_path) = step.env_file {
+    if let Some(ref env_file_path) = step.env_vars.env_file {
         let resolved_path = project_root.join(env_file_path);
-        if step.env_file_optional {
+        if step.env_vars.env_file_optional {
             let file_env = crate::config::load_env_file_optional(&resolved_path);
             env.extend(file_env);
         } else {
@@ -282,10 +282,10 @@ pub fn execute_step(
     }
 
     // Step-level env vars override env_file values
-    env.extend(step.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env.extend(step.env_vars.env.iter().map(|(k, v)| (k.clone(), v.clone())));
 
     // Resolve command with interpolation
-    let command = resolve_string(&step.command, context)?;
+    let command = resolve_string(&step.execution.command, context)?;
 
     // Guard against empty commands
     if command.trim().is_empty() {
@@ -296,7 +296,7 @@ pub fn execute_step(
     }
 
     // Execute before hooks
-    for hook in &step.before {
+    for hook in &step.hooks.before {
         let hook_cmd = resolve_string(hook, context)?;
         execute_hook(&hook_cmd, project_root, &env)?;
     }
@@ -327,7 +327,7 @@ pub fn execute_step(
     }
 
     // Execute after hooks
-    for hook in &step.after {
+    for hook in &step.hooks.after {
         let hook_cmd = resolve_string(hook, context)?;
         execute_hook(&hook_cmd, project_root, &env)?;
     }
@@ -369,6 +369,10 @@ fn execute_hook(command: &str, cwd: &Path, env: &HashMap<String, String>) -> Res
 mod tests {
     use super::*;
     use crate::config::CompletedCheck;
+    use crate::steps::resolved::{
+        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
+        ResolvedScoping,
+    };
     use std::fs;
     use tempfile::TempDir;
 
@@ -377,27 +381,22 @@ mod tests {
             name: "test".to_string(),
             title: "Test Step".to_string(),
             description: None,
-            command: command.to_string(),
             depends_on: vec![],
-            completed_check: None,
-            precondition: None,
-            skippable: true,
-            required: false,
-            prompt_if_complete: true,
-            allow_failure: false,
-            retry: 0,
-            env: HashMap::new(),
-            watches: vec![],
-            before: vec![],
-            after: vec![],
-            sensitive: false,
-            requires_sudo: false,
             requires: vec![],
-            only_environments: vec![],
             inputs: HashMap::new(),
-            prompts: vec![],
-            env_file: None,
-            env_file_optional: false,
+            execution: ResolvedExecution {
+                command: command.to_string(),
+                completed_check: None,
+                precondition: None,
+                watches: vec![],
+                retry: 0,
+                requires_sudo: false,
+            },
+            env_vars: ResolvedEnvironmentVars::default(),
+            behavior: ResolvedBehavior::default(),
+            hooks: ResolvedHooks::default(),
+            output: ResolvedOutput::default(),
+            scoping: ResolvedScoping::default(),
         }
     }
 
@@ -425,7 +424,7 @@ mod tests {
         fs::write(temp.path().join("done.txt"), "").unwrap();
 
         let mut step = make_step("echo should not run");
-        step.completed_check = Some(CompletedCheck::FileExists {
+        step.execution.completed_check = Some(CompletedCheck::FileExists {
             path: "done.txt".to_string(),
         });
 
@@ -445,7 +444,7 @@ mod tests {
         fs::write(temp.path().join("done.txt"), "").unwrap();
 
         let mut step = make_step("echo forced");
-        step.completed_check = Some(CompletedCheck::FileExists {
+        step.execution.completed_check = Some(CompletedCheck::FileExists {
             path: "done.txt".to_string(),
         });
 
@@ -491,7 +490,8 @@ mod tests {
         } else {
             "echo $STEP_VAR"
         });
-        step.env
+        step.env_vars
+            .env
             .insert("STEP_VAR".to_string(), "step_value".to_string());
 
         let mut global_env = HashMap::new();
@@ -514,8 +514,8 @@ mod tests {
         let temp = TempDir::new().unwrap();
 
         let mut step = make_step("echo main");
-        step.before = vec!["echo before".to_string()];
-        step.after = vec!["echo after".to_string()];
+        step.hooks.before = vec!["echo before".to_string()];
+        step.hooks.after = vec!["echo after".to_string()];
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions {
@@ -533,7 +533,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
 
         let mut step = make_step("echo main");
-        step.before = vec!["exit 1".to_string()];
+        step.hooks.before = vec!["exit 1".to_string()];
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
@@ -548,11 +548,11 @@ mod tests {
         let order_file = temp.path().join("order.txt");
 
         let mut step = make_step(&format!("echo main >> {}", order_file.display()));
-        step.before = vec![
+        step.hooks.before = vec![
             format!("echo before1 >> {}", order_file.display()),
             format!("echo before2 >> {}", order_file.display()),
         ];
-        step.after = vec![format!("echo after1 >> {}", order_file.display())];
+        step.hooks.after = vec![format!("echo after1 >> {}", order_file.display())];
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
@@ -571,7 +571,7 @@ mod tests {
         let marker = temp.path().join("ran.txt");
 
         let mut step = make_step(&format!("touch {}", marker.display()));
-        step.before = vec!["exit 1".to_string()];
+        step.hooks.before = vec!["exit 1".to_string()];
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
@@ -588,7 +588,7 @@ mod tests {
         let marker = temp.path().join("after-ran.txt");
 
         let mut step = make_step("exit 1");
-        step.after = vec![format!("touch {}", marker.display())];
+        step.hooks.after = vec![format!("touch {}", marker.display())];
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
@@ -607,9 +607,10 @@ mod tests {
         let output_file = temp.path().join("env.txt");
 
         let mut step = make_step("echo done");
-        step.env
+        step.env_vars
+            .env
             .insert("HOOK_VAR".to_string(), "hook_value".to_string());
-        step.before = vec![format!("echo $HOOK_VAR >> {}", output_file.display())];
+        step.hooks.before = vec![format!("echo $HOOK_VAR >> {}", output_file.display())];
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
@@ -730,7 +731,7 @@ mod tests {
     fn precondition_passes_allows_execution() {
         let temp = TempDir::new().unwrap();
         let mut step = make_step("echo hello");
-        step.precondition = Some(CompletedCheck::CommandSucceeds {
+        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
             command: "exit 0".to_string(),
         });
 
@@ -751,7 +752,7 @@ mod tests {
     fn precondition_fails_returns_failure() {
         let temp = TempDir::new().unwrap();
         let mut step = make_step("echo should not run");
-        step.precondition = Some(CompletedCheck::CommandSucceeds {
+        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
             command: "exit 1".to_string(),
         });
 
@@ -773,7 +774,7 @@ mod tests {
     fn precondition_not_bypassed_by_force() {
         let temp = TempDir::new().unwrap();
         let mut step = make_step("echo should not run");
-        step.precondition = Some(CompletedCheck::CommandSucceeds {
+        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
             command: "exit 1".to_string(),
         });
 
@@ -799,10 +800,10 @@ mod tests {
 
         let mut step = make_step("echo should not run");
         // completed_check passes → should skip; precondition would fail
-        step.completed_check = Some(CompletedCheck::FileExists {
+        step.execution.completed_check = Some(CompletedCheck::FileExists {
             path: "done.txt".to_string(),
         });
-        step.precondition = Some(CompletedCheck::CommandSucceeds {
+        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
             command: "exit 1".to_string(),
         });
 
@@ -821,7 +822,7 @@ mod tests {
     fn precondition_failure_message_includes_description() {
         let temp = TempDir::new().unwrap();
         let mut step = make_step("echo test");
-        step.precondition = Some(CompletedCheck::CommandSucceeds {
+        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
             command: "exit 1".to_string(),
         });
 

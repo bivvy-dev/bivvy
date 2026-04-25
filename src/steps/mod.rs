@@ -54,5 +54,8 @@ pub use completed_check::{
     run_check, run_check_interpolated, run_check_with_state, CheckResult, StateCheckContext,
 };
 pub use executor::{execute_step, ExecutionOptions, StepResult, StepStatus};
-pub use resolved::ResolvedStep;
+pub use resolved::{
+    ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
+    ResolvedScoping, ResolvedStep,
+};
 pub use sensitive::SensitiveStepHandler;

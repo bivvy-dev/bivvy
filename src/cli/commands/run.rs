@@ -747,13 +747,13 @@ workflows:
 
         let brew_step = steps.get("brew").unwrap();
         assert!(
-            !brew_step.command.is_empty(),
+            !brew_step.execution.command.is_empty(),
             "template step should have a command from the brew-bundle template"
         );
         assert!(
-            brew_step.command.contains("brew"),
+            brew_step.execution.command.contains("brew"),
             "brew-bundle template command should mention brew, got: {}",
-            brew_step.command
+            brew_step.execution.command
         );
     }
 
@@ -803,7 +803,7 @@ workflows:
         let steps = cmd.resolve_steps(&config, None).unwrap();
 
         let hello_step = steps.get("hello").unwrap();
-        assert_eq!(hello_step.command, "echo hello");
+        assert_eq!(hello_step.execution.command, "echo hello");
     }
 
     #[test]
@@ -1087,11 +1087,11 @@ workflows:
 
         // Without environment
         let steps = cmd.resolve_steps(&config, None).unwrap();
-        assert_eq!(steps.get("hello").unwrap().command, "echo hello");
+        assert_eq!(steps.get("hello").unwrap().execution.command, "echo hello");
 
         // With ci environment
         let steps = cmd.resolve_steps(&config, Some("ci")).unwrap();
-        assert_eq!(steps.get("hello").unwrap().command, "echo ci-hello");
+        assert_eq!(steps.get("hello").unwrap().execution.command, "echo ci-hello");
     }
 
     #[test]
