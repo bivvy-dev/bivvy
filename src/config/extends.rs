@@ -226,8 +226,8 @@ pub fn validate_extends(extends: &[ExtendsConfig]) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::schema::{EnvironmentScopingConfig, ExecutionConfig};
+    use super::*;
     use httpmock::prelude::*;
     use tempfile::TempDir;
 
@@ -1135,7 +1135,10 @@ steps:
         let resolved = resolver.resolve(&config).unwrap();
 
         // Command overridden
-        assert_eq!(resolved.steps["db"].execution.command, Some("custom-cmd".to_string()));
+        assert_eq!(
+            resolved.steps["db"].execution.command,
+            Some("custom-cmd".to_string())
+        );
         // only_environments inherited from base
         assert_eq!(
             resolved.steps["db"].scoping.only_environments,

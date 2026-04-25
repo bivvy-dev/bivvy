@@ -1091,7 +1091,10 @@ workflows:
 
         // With ci environment
         let steps = cmd.resolve_steps(&config, Some("ci")).unwrap();
-        assert_eq!(steps.get("hello").unwrap().execution.command, "echo ci-hello");
+        assert_eq!(
+            steps.get("hello").unwrap().execution.command,
+            "echo ci-hello"
+        );
     }
 
     #[test]

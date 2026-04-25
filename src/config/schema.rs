@@ -1115,7 +1115,11 @@ steps:
       path: "node_modules"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"].execution.completed_check.as_ref().unwrap();
+        let check = config.steps["deps"]
+            .execution
+            .completed_check
+            .as_ref()
+            .unwrap();
         assert!(matches!(
             check,
             CompletedCheck::FileExists { path } if path == "node_modules"
@@ -1133,7 +1137,11 @@ steps:
       command: "bundle check"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"].execution.completed_check.as_ref().unwrap();
+        let check = config.steps["deps"]
+            .execution
+            .completed_check
+            .as_ref()
+            .unwrap();
         assert!(matches!(
             check,
             CompletedCheck::CommandSucceeds { command } if command == "bundle check"
@@ -1155,7 +1163,11 @@ steps:
           command: "yarn check"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"].execution.completed_check.as_ref().unwrap();
+        let check = config.steps["deps"]
+            .execution
+            .completed_check
+            .as_ref()
+            .unwrap();
         if let CompletedCheck::All { checks } = check {
             assert_eq!(checks.len(), 2);
         } else {
@@ -1178,7 +1190,11 @@ steps:
           path: ".env.local"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["env"].execution.completed_check.as_ref().unwrap();
+        let check = config.steps["env"]
+            .execution
+            .completed_check
+            .as_ref()
+            .unwrap();
         assert!(matches!(check, CompletedCheck::Any { .. }));
     }
 
@@ -1192,7 +1208,11 @@ steps:
       type: marker
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["setup"].execution.completed_check.as_ref().unwrap();
+        let check = config.steps["setup"]
+            .execution
+            .completed_check
+            .as_ref()
+            .unwrap();
         assert!(matches!(check, CompletedCheck::Marker));
     }
 
@@ -1571,7 +1591,10 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["seeds"];
-        assert_eq!(step.scoping.only_environments, vec!["development", "staging"]);
+        assert_eq!(
+            step.scoping.only_environments,
+            vec!["development", "staging"]
+        );
     }
 
     #[test]
@@ -1620,7 +1643,11 @@ steps:
               path: "option_b.txt"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["complex"].execution.completed_check.as_ref().unwrap();
+        let check = config.steps["complex"]
+            .execution
+            .completed_check
+            .as_ref()
+            .unwrap();
         if let CompletedCheck::All { checks } = check {
             assert_eq!(checks.len(), 2);
             assert!(matches!(&checks[1], CompletedCheck::Any { .. }));

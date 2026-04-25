@@ -155,7 +155,12 @@ impl<'a> WorkflowRunner<'a> {
                 if let Some(step) = self.steps.get(*s) {
                     if !step.scoping.only_environments.is_empty() {
                         if let Some(ref active_env) = options.active_environment {
-                            if !step.scoping.only_environments.iter().any(|e| e == active_env) {
+                            if !step
+                                .scoping
+                                .only_environments
+                                .iter()
+                                .any(|e| e == active_env)
+                            {
                                 env_skipped.push(s.to_string());
                                 return false;
                             }
@@ -224,7 +229,8 @@ impl<'a> WorkflowRunner<'a> {
 
             // State-aware completed check for Marker type
             if !options.force.contains(step_name) {
-                if let Some(crate::config::CompletedCheck::Marker) = &step.execution.completed_check {
+                if let Some(crate::config::CompletedCheck::Marker) = &step.execution.completed_check
+                {
                     if let Some(ref state_store) = state {
                         let state_ctx = crate::steps::StateCheckContext {
                             step_name,
@@ -368,7 +374,12 @@ impl<'a> WorkflowRunner<'a> {
                 if let Some(step) = self.steps.get(*s) {
                     if !step.scoping.only_environments.is_empty() {
                         if let Some(ref active_env) = options.active_environment {
-                            if !step.scoping.only_environments.iter().any(|e| e == active_env) {
+                            if !step
+                                .scoping
+                                .only_environments
+                                .iter()
+                                .any(|e| e == active_env)
+                            {
                                 env_skipped.push(s.to_string());
                                 return false;
                             }
@@ -875,7 +886,11 @@ impl<'a> WorkflowRunner<'a> {
                         let output_was_streamed =
                             !ui.is_interactive() && output_mode == OutputMode::Verbose;
                         if !output_was_streamed {
-                            ui.show_error_block(&step.execution.command, &combined_output, hint.as_deref());
+                            ui.show_error_block(
+                                &step.execution.command,
+                                &combined_output,
+                                hint.as_deref(),
+                            );
                         }
 
                         // allow_failure: record and move on, no recovery menu
@@ -930,8 +945,11 @@ impl<'a> WorkflowRunner<'a> {
                                 }
                                 RecoveryAction::Fix(cmd) | RecoveryAction::CustomFix(cmd) => {
                                     if recovery::confirm_fix(ui, step_name, &cmd)? {
-                                        let fix_ok =
-                                            recovery::run_fix(&cmd, project_root, &step.env_vars.env)?;
+                                        let fix_ok = recovery::run_fix(
+                                            &cmd,
+                                            project_root,
+                                            &step.env_vars.env,
+                                        )?;
                                         fix_history.insert(cmd.clone());
                                         if fix_ok {
                                             ui.message("    Fix command succeeded.");
@@ -1122,8 +1140,8 @@ mod tests {
     use super::*;
     use crate::config::schema::StepOverride;
     use crate::steps::{
-        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
-        ResolvedScoping,
+        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks,
+        ResolvedOutput, ResolvedScoping,
     };
     use crate::ui::MockUI;
     use std::fs;

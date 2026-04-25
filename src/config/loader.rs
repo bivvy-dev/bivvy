@@ -679,7 +679,10 @@ steps:
         assert_eq!(config.app_name, Some("MyApp".to_string()));
         // Base step is merged in
         assert!(config.steps.contains_key("lint"));
-        assert_eq!(config.steps["lint"].execution.command, Some("eslint .".to_string()));
+        assert_eq!(
+            config.steps["lint"].execution.command,
+            Some("eslint .".to_string())
+        );
         // Local step is preserved
         assert!(config.steps.contains_key("test"));
         // Extends is cleared

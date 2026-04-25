@@ -212,7 +212,8 @@ impl LintRule for UnreachableEnvironmentOverrideRule {
             }
 
             let allowed: HashSet<&str> = step_config
-                .scoping.only_environments
+                .scoping
+                .only_environments
                 .iter()
                 .map(|s| s.as_str())
                 .collect();
@@ -506,7 +507,8 @@ impl LintRule for EnvironmentCircularDependencyRule {
             for (step_name, step_config) in &config.steps {
                 let base_deps = &step_config.depends_on;
                 let effective_deps = step_config
-                    .scoping.environments
+                    .scoping
+                    .environments
                     .get(*env_name)
                     .and_then(|o| o.depends_on.as_ref())
                     .unwrap_or(base_deps);
@@ -542,9 +544,8 @@ impl LintRule for EnvironmentCircularDependencyRule {
 mod tests {
     use super::*;
     use crate::config::schema::{
-        EnvironmentConfig, EnvironmentDetectRule, EnvironmentScopingConfig,
-        EnvironmentVarsConfig, ExecutionConfig, StepConfig, StepEnvironmentOverride,
-        WorkflowConfig,
+        EnvironmentConfig, EnvironmentDetectRule, EnvironmentScopingConfig, EnvironmentVarsConfig,
+        ExecutionConfig, StepConfig, StepEnvironmentOverride, WorkflowConfig,
     };
     use std::collections::HashMap;
 
@@ -566,8 +567,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -598,8 +605,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -640,8 +653,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -663,7 +682,10 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -686,8 +708,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { only_environments: vec!["staging".to_string()], ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    only_environments: vec!["staging".to_string()],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -709,8 +737,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { only_environments: vec!["ci".to_string(), "docker".to_string()], ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    only_environments: vec!["ci".to_string(), "docker".to_string()],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -731,8 +765,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { only_environments: vec![], ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    only_environments: vec![],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -831,8 +871,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, only_environments: vec!["ci".to_string()], },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    only_environments: vec!["ci".to_string()],
+                },
                 ..Default::default()
             },
         );
@@ -863,8 +909,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, only_environments: vec!["ci".to_string(), "staging".to_string()], },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    only_environments: vec!["ci".to_string(), "staging".to_string()],
+                },
                 ..Default::default()
             },
         );
@@ -893,8 +945,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, only_environments: vec![], },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    only_environments: vec![],
+                },
                 ..Default::default()
             },
         );
@@ -971,8 +1029,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1004,8 +1068,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1038,8 +1108,14 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1074,9 +1150,18 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
-                env_vars: EnvironmentVarsConfig { env: base_env, ..Default::default() },
-                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo test".to_string()),
+                    ..Default::default()
+                },
+                env_vars: EnvironmentVarsConfig {
+                    env: base_env,
+                    ..Default::default()
+                },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1112,7 +1197,10 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec![],
                 ..Default::default()
             },
@@ -1120,9 +1208,15 @@ mod tests {
         steps.insert(
             "b".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo b".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["a".to_string()],
-                scoping: EnvironmentScopingConfig { environments: step_b_envs, ..Default::default() },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_b_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1141,16 +1235,25 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec![],
-                scoping: EnvironmentScopingConfig { environments: step_a_envs, ..Default::default() },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_a_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
         steps.insert(
             "b".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo b".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["a".to_string()],
                 ..Default::default()
             },
@@ -1175,14 +1278,20 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
         steps.insert(
             "b".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo b".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["a".to_string()],
                 ..Default::default()
             },
@@ -1190,7 +1299,10 @@ mod tests {
         steps.insert(
             "c".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo c".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo c".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["b".to_string()],
                 ..Default::default()
             },

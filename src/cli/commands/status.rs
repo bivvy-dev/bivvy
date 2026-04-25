@@ -95,7 +95,11 @@ impl StatusCommand {
                 let skipped = step_config
                     .map(|s| {
                         !s.scoping.only_environments.is_empty()
-                            && !s.scoping.only_environments.iter().any(|e| e == &resolved_env.name)
+                            && !s
+                                .scoping
+                                .only_environments
+                                .iter()
+                                .any(|e| e == &resolved_env.name)
                     })
                     .unwrap_or(false);
 
@@ -288,7 +292,11 @@ impl Command for StatusCommand {
             let skipped = step_config
                 .map(|s| {
                     !s.scoping.only_environments.is_empty()
-                        && !s.scoping.only_environments.iter().any(|e| e == &resolved_env.name)
+                        && !s
+                            .scoping
+                            .only_environments
+                            .iter()
+                            .any(|e| e == &resolved_env.name)
                 })
                 .unwrap_or(false);
 

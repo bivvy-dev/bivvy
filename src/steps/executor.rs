@@ -282,7 +282,12 @@ pub fn execute_step(
     }
 
     // Step-level env vars override env_file values
-    env.extend(step.env_vars.env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    env.extend(
+        step.env_vars
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
 
     // Resolve command with interpolation
     let command = resolve_string(&step.execution.command, context)?;
@@ -370,8 +375,8 @@ mod tests {
     use super::*;
     use crate::config::CompletedCheck;
     use crate::steps::resolved::{
-        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
-        ResolvedScoping,
+        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks,
+        ResolvedOutput, ResolvedScoping,
     };
     use std::fs;
     use tempfile::TempDir;

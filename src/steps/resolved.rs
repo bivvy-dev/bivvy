@@ -578,7 +578,10 @@ mod tests {
         let resolved =
             ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
 
-        assert_eq!(resolved.execution.watches, vec!["template.lock".to_string()]);
+        assert_eq!(
+            resolved.execution.watches,
+            vec!["template.lock".to_string()]
+        );
     }
 
     #[test]
@@ -874,7 +877,10 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.env_vars.env.get("BASE_VAR"), Some(&"base".to_string()));
+        assert_eq!(
+            resolved.env_vars.env.get("BASE_VAR"),
+            Some(&"base".to_string())
+        );
         assert_eq!(resolved.env_vars.env.get("CI"), Some(&"true".to_string()));
     }
 
@@ -1287,7 +1293,10 @@ mod tests {
         };
         resolved.apply_environment_overrides(&overrides);
 
-        assert_eq!(resolved.env_vars.env.get("RAILS_ENV"), Some(&"test".to_string()));
+        assert_eq!(
+            resolved.env_vars.env.get("RAILS_ENV"),
+            Some(&"test".to_string())
+        );
     }
 
     // --- Template input resolution tests ---

@@ -49,11 +49,11 @@ pub mod vars;
 // Schema re-exports
 pub use schema::{
     BehaviorConfig, BivvyConfig, CompletedCheck, CustomRequirement, CustomRequirementCheck,
-    EnvVarSettings, EnvironmentScopingConfig, EnvironmentVarsConfig, ExecutionConfig,
-    EnvironmentProfileSettings, ExecutionSettings, HookConfig, OutputMode, OutputSettings,
-    PromptConfig, PromptType, SecretConfig, Settings, StepConfig, StepEnvironmentOverride,
-    StepOutputConfig, StepOutputSettings, StepOverride, TemplateSource, VarDefinition,
-    WorkflowConfig, WorkflowSettings,
+    EnvVarSettings, EnvironmentProfileSettings, EnvironmentScopingConfig, EnvironmentVarsConfig,
+    ExecutionConfig, ExecutionSettings, HookConfig, OutputMode, OutputSettings, PromptConfig,
+    PromptType, SecretConfig, Settings, StepConfig, StepEnvironmentOverride, StepOutputConfig,
+    StepOutputSettings, StepOverride, TemplateSource, VarDefinition, WorkflowConfig,
+    WorkflowSettings,
 };
 
 // Vars re-exports

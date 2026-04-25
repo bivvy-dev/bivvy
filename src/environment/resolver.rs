@@ -450,7 +450,9 @@ mod tests {
 
     #[test]
     fn is_known_from_step_environments_key() {
-        use crate::config::schema::{EnvironmentScopingConfig, StepConfig, StepEnvironmentOverride};
+        use crate::config::schema::{
+            EnvironmentScopingConfig, StepConfig, StepEnvironmentOverride,
+        };
         use std::collections::HashMap;
 
         let mut step_envs = HashMap::new();
@@ -460,7 +462,10 @@ mod tests {
         steps.insert(
             "deploy".to_string(),
             StepConfig {
-                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -486,7 +491,10 @@ mod tests {
         steps.insert(
             "seeds".to_string(),
             StepConfig {
-                scoping: EnvironmentScopingConfig { only_environments: vec!["production".to_string()], ..Default::default() },
+                scoping: EnvironmentScopingConfig {
+                    only_environments: vec!["production".to_string()],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -540,7 +548,9 @@ mod tests {
 
     #[test]
     fn known_environments_includes_step_references() {
-        use crate::config::schema::{EnvironmentScopingConfig, StepConfig, StepEnvironmentOverride};
+        use crate::config::schema::{
+            EnvironmentScopingConfig, StepConfig, StepEnvironmentOverride,
+        };
         use std::collections::HashMap;
 
         let mut step_envs = HashMap::new();
@@ -550,7 +560,10 @@ mod tests {
         steps.insert(
             "deploy".to_string(),
             StepConfig {
-                scoping: EnvironmentScopingConfig { environments: step_envs, only_environments: vec!["production".to_string(), "staging".to_string()], },
+                scoping: EnvironmentScopingConfig {
+                    environments: step_envs,
+                    only_environments: vec!["production".to_string(), "staging".to_string()],
+                },
                 ..Default::default()
             },
         );
@@ -580,7 +593,10 @@ mod tests {
         steps.insert(
             "deploy".to_string(),
             StepConfig {
-                scoping: EnvironmentScopingConfig { only_environments: vec!["staging".to_string(), "ci".to_string()], ..Default::default() },
+                scoping: EnvironmentScopingConfig {
+                    only_environments: vec!["staging".to_string(), "ci".to_string()],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );

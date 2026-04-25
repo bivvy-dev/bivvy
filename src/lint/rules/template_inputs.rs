@@ -44,8 +44,11 @@ impl LintRule for TemplateInputsRule {
                 if let Some(template) = self.registry.get(template_name) {
                     // Check for missing required inputs
                     for (input_name, input_contract) in &template.inputs {
-                        let provided_by_config_prompt =
-                            step_config.output_settings.prompts.iter().any(|p| &p.key == input_name);
+                        let provided_by_config_prompt = step_config
+                            .output_settings
+                            .prompts
+                            .iter()
+                            .any(|p| &p.key == input_name);
                         let provided_by_template_prompt = input_contract.prompt.is_some();
                         if input_contract.required
                             && input_contract.default.is_none()

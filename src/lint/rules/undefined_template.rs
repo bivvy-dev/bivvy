@@ -119,7 +119,10 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo hello".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo hello".to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );

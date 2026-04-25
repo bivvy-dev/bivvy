@@ -148,7 +148,10 @@ mod tests {
 
     fn make_resolved_step(requires: Vec<String>) -> ResolvedStep {
         let config = StepConfig {
-            execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             requires,
             ..Default::default()
         };

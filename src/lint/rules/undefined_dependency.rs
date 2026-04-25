@@ -58,7 +58,10 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["nonexistent".to_string()],
                 ..Default::default()
             },
@@ -82,7 +85,10 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["b".to_string()],
                 ..Default::default()
             },
@@ -90,7 +96,10 @@ mod tests {
         steps.insert(
             "b".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo b".to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -112,7 +121,10 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 depends_on: vec!["missing1".to_string(), "missing2".to_string()],
                 ..Default::default()
             },
@@ -135,7 +147,10 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
+                execution: ExecutionConfig {
+                    command: Some("echo a".to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
