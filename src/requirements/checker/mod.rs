@@ -23,7 +23,7 @@ use std::path::Path;
 pub struct GapChecker<'a> {
     evaluator: RequirementEvaluator<'a>,
     resolver: DependencyResolver<'a>,
-    pub(crate) cache: HashMap<String, RequirementStatus>,
+    cache: HashMap<String, RequirementStatus>,
 }
 
 impl<'a> GapChecker<'a> {
@@ -109,6 +109,30 @@ impl<'a> GapChecker<'a> {
     pub fn check_network(&self) -> bool {
         network::check_network()
     }
+
+    /// Pre-populate the cache with a known status for testing.
+    #[cfg(test)]
+    pub(crate) fn seed_cache(&mut self, requirement: &str, status: RequirementStatus) {
+        self.cache.insert(requirement.to_string(), status);
+    }
+
+    /// Check whether a requirement is present in the cache.
+    #[cfg(test)]
+    pub(crate) fn cache_contains(&self, requirement: &str) -> bool {
+        self.cache.contains_key(requirement)
+    }
+
+    /// Return the number of cached entries.
+    #[cfg(test)]
+    pub(crate) fn cache_len(&self) -> usize {
+        self.cache.len()
+    }
+
+    /// Check whether the cache is empty.
+    #[cfg(test)]
+    pub(crate) fn cache_is_empty(&self) -> bool {
+        self.cache.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -157,7 +181,7 @@ mod tests {
         let status2 = checker.check_one("nonexistent-tool-xyz");
         assert!(matches!(status2, RequirementStatus::Unknown));
 
-        assert!(checker.cache.contains_key("nonexistent-tool-xyz"));
+        assert!(checker.cache_contains("nonexistent-tool-xyz"));
     }
 
     #[test]
@@ -168,10 +192,10 @@ mod tests {
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
 
         checker.check_one("nonexistent-tool-xyz");
-        assert!(checker.cache.contains_key("nonexistent-tool-xyz"));
+        assert!(checker.cache_contains("nonexistent-tool-xyz"));
 
         checker.invalidate("nonexistent-tool-xyz");
-        assert!(!checker.cache.contains_key("nonexistent-tool-xyz"));
+        assert!(!checker.cache_contains("nonexistent-tool-xyz"));
     }
 
     #[test]
@@ -183,10 +207,10 @@ mod tests {
 
         checker.check_one("nonexistent-tool-xyz");
         checker.check_one("another-fake-tool");
-        assert_eq!(checker.cache.len(), 2);
+        assert_eq!(checker.cache_len(), 2);
 
         checker.invalidate_all();
-        assert!(checker.cache.is_empty());
+        assert!(checker.cache_is_empty());
     }
 
     // --- Step tests ---
@@ -231,9 +255,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
 
-        checker
-            .cache
-            .insert("fake-tool".to_string(), RequirementStatus::Satisfied);
+        checker.seed_cache("fake-tool", RequirementStatus::Satisfied);
 
         let step = make_resolved_step(vec!["fake-tool".to_string()]);
         let gaps = checker.check_step(&step, None);

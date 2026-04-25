@@ -497,7 +497,7 @@ mod tests {
 
         let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
         assert!(result.unwrap());
-        assert!(!checker.cache.contains_key("ruby"));
+        assert!(!checker.cache_contains("ruby"));
     }
 
     #[test]
@@ -563,7 +563,7 @@ mod tests {
 
         let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
         assert!(result.unwrap());
-        assert!(!checker.cache.contains_key("redis"));
+        assert!(!checker.cache_contains("redis"));
     }
 
     #[test]
@@ -825,8 +825,8 @@ mod tests {
         let probe = make_probe();
         let temp = TempDir::new().unwrap();
         let mut checker = make_checker(&registry, &probe, &temp);
-        checker.cache.insert(
-            "redis".to_string(),
+        checker.seed_cache(
+            "redis",
             RequirementStatus::ServiceDown {
                 binary_present: true,
                 install_template: None,
@@ -851,7 +851,7 @@ mod tests {
         };
 
         let _ = handle_gap_interactive(&gap, &mut checker, &mut ui, &ctx);
-        assert!(!checker.cache.contains_key("redis"));
+        assert!(!checker.cache_contains("redis"));
     }
 
     #[test]
@@ -860,11 +860,9 @@ mod tests {
         let probe = make_probe();
         let temp = TempDir::new().unwrap();
         let mut checker = make_checker(&registry, &probe, &temp);
-        checker
-            .cache
-            .insert("ruby".to_string(), RequirementStatus::Satisfied);
-        checker.cache.insert(
-            "redis".to_string(),
+        checker.seed_cache("ruby", RequirementStatus::Satisfied);
+        checker.seed_cache(
+            "redis",
             RequirementStatus::ServiceDown {
                 binary_present: true,
                 install_template: None,
@@ -889,8 +887,8 @@ mod tests {
         };
 
         let _ = handle_gap_interactive(&gap, &mut checker, &mut ui, &ctx);
-        assert!(!checker.cache.contains_key("redis"));
-        assert!(checker.cache.contains_key("ruby"));
+        assert!(!checker.cache_contains("redis"));
+        assert!(checker.cache_contains("ruby"));
     }
 
     // --- 6F: Non-interactive tests ---

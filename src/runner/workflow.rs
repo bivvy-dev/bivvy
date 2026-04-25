@@ -2826,9 +2826,7 @@ mod tests {
         let (probe, registry) = make_gap_checker();
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
         // Pre-cache as satisfied
-        checker
-            .cache
-            .insert("fake-tool".to_string(), RequirementStatus::Satisfied);
+        checker.seed_cache("fake-tool", RequirementStatus::Satisfied);
 
         let mut ui = MockUI::new();
 
@@ -2875,8 +2873,8 @@ mod tests {
 
         let (probe, registry) = make_gap_checker();
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
-        checker.cache.insert(
-            "system-ruby".to_string(),
+        checker.seed_cache(
+            "system-ruby",
             RequirementStatus::SystemOnly {
                 path: "/usr/bin/ruby".into(),
                 install_template: None,
@@ -2934,9 +2932,7 @@ mod tests {
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
         // Unknown is not cached — it's the default for unknown requirements
         // But we can pre-cache it for clarity
-        checker
-            .cache
-            .insert("nonexistent-xyz".to_string(), RequirementStatus::Unknown);
+        checker.seed_cache("nonexistent-xyz", RequirementStatus::Unknown);
 
         // Non-interactive (default MockUI) → should error
         let mut ui = MockUI::new();
@@ -2987,8 +2983,8 @@ mod tests {
 
         let (probe, registry) = make_gap_checker();
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
-        checker.cache.insert(
-            "missing-tool".to_string(),
+        checker.seed_cache(
+            "missing-tool",
             RequirementStatus::Missing {
                 install_template: None,
                 install_hint: Some("brew install missing-tool".to_string()),
@@ -3040,8 +3036,8 @@ mod tests {
 
         let (probe, registry) = make_gap_checker();
         let mut checker = GapChecker::new(&registry, &probe, temp.path());
-        checker.cache.insert(
-            "missing-tool".to_string(),
+        checker.seed_cache(
+            "missing-tool",
             RequirementStatus::Missing {
                 install_template: None,
                 install_hint: Some("brew install missing-tool".to_string()),
