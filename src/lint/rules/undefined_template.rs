@@ -60,7 +60,7 @@ impl LintRule for UndefinedTemplateRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::StepConfig;
+    use crate::config::{ExecutionConfig, StepConfig};
     use std::collections::HashMap;
 
     #[test]
@@ -119,7 +119,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo hello".to_string()),
+                execution: ExecutionConfig { command: Some("echo hello".to_string()), ..Default::default() },
                 ..Default::default()
             },
         );

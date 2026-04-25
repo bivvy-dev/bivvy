@@ -311,7 +311,7 @@ fn is_service_check(check: &RequirementCheck) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{CustomRequirement, CustomRequirementCheck, StepConfig};
+    use crate::config::{CustomRequirement, CustomRequirementCheck, ExecutionConfig, StepConfig};
     use std::collections::HashMap;
 
     fn make_registry() -> RequirementRegistry {
@@ -335,7 +335,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["nonexistent-tool-xyz".to_string()],
                 ..Default::default()
             },
@@ -360,7 +360,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["ruby".to_string()],
                 ..Default::default()
             },
@@ -394,7 +394,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["my-tool".to_string()],
                 ..Default::default()
             },
@@ -417,7 +417,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 ..Default::default()
             },
         );
@@ -439,7 +439,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["foo".to_string(), "bar".to_string()],
                 ..Default::default()
             },
@@ -464,7 +464,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["ruby".to_string(), "node".to_string()],
                 ..Default::default()
             },
@@ -487,7 +487,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 ..Default::default()
             },
         );
@@ -509,7 +509,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["unknown-thing".to_string()],
                 ..Default::default()
             },
@@ -535,7 +535,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["ruby".to_string()],
                 ..Default::default()
             },
@@ -569,7 +569,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["my-tool".to_string()],
                 ..Default::default()
             },
@@ -605,7 +605,7 @@ mod tests {
         steps.insert(
             "step_a".to_string(),
             StepConfig {
-                command: Some("echo a".to_string()),
+                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
                 requires: vec!["my-tool".to_string()],
                 ..Default::default()
             },
@@ -613,7 +613,7 @@ mod tests {
         steps.insert(
             "step_b".to_string(),
             StepConfig {
-                command: Some("echo b".to_string()),
+                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
                 requires: vec!["my-tool".to_string()],
                 ..Default::default()
             },
@@ -649,7 +649,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["postgres-server".to_string()],
                 ..Default::default()
             },
@@ -684,7 +684,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["my-service".to_string()],
                 ..Default::default()
             },
@@ -719,7 +719,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["my-tool".to_string()],
                 ..Default::default()
             },
@@ -754,7 +754,7 @@ mod tests {
         steps.insert(
             "test".to_string(),
             StepConfig {
-                command: Some("echo test".to_string()),
+                execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
                 requires: vec!["my-service".to_string()],
                 ..Default::default()
             },

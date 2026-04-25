@@ -216,6 +216,135 @@ pub enum OutputMode {
     Silent,
 }
 
+/// Fields related to what the step actually runs and how.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ExecutionConfig {
+    /// Shell command to execute
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub command: Option<String>,
+
+    /// Check if step is already complete
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_check: Option<CompletedCheck>,
+
+    /// Precondition that must pass before the step runs.
+    /// Unlike `completed_check` (which skips when passing), a precondition
+    /// *fails* the step when it does not pass. `--force` does not bypass preconditions.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precondition: Option<CompletedCheck>,
+
+    /// Files to watch for change detection
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watches: Vec<String>,
+
+    /// Number of retries on failure
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub retry: u32,
+
+    /// Step requires sudo/elevated permissions
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub requires_sudo: bool,
+}
+
+/// Fields related to environment variable management.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvironmentVarsConfig {
+    /// Step-specific environment variables
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub env: HashMap<String, String>,
+
+    /// Env file to load for this step
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub env_file: Option<PathBuf>,
+
+    /// Don't fail if env_file is missing
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub env_file_optional: bool,
+
+    /// Required environment variables (fail if missing)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub required_env: Vec<String>,
+}
+
+/// Fields controlling step lifecycle behavior.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct BehaviorConfig {
+    /// Whether user can skip this step
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub skippable: bool,
+
+    /// Step must run, cannot be skipped
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub required: bool,
+
+    /// Ask before re-running completed steps
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub prompt_if_complete: bool,
+
+    /// Continue workflow if this step fails
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub allow_failure: bool,
+
+    /// Mark step as handling sensitive data
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub sensitive: bool,
+}
+
+impl Default for BehaviorConfig {
+    fn default() -> Self {
+        Self {
+            skippable: true,
+            required: false,
+            prompt_if_complete: true,
+            allow_failure: false,
+            sensitive: false,
+        }
+    }
+}
+
+/// Before/after lifecycle hooks.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct HookConfig {
+    /// Commands to run before the step
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub before: Vec<String>,
+
+    /// Commands to run after the step succeeds
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub after: Vec<String>,
+}
+
+/// Step-specific output and prompt settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct StepOutputSettings {
+    /// Step output settings
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<StepOutputConfig>,
+
+    /// Interactive prompts within this step
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts: Vec<PromptConfig>,
+}
+
+/// Environment-scoping and override settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EnvironmentScopingConfig {
+    /// Per-environment overrides for this step.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub environments: HashMap<String, StepEnvironmentOverride>,
+
+    /// Restrict this step to specific environments.
+    /// Empty list (default) means "run in all environments".
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub only_environments: Vec<String>,
+}
+
 /// Configuration for a single setup step
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
@@ -236,100 +365,37 @@ pub struct StepConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
 
-    /// Shell command to execute
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub command: Option<String>,
-
     /// Steps that must complete before this one
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<String>,
-
-    /// Check if step is already complete
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_check: Option<CompletedCheck>,
-
-    /// Precondition that must pass before the step runs.
-    /// Unlike `completed_check` (which skips when passing), a precondition
-    /// *fails* the step when it does not pass. `--force` does not bypass preconditions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub precondition: Option<CompletedCheck>,
-
-    /// Whether user can skip this step
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
-    pub skippable: bool,
-
-    /// Step must run, cannot be skipped
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub required: bool,
-
-    /// Ask before re-running completed steps
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
-    pub prompt_if_complete: bool,
-
-    /// Continue workflow if this step fails
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub allow_failure: bool,
-
-    /// Number of retries on failure
-    #[serde(default, skip_serializing_if = "is_zero")]
-    pub retry: u32,
-
-    /// Step-specific environment variables
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub env: HashMap<String, String>,
-
-    /// Env file to load for this step
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub env_file: Option<PathBuf>,
-
-    /// Don't fail if env_file is missing
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub env_file_optional: bool,
-
-    /// Required environment variables (fail if missing)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub required_env: Vec<String>,
-
-    /// Files to watch for change detection
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub watches: Vec<String>,
-
-    /// Interactive prompts within this step
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub prompts: Vec<PromptConfig>,
-
-    /// Step output settings
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output: Option<StepOutputConfig>,
-
-    /// Mark step as handling sensitive data
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub sensitive: bool,
-
-    /// Step requires sudo/elevated permissions
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub requires_sudo: bool,
-
-    /// Commands to run before the step
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub before: Vec<String>,
-
-    /// Commands to run after the step succeeds
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub after: Vec<String>,
 
     /// System-level prerequisites this step requires (e.g., ruby, node, postgres-server).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
 
-    /// Per-environment overrides for this step.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub environments: HashMap<String, StepEnvironmentOverride>,
+    /// Execution settings (command, checks, watches, retry, sudo)
+    #[serde(flatten)]
+    pub execution: ExecutionConfig,
 
-    /// Restrict this step to specific environments.
-    /// Empty list (default) means "run in all environments".
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub only_environments: Vec<String>,
+    /// Environment variable settings (env, env_file, required_env)
+    #[serde(flatten)]
+    pub env_vars: EnvironmentVarsConfig,
+
+    /// Behavior settings (skippable, required, prompt_if_complete, allow_failure, sensitive)
+    #[serde(flatten)]
+    pub behavior: BehaviorConfig,
+
+    /// Lifecycle hooks (before, after)
+    #[serde(flatten)]
+    pub hooks: HookConfig,
+
+    /// Output and prompt settings
+    #[serde(flatten)]
+    pub output_settings: StepOutputSettings,
+
+    /// Environment scoping and overrides
+    #[serde(flatten)]
+    pub scoping: EnvironmentScopingConfig,
 }
 
 fn default_true() -> bool {
@@ -838,7 +904,7 @@ steps:
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["custom"];
         assert_eq!(step.title, Some("Custom Step".to_string()));
-        assert_eq!(step.command, Some("echo hello".to_string()));
+        assert_eq!(step.execution.command, Some("echo hello".to_string()));
         assert_eq!(step.depends_on, vec!["other"]);
     }
 
@@ -851,11 +917,11 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["minimal"];
-        assert!(step.skippable);
-        assert!(!step.required);
-        assert!(step.prompt_if_complete);
-        assert!(!step.allow_failure);
-        assert_eq!(step.retry, 0);
+        assert!(step.behavior.skippable);
+        assert!(!step.behavior.required);
+        assert!(step.behavior.prompt_if_complete);
+        assert!(!step.behavior.allow_failure);
+        assert_eq!(step.execution.retry, 0);
     }
 
     #[test]
@@ -876,9 +942,9 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["interactive"];
-        assert_eq!(step.prompts.len(), 1);
-        assert_eq!(step.prompts[0].key, "install_mode");
-        assert_eq!(step.prompts[0].options.len(), 2);
+        assert_eq!(step.output_settings.prompts.len(), 1);
+        assert_eq!(step.output_settings.prompts[0].key, "install_mode");
+        assert_eq!(step.output_settings.prompts[0].options.len(), 2);
     }
 
     #[test]
@@ -894,8 +960,8 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["database"];
-        assert_eq!(step.before.len(), 1);
-        assert_eq!(step.after.len(), 1);
+        assert_eq!(step.hooks.before.len(), 1);
+        assert_eq!(step.hooks.after.len(), 1);
     }
 
     #[test]
@@ -905,8 +971,8 @@ steps:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
 
-        assert!(config.before.is_empty());
-        assert!(config.after.is_empty());
+        assert!(config.hooks.before.is_empty());
+        assert!(config.hooks.after.is_empty());
     }
 
     #[test]
@@ -919,8 +985,8 @@ steps:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
 
-        assert_eq!(config.before.len(), 2);
-        assert_eq!(config.before[0], "echo pre-1");
+        assert_eq!(config.hooks.before.len(), 2);
+        assert_eq!(config.hooks.before[0], "echo pre-1");
     }
 
     #[test]
@@ -932,7 +998,7 @@ steps:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
 
-        assert_eq!(config.after.len(), 1);
+        assert_eq!(config.hooks.after.len(), 1);
     }
 
     #[test]
@@ -947,8 +1013,8 @@ steps:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
 
-        assert_eq!(config.before.len(), 2);
-        assert_eq!(config.after.len(), 1);
+        assert_eq!(config.hooks.before.len(), 2);
+        assert_eq!(config.hooks.after.len(), 1);
     }
 
     #[test]
@@ -963,7 +1029,7 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["deps"];
-        assert_eq!(step.watches, vec!["Gemfile", "Gemfile.lock"]);
+        assert_eq!(step.execution.watches, vec!["Gemfile", "Gemfile.lock"]);
     }
 
     #[test]
@@ -1049,7 +1115,7 @@ steps:
       path: "node_modules"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"].completed_check.as_ref().unwrap();
+        let check = config.steps["deps"].execution.completed_check.as_ref().unwrap();
         assert!(matches!(
             check,
             CompletedCheck::FileExists { path } if path == "node_modules"
@@ -1067,7 +1133,7 @@ steps:
       command: "bundle check"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"].completed_check.as_ref().unwrap();
+        let check = config.steps["deps"].execution.completed_check.as_ref().unwrap();
         assert!(matches!(
             check,
             CompletedCheck::CommandSucceeds { command } if command == "bundle check"
@@ -1089,7 +1155,7 @@ steps:
           command: "yarn check"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"].completed_check.as_ref().unwrap();
+        let check = config.steps["deps"].execution.completed_check.as_ref().unwrap();
         if let CompletedCheck::All { checks } = check {
             assert_eq!(checks.len(), 2);
         } else {
@@ -1112,7 +1178,7 @@ steps:
           path: ".env.local"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["env"].completed_check.as_ref().unwrap();
+        let check = config.steps["env"].execution.completed_check.as_ref().unwrap();
         assert!(matches!(check, CompletedCheck::Any { .. }));
     }
 
@@ -1126,7 +1192,7 @@ steps:
       type: marker
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["setup"].completed_check.as_ref().unwrap();
+        let check = config.steps["setup"].execution.completed_check.as_ref().unwrap();
         assert!(matches!(check, CompletedCheck::Marker));
     }
 
@@ -1480,9 +1546,9 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["database"];
-        assert_eq!(step.environments.len(), 1);
+        assert_eq!(step.scoping.environments.len(), 1);
 
-        let ci_override = &step.environments["ci"];
+        let ci_override = &step.scoping.environments["ci"];
         assert_eq!(
             ci_override.command,
             Some("rails db:schema:load".to_string())
@@ -1505,7 +1571,7 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["seeds"];
-        assert_eq!(step.only_environments, vec!["development", "staging"]);
+        assert_eq!(step.scoping.only_environments, vec!["development", "staging"]);
     }
 
     #[test]
@@ -1515,7 +1581,7 @@ steps:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
         // Empty means "run in all environments"
-        assert!(config.only_environments.is_empty());
+        assert!(config.scoping.only_environments.is_empty());
     }
 
     #[test]
@@ -1524,7 +1590,7 @@ steps:
             command: "echo hello"
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.environments.is_empty());
+        assert!(config.scoping.environments.is_empty());
     }
 
     #[test]
@@ -1554,7 +1620,7 @@ steps:
               path: "option_b.txt"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["complex"].completed_check.as_ref().unwrap();
+        let check = config.steps["complex"].execution.completed_check.as_ref().unwrap();
         if let CompletedCheck::All { checks } = check {
             assert_eq!(checks.len(), 2);
             assert!(matches!(&checks[1], CompletedCheck::Any { .. }));
@@ -1669,7 +1735,7 @@ steps:
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["release"];
         assert!(matches!(
-            step.precondition,
+            step.execution.precondition,
             Some(CompletedCheck::CommandSucceeds { .. })
         ));
     }
@@ -1690,7 +1756,7 @@ steps:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["release"];
-        if let Some(CompletedCheck::All { checks }) = &step.precondition {
+        if let Some(CompletedCheck::All { checks }) = &step.execution.precondition {
             assert_eq!(checks.len(), 2);
         } else {
             panic!("Expected All precondition");
@@ -1703,7 +1769,7 @@ steps:
             command: "echo hello"
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.precondition.is_none());
+        assert!(config.execution.precondition.is_none());
     }
 
     #[test]

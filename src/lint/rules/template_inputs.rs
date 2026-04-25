@@ -45,7 +45,7 @@ impl LintRule for TemplateInputsRule {
                     // Check for missing required inputs
                     for (input_name, input_contract) in &template.inputs {
                         let provided_by_config_prompt =
-                            step_config.prompts.iter().any(|p| &p.key == input_name);
+                            step_config.output_settings.prompts.iter().any(|p| &p.key == input_name);
                         let provided_by_template_prompt = input_contract.prompt.is_some();
                         if input_contract.required
                             && input_contract.default.is_none()
@@ -99,7 +99,7 @@ impl LintRule for TemplateInputsRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{PromptConfig, PromptType, StepConfig};
+    use crate::config::{PromptConfig, PromptType, StepConfig, StepOutputSettings};
     use std::collections::HashMap;
     use std::fs;
     use tempfile::TempDir;
@@ -297,13 +297,16 @@ step:
             "test".to_string(),
             StepConfig {
                 template: Some("test-template".to_string()),
-                prompts: vec![PromptConfig {
-                    key: "required_input".to_string(),
-                    question: "Enter value".to_string(),
-                    prompt_type: PromptType::Input,
-                    options: vec![],
-                    default: None,
-                }],
+                output_settings: StepOutputSettings {
+                    prompts: vec![PromptConfig {
+                        key: "required_input".to_string(),
+                        question: "Enter value".to_string(),
+                        prompt_type: PromptType::Input,
+                        options: vec![],
+                        default: None,
+                    }],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );

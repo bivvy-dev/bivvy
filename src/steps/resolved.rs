@@ -115,44 +115,51 @@ impl ResolvedStep {
                 .clone()
                 .or_else(|| step.description.clone()),
             command: config
+                .execution
                 .command
                 .clone()
                 .or_else(|| step.command.clone())
                 .unwrap_or_default(),
             depends_on: config.depends_on.clone(),
             completed_check: config
+                .execution
                 .completed_check
                 .clone()
                 .or_else(|| step.completed_check.clone()),
             precondition: config
+                .execution
                 .precondition
                 .clone()
                 .or_else(|| step.precondition.clone()),
-            skippable: config.skippable,
-            required: config.required,
-            prompt_if_complete: config.prompt_if_complete,
-            allow_failure: config.allow_failure,
-            retry: config.retry,
-            env: merge_env(&step.env, &config.env),
-            watches: if config.watches.is_empty() {
+            skippable: config.behavior.skippable,
+            required: config.behavior.required,
+            prompt_if_complete: config.behavior.prompt_if_complete,
+            allow_failure: config.behavior.allow_failure,
+            retry: config.execution.retry,
+            env: merge_env(&step.env, &config.env_vars.env),
+            watches: if config.execution.watches.is_empty() {
                 step.watches.clone()
             } else {
-                config.watches.clone()
+                config.execution.watches.clone()
             },
-            before: config.before.clone(),
-            after: config.after.clone(),
-            sensitive: config.sensitive,
-            requires_sudo: config.requires_sudo,
+            before: config.hooks.before.clone(),
+            after: config.hooks.after.clone(),
+            sensitive: config.behavior.sensitive,
+            requires_sudo: config.execution.requires_sudo,
             requires: merge_requires(&step.requires, &config.requires),
-            only_environments: config.only_environments.clone(),
+            only_environments: config.scoping.only_environments.clone(),
             inputs: resolved_inputs.clone(),
-            prompts: merge_template_prompts(&config.prompts, &template.inputs, &resolved_inputs),
-            env_file: config.env_file.clone(),
-            env_file_optional: config.env_file_optional,
+            prompts: merge_template_prompts(
+                &config.output_settings.prompts,
+                &template.inputs,
+                &resolved_inputs,
+            ),
+            env_file: config.env_vars.env_file.clone(),
+            env_file_optional: config.env_vars.env_file_optional,
         };
 
         if let Some(env_name) = environment {
-            if let Some(overrides) = config.environments.get(env_name) {
+            if let Some(overrides) = config.scoping.environments.get(env_name) {
                 resolved.apply_environment_overrides(overrides);
             }
         }
@@ -169,31 +176,31 @@ impl ResolvedStep {
             name: name.to_string(),
             title: config.title.clone().unwrap_or_else(|| name.to_string()),
             description: config.description.clone(),
-            command: config.command.clone().unwrap_or_default(),
+            command: config.execution.command.clone().unwrap_or_default(),
             depends_on: config.depends_on.clone(),
-            completed_check: config.completed_check.clone(),
-            precondition: config.precondition.clone(),
-            skippable: config.skippable,
-            required: config.required,
-            prompt_if_complete: config.prompt_if_complete,
-            allow_failure: config.allow_failure,
-            retry: config.retry,
-            env: config.env.clone(),
-            watches: config.watches.clone(),
-            before: config.before.clone(),
-            after: config.after.clone(),
-            sensitive: config.sensitive,
-            requires_sudo: config.requires_sudo,
+            completed_check: config.execution.completed_check.clone(),
+            precondition: config.execution.precondition.clone(),
+            skippable: config.behavior.skippable,
+            required: config.behavior.required,
+            prompt_if_complete: config.behavior.prompt_if_complete,
+            allow_failure: config.behavior.allow_failure,
+            retry: config.execution.retry,
+            env: config.env_vars.env.clone(),
+            watches: config.execution.watches.clone(),
+            before: config.hooks.before.clone(),
+            after: config.hooks.after.clone(),
+            sensitive: config.behavior.sensitive,
+            requires_sudo: config.execution.requires_sudo,
             requires: config.requires.clone(),
-            only_environments: config.only_environments.clone(),
+            only_environments: config.scoping.only_environments.clone(),
             inputs: HashMap::new(),
-            prompts: config.prompts.clone(),
-            env_file: config.env_file.clone(),
-            env_file_optional: config.env_file_optional,
+            prompts: config.output_settings.prompts.clone(),
+            env_file: config.env_vars.env_file.clone(),
+            env_file_optional: config.env_vars.env_file_optional,
         };
 
         if let Some(env_name) = environment {
-            if let Some(overrides) = config.environments.get(env_name) {
+            if let Some(overrides) = config.scoping.environments.get(env_name) {
                 resolved.apply_environment_overrides(overrides);
             }
         }
@@ -353,6 +360,10 @@ fn merge_env(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{
+        BehaviorConfig, EnvironmentScopingConfig, EnvironmentVarsConfig, ExecutionConfig,
+        StepOutputSettings,
+    };
     use crate::registry::template::TemplateStep;
 
     fn make_template() -> Template {
@@ -402,7 +413,10 @@ mod tests {
         let template = make_template();
         let config = StepConfig {
             title: Some("Custom Title".to_string()),
-            command: Some("custom command".to_string()),
+            execution: ExecutionConfig {
+                command: Some("custom command".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -418,6 +432,7 @@ mod tests {
         let template = make_template();
         let mut config = StepConfig::default();
         config
+            .env_vars
             .env
             .insert("CONFIG_VAR".to_string(), "from_config".to_string());
 
@@ -439,6 +454,7 @@ mod tests {
         let template = make_template();
         let mut config = StepConfig::default();
         config
+            .env_vars
             .env
             .insert("TEMPLATE_VAR".to_string(), "overridden".to_string());
 
@@ -455,7 +471,10 @@ mod tests {
     fn from_config_works_without_template() {
         let config = StepConfig {
             title: Some("Inline Step".to_string()),
-            command: Some("echo inline".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo inline".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -488,7 +507,10 @@ mod tests {
     fn from_template_uses_config_watches_when_provided() {
         let template = make_template();
         let config = StepConfig {
-            watches: vec!["config.lock".to_string()],
+            execution: ExecutionConfig {
+                watches: vec!["config.lock".to_string()],
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -501,7 +523,10 @@ mod tests {
     #[test]
     fn resolved_step_carries_requires_from_config() {
         let config = StepConfig {
-            command: Some("bundle install".to_string()),
+            execution: ExecutionConfig {
+                command: Some("bundle install".to_string()),
+                ..Default::default()
+            },
             requires: vec!["ruby".to_string(), "postgres-server".to_string()],
             ..Default::default()
         };
@@ -556,10 +581,13 @@ mod tests {
     #[test]
     fn resolved_step_includes_precondition() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
-                command: "exit 0".to_string(),
-            }),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                    command: "exit 0".to_string(),
+                }),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -581,22 +609,28 @@ mod tests {
     #[test]
     fn resolved_step_environment_override_precondition() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
-                command: "exit 0".to_string(),
-            }),
-            environments: {
-                let mut envs = HashMap::new();
-                envs.insert(
-                    "ci".to_string(),
-                    StepEnvironmentOverride {
-                        precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
-                            command: "exit 1".to_string(),
-                        }),
-                        ..Default::default()
-                    },
-                );
-                envs
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                    command: "exit 0".to_string(),
+                }),
+                ..Default::default()
+            },
+            scoping: EnvironmentScopingConfig {
+                environments: {
+                    let mut envs = HashMap::new();
+                    envs.insert(
+                        "ci".to_string(),
+                        StepEnvironmentOverride {
+                            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                                command: "exit 1".to_string(),
+                            }),
+                            ..Default::default()
+                        },
+                    );
+                    envs
+                },
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -647,9 +681,12 @@ mod tests {
         });
 
         let config = StepConfig {
-            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
-                command: "config check".to_string(),
-            }),
+            execution: ExecutionConfig {
+                precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                    command: "config check".to_string(),
+                }),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -692,7 +729,10 @@ mod tests {
     #[test]
     fn apply_environment_overrides_replaces_command() {
         let config = StepConfig {
-            command: Some("echo base".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo base".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -709,7 +749,10 @@ mod tests {
     #[test]
     fn apply_environment_overrides_replaces_requires() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             requires: vec!["ruby".to_string(), "postgres-server".to_string()],
             ..Default::default()
         };
@@ -727,11 +770,17 @@ mod tests {
     #[test]
     fn apply_environment_overrides_adds_env_var() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            env: {
-                let mut env = HashMap::new();
-                env.insert("BASE_VAR".to_string(), "base".to_string());
-                env
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            env_vars: EnvironmentVarsConfig {
+                env: {
+                    let mut env = HashMap::new();
+                    env.insert("BASE_VAR".to_string(), "base".to_string());
+                    env
+                },
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -754,12 +803,18 @@ mod tests {
     #[test]
     fn apply_environment_overrides_removes_env_var() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            env: {
-                let mut env = HashMap::new();
-                env.insert("DEBUG".to_string(), "true".to_string());
-                env.insert("KEEP".to_string(), "yes".to_string());
-                env
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            env_vars: EnvironmentVarsConfig {
+                env: {
+                    let mut env = HashMap::new();
+                    env.insert("DEBUG".to_string(), "true".to_string());
+                    env.insert("KEEP".to_string(), "yes".to_string());
+                    env
+                },
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -783,7 +838,10 @@ mod tests {
     fn apply_environment_overrides_ignores_none_fields() {
         let config = StepConfig {
             title: Some("Original".to_string()),
-            command: Some("echo original".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo original".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -806,8 +864,14 @@ mod tests {
             },
         );
         let config = StepConfig {
-            command: Some("echo dev-mode".to_string()),
-            environments,
+            execution: ExecutionConfig {
+                command: Some("echo dev-mode".to_string()),
+                ..Default::default()
+            },
+            scoping: EnvironmentScopingConfig {
+                environments,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -826,8 +890,14 @@ mod tests {
             },
         );
         let config = StepConfig {
-            command: Some("echo dev-mode".to_string()),
-            environments,
+            execution: ExecutionConfig {
+                command: Some("echo dev-mode".to_string()),
+                ..Default::default()
+            },
+            scoping: EnvironmentScopingConfig {
+                environments,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -846,8 +916,14 @@ mod tests {
             },
         );
         let config = StepConfig {
-            command: Some("echo dev-mode".to_string()),
-            environments,
+            execution: ExecutionConfig {
+                command: Some("echo dev-mode".to_string()),
+                ..Default::default()
+            },
+            scoping: EnvironmentScopingConfig {
+                environments,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -867,7 +943,10 @@ mod tests {
             },
         );
         let config = StepConfig {
-            environments,
+            scoping: EnvironmentScopingConfig {
+                environments,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -888,7 +967,10 @@ mod tests {
             },
         );
         let config = StepConfig {
-            environments,
+            scoping: EnvironmentScopingConfig {
+                environments,
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -900,8 +982,14 @@ mod tests {
     #[test]
     fn from_config_propagates_only_environments() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            only_environments: vec!["ci".to_string(), "staging".to_string()],
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            scoping: EnvironmentScopingConfig {
+                only_environments: vec!["ci".to_string(), "staging".to_string()],
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -920,7 +1008,10 @@ mod tests {
     fn from_template_propagates_only_environments() {
         let template = make_template();
         let config = StepConfig {
-            only_environments: vec!["ci".to_string()],
+            scoping: EnvironmentScopingConfig {
+                only_environments: vec!["ci".to_string()],
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -935,7 +1026,10 @@ mod tests {
     fn resolved_step_env_overrides_title() {
         let config = StepConfig {
             title: Some("Base Title".to_string()),
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -952,7 +1046,10 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_description() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             description: Some("Base desc".to_string()),
             ..Default::default()
         };
@@ -970,8 +1067,14 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_skippable() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            skippable: false,
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            behavior: BehaviorConfig {
+                skippable: false,
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -989,10 +1092,13 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_completed_check() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            completed_check: Some(crate::config::CompletedCheck::FileExists {
-                path: "base.txt".to_string(),
-            }),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                completed_check: Some(crate::config::CompletedCheck::FileExists {
+                    path: "base.txt".to_string(),
+                }),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -1014,7 +1120,10 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_depends_on() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             depends_on: vec!["a".to_string(), "b".to_string()],
             ..Default::default()
         };
@@ -1032,8 +1141,11 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_watches() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            watches: vec!["Gemfile".to_string(), "Gemfile.lock".to_string()],
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                watches: vec!["Gemfile".to_string(), "Gemfile.lock".to_string()],
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -1050,7 +1162,10 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_retry() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         let mut resolved = ResolvedStep::from_config("test", &config, None);
@@ -1068,11 +1183,17 @@ mod tests {
     #[test]
     fn resolved_step_env_overrides_existing_env_var() {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            env: {
-                let mut env = HashMap::new();
-                env.insert("RAILS_ENV".to_string(), "development".to_string());
-                env
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            env_vars: EnvironmentVarsConfig {
+                env: {
+                    let mut env = HashMap::new();
+                    env.insert("RAILS_ENV".to_string(), "development".to_string());
+                    env
+                },
+                ..Default::default()
             },
             ..Default::default()
         };
@@ -1183,13 +1304,16 @@ mod tests {
 
         let template = make_template();
         let config = StepConfig {
-            prompts: vec![PromptConfig {
-                key: "bump".to_string(),
-                question: "Bump type?".to_string(),
-                prompt_type: PromptType::Input,
-                options: vec![],
-                default: None,
-            }],
+            output_settings: StepOutputSettings {
+                prompts: vec![PromptConfig {
+                    key: "bump".to_string(),
+                    question: "Bump type?".to_string(),
+                    prompt_type: PromptType::Input,
+                    options: vec![],
+                    default: None,
+                }],
+                ..Default::default()
+            },
             ..Default::default()
         };
 
@@ -1204,14 +1328,20 @@ mod tests {
         use crate::config::schema::PromptType;
 
         let config = StepConfig {
-            command: Some("echo test".to_string()),
-            prompts: vec![PromptConfig {
-                key: "name".to_string(),
-                question: "Name?".to_string(),
-                prompt_type: PromptType::Input,
-                options: vec![],
-                default: None,
-            }],
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            output_settings: StepOutputSettings {
+                prompts: vec![PromptConfig {
+                    key: "name".to_string(),
+                    question: "Name?".to_string(),
+                    prompt_type: PromptType::Input,
+                    options: vec![],
+                    default: None,
+                }],
+                ..Default::default()
+            },
             ..Default::default()
         };
 

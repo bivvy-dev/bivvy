@@ -610,7 +610,7 @@ steps:
 
         // deps command should be overridden
         assert_eq!(
-            config.steps["deps"].command,
+            config.steps["deps"].execution.command,
             Some("yarn install --frozen-lockfile".to_string())
         );
         // database should still exist
@@ -679,7 +679,7 @@ steps:
         assert_eq!(config.app_name, Some("MyApp".to_string()));
         // Base step is merged in
         assert!(config.steps.contains_key("lint"));
-        assert_eq!(config.steps["lint"].command, Some("eslint .".to_string()));
+        assert_eq!(config.steps["lint"].execution.command, Some("eslint .".to_string()));
         // Local step is preserved
         assert!(config.steps.contains_key("test"));
         // Extends is cleared
@@ -732,7 +732,7 @@ steps:
         // Local overrides base
         assert_eq!(config.app_name, Some("MyApp".to_string()));
         assert_eq!(
-            config.steps["install"].command,
+            config.steps["install"].execution.command,
             Some("yarn install".to_string())
         );
     }

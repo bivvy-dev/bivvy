@@ -227,6 +227,7 @@ pub fn validate_extends(extends: &[ExtendsConfig]) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use super::super::schema::{EnvironmentScopingConfig, ExecutionConfig};
     use httpmock::prelude::*;
     use tempfile::TempDir;
 
@@ -418,7 +419,7 @@ steps:
         // Base steps appear in result
         assert!(resolved.steps.contains_key("install"));
         assert_eq!(
-            resolved.steps["install"].command,
+            resolved.steps["install"].execution.command,
             Some("npm install".to_string())
         );
     }
@@ -444,7 +445,10 @@ steps:
         steps.insert(
             "install".to_string(),
             super::super::schema::StepConfig {
-                command: Some("yarn install".to_string()),
+                execution: ExecutionConfig {
+                    command: Some("yarn install".to_string()),
+                    ..Default::default()
+                },
                 title: Some("Local install".to_string()),
                 ..Default::default()
             },
@@ -465,7 +469,7 @@ steps:
         // Local values override base
         assert_eq!(resolved.app_name, Some("LocalApp".to_string()));
         assert_eq!(
-            resolved.steps["install"].command,
+            resolved.steps["install"].execution.command,
             Some("yarn install".to_string())
         );
         assert_eq!(
@@ -776,7 +780,7 @@ steps:
 
         // Later base overrides earlier for shared step
         assert_eq!(
-            resolved.steps["step_shared"].command,
+            resolved.steps["step_shared"].execution.command,
             Some("from-second".to_string())
         );
     }
@@ -817,7 +821,10 @@ steps:
         steps.insert(
             "db".to_string(),
             super::super::schema::StepConfig {
-                environments: envs,
+                scoping: EnvironmentScopingConfig {
+                    environments: envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -833,7 +840,7 @@ steps:
         let resolver = resolver_with_mock(&server);
         let resolved = resolver.resolve(&config).unwrap();
 
-        let ci = &resolved.steps["db"].environments["ci"];
+        let ci = &resolved.steps["db"].scoping.environments["ci"];
         // Overlay's env is present
         assert_eq!(ci.env.get("FOO"), Some(&Some("1".to_string())));
         // Base's command is gone (block replaced, not merged)
@@ -874,7 +881,10 @@ steps:
         steps.insert(
             "db".to_string(),
             super::super::schema::StepConfig {
-                environments: envs,
+                scoping: EnvironmentScopingConfig {
+                    environments: envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -892,12 +902,12 @@ steps:
 
         // ci preserved from base
         assert_eq!(
-            resolved.steps["db"].environments["ci"].command,
+            resolved.steps["db"].scoping.environments["ci"].command,
             Some("ci-cmd".to_string())
         );
         // staging added from overlay
         assert_eq!(
-            resolved.steps["db"].environments["staging"].command,
+            resolved.steps["db"].scoping.environments["staging"].command,
             Some("staging-cmd".to_string())
         );
     }
@@ -936,7 +946,10 @@ steps:
         steps.insert(
             "db".to_string(),
             super::super::schema::StepConfig {
-                environments: envs,
+                scoping: EnvironmentScopingConfig {
+                    environments: envs,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -954,12 +967,12 @@ steps:
 
         // ci replaced
         assert_eq!(
-            resolved.steps["db"].environments["ci"].command,
+            resolved.steps["db"].scoping.environments["ci"].command,
             Some("new-ci-cmd".to_string())
         );
         // staging preserved
         assert_eq!(
-            resolved.steps["db"].environments["staging"].command,
+            resolved.steps["db"].scoping.environments["staging"].command,
             Some("staging-cmd".to_string())
         );
     }
@@ -987,7 +1000,10 @@ steps:
         steps.insert(
             "db".to_string(),
             super::super::schema::StepConfig {
-                only_environments: vec!["dev".to_string(), "ci".to_string()],
+                scoping: EnvironmentScopingConfig {
+                    only_environments: vec!["dev".to_string(), "ci".to_string()],
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1005,7 +1021,7 @@ steps:
 
         // Array replaced entirely
         assert_eq!(
-            resolved.steps["db"].only_environments,
+            resolved.steps["db"].scoping.only_environments,
             vec!["dev".to_string(), "ci".to_string()]
         );
     }
@@ -1056,7 +1072,7 @@ steps:
         assert_eq!(resolved.app_name, Some("ChildApp".to_string()));
 
         // The ci environment block should be fully replaced by child
-        let ci = &resolved.steps["setup"].environments["ci"];
+        let ci = &resolved.steps["setup"].scoping.environments["ci"];
         assert_eq!(
             ci.command,
             Some("child-ci-cmd".to_string()),
@@ -1070,7 +1086,7 @@ steps:
 
         // Parent's default command should still be inherited (not inside environments block)
         assert_eq!(
-            resolved.steps["setup"].command,
+            resolved.steps["setup"].execution.command,
             Some("parent-default-cmd".to_string()),
             "Parent's default command should be inherited"
         );
@@ -1099,7 +1115,10 @@ steps:
         steps.insert(
             "db".to_string(),
             super::super::schema::StepConfig {
-                command: Some("custom-cmd".to_string()),
+                execution: ExecutionConfig {
+                    command: Some("custom-cmd".to_string()),
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
@@ -1116,10 +1135,10 @@ steps:
         let resolved = resolver.resolve(&config).unwrap();
 
         // Command overridden
-        assert_eq!(resolved.steps["db"].command, Some("custom-cmd".to_string()));
+        assert_eq!(resolved.steps["db"].execution.command, Some("custom-cmd".to_string()));
         // only_environments inherited from base
         assert_eq!(
-            resolved.steps["db"].only_environments,
+            resolved.steps["db"].scoping.only_environments,
             vec!["dev".to_string()]
         );
     }

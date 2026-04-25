@@ -96,7 +96,7 @@ impl CircularDependencyRule {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::StepConfig;
+    use crate::config::{ExecutionConfig, StepConfig};
     use std::collections::HashMap;
 
     #[test]
@@ -107,7 +107,7 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                command: Some("echo a".to_string()),
+                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
                 depends_on: vec!["b".to_string()],
                 ..Default::default()
             },
@@ -115,7 +115,7 @@ mod tests {
         steps.insert(
             "b".to_string(),
             StepConfig {
-                command: Some("echo b".to_string()),
+                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
                 depends_on: vec!["a".to_string()],
                 ..Default::default()
             },
@@ -139,7 +139,7 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                command: Some("echo a".to_string()),
+                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
                 depends_on: vec!["b".to_string()],
                 ..Default::default()
             },
@@ -147,7 +147,7 @@ mod tests {
         steps.insert(
             "b".to_string(),
             StepConfig {
-                command: Some("echo b".to_string()),
+                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
                 depends_on: vec!["c".to_string()],
                 ..Default::default()
             },
@@ -155,7 +155,7 @@ mod tests {
         steps.insert(
             "c".to_string(),
             StepConfig {
-                command: Some("echo c".to_string()),
+                execution: ExecutionConfig { command: Some("echo c".to_string()), ..Default::default() },
                 depends_on: vec!["a".to_string()],
                 ..Default::default()
             },
@@ -178,7 +178,7 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                command: Some("echo a".to_string()),
+                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
                 depends_on: vec!["b".to_string()],
                 ..Default::default()
             },
@@ -186,7 +186,7 @@ mod tests {
         steps.insert(
             "b".to_string(),
             StepConfig {
-                command: Some("echo b".to_string()),
+                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
                 ..Default::default()
             },
         );
@@ -209,7 +209,7 @@ mod tests {
         steps.insert(
             "a".to_string(),
             StepConfig {
-                command: Some("echo a".to_string()),
+                execution: ExecutionConfig { command: Some("echo a".to_string()), ..Default::default() },
                 depends_on: vec!["b".to_string(), "c".to_string()],
                 ..Default::default()
             },
@@ -217,7 +217,7 @@ mod tests {
         steps.insert(
             "b".to_string(),
             StepConfig {
-                command: Some("echo b".to_string()),
+                execution: ExecutionConfig { command: Some("echo b".to_string()), ..Default::default() },
                 depends_on: vec!["d".to_string()],
                 ..Default::default()
             },
@@ -225,7 +225,7 @@ mod tests {
         steps.insert(
             "c".to_string(),
             StepConfig {
-                command: Some("echo c".to_string()),
+                execution: ExecutionConfig { command: Some("echo c".to_string()), ..Default::default() },
                 depends_on: vec!["d".to_string()],
                 ..Default::default()
             },
@@ -233,7 +233,7 @@ mod tests {
         steps.insert(
             "d".to_string(),
             StepConfig {
-                command: Some("echo d".to_string()),
+                execution: ExecutionConfig { command: Some("echo d".to_string()), ..Default::default() },
                 ..Default::default()
             },
         );

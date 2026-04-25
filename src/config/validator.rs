@@ -116,7 +116,7 @@ fn validate_steps(config: &BivvyConfig) -> Vec<ValidationError> {
 
     for (name, step) in &config.steps {
         // Step must have either template or command
-        if step.template.is_none() && step.command.is_none() {
+        if step.template.is_none() && step.execution.command.is_none() {
             errors.push(ValidationError {
                 rule: "missing-command".to_string(),
                 message: format!("Step '{}' must have either 'template' or 'command'", name),
@@ -260,7 +260,9 @@ pub fn validate(config: &BivvyConfig) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::schema::{StepConfig, StepOverride, VarDefinition, WorkflowConfig};
+    use crate::config::schema::{
+        ExecutionConfig, StepConfig, StepOverride, VarDefinition, WorkflowConfig,
+    };
 
     #[test]
     fn validates_step_has_command_or_template() {
@@ -277,7 +279,10 @@ mod tests {
     fn validates_depends_on_exists() {
         let mut config = BivvyConfig::default();
         let step = StepConfig {
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
             depends_on: vec!["nonexistent".to_string()],
             ..Default::default()
         };
@@ -305,13 +310,19 @@ mod tests {
         let mut config = BivvyConfig::default();
 
         let step_a = StepConfig {
-            command: Some("a".to_string()),
+            execution: ExecutionConfig {
+                command: Some("a".to_string()),
+                ..Default::default()
+            },
             depends_on: vec!["b".to_string()],
             ..Default::default()
         };
 
         let step_b = StepConfig {
-            command: Some("b".to_string()),
+            execution: ExecutionConfig {
+                command: Some("b".to_string()),
+                ..Default::default()
+            },
             depends_on: vec!["a".to_string()],
             ..Default::default()
         };
@@ -328,12 +339,18 @@ mod tests {
         let mut config = BivvyConfig::default();
 
         let step_a = StepConfig {
-            command: Some("a".to_string()),
+            execution: ExecutionConfig {
+                command: Some("a".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
 
         let step_b = StepConfig {
-            command: Some("b".to_string()),
+            execution: ExecutionConfig {
+                command: Some("b".to_string()),
+                ..Default::default()
+            },
             depends_on: vec!["a".to_string()],
             ..Default::default()
         };
@@ -356,7 +373,10 @@ mod tests {
         let mut config = BivvyConfig::default();
 
         let step = StepConfig {
-            command: Some("test".to_string()),
+            execution: ExecutionConfig {
+                command: Some("test".to_string()),
+                ..Default::default()
+            },
             ..Default::default()
         };
         config.steps.insert("test".to_string(), step);

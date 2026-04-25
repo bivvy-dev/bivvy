@@ -138,7 +138,7 @@ impl<'a> GapChecker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::StepConfig;
+    use crate::config::{ExecutionConfig, StepConfig};
     use crate::requirements::registry::RequirementRegistry;
     use tempfile::TempDir;
 
@@ -148,7 +148,7 @@ mod tests {
 
     fn make_resolved_step(requires: Vec<String>) -> ResolvedStep {
         let config = StepConfig {
-            command: Some("echo test".to_string()),
+            execution: ExecutionConfig { command: Some("echo test".to_string()), ..Default::default() },
             requires,
             ..Default::default()
         };

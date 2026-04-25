@@ -204,12 +204,12 @@ pub fn known_environments(config: &BivvyConfig) -> Vec<String> {
 
     // 3. Environments referenced in steps
     for step in config.steps.values() {
-        // Keys in step.environments (per-environment overrides)
-        for env_name in step.environments.keys() {
+        // Keys in step.scoping.environments (per-environment overrides)
+        for env_name in step.scoping.environments.keys() {
             envs.insert(env_name.clone());
         }
-        // Values in step.only_environments
-        for env_name in &step.only_environments {
+        // Values in step.scoping.only_environments
+        for env_name in &step.scoping.only_environments {
             envs.insert(env_name.clone());
         }
     }
@@ -450,7 +450,7 @@ mod tests {
 
     #[test]
     fn is_known_from_step_environments_key() {
-        use crate::config::schema::{StepConfig, StepEnvironmentOverride};
+        use crate::config::schema::{EnvironmentScopingConfig, StepConfig, StepEnvironmentOverride};
         use std::collections::HashMap;
 
         let mut step_envs = HashMap::new();
@@ -460,7 +460,7 @@ mod tests {
         steps.insert(
             "deploy".to_string(),
             StepConfig {
-                environments: step_envs,
+                scoping: EnvironmentScopingConfig { environments: step_envs, ..Default::default() },
                 ..Default::default()
             },
         );
@@ -479,14 +479,14 @@ mod tests {
 
     #[test]
     fn is_known_from_step_only_environments() {
-        use crate::config::schema::StepConfig;
+        use crate::config::schema::{EnvironmentScopingConfig, StepConfig};
         use std::collections::HashMap;
 
         let mut steps = HashMap::new();
         steps.insert(
             "seeds".to_string(),
             StepConfig {
-                only_environments: vec!["production".to_string()],
+                scoping: EnvironmentScopingConfig { only_environments: vec!["production".to_string()], ..Default::default() },
                 ..Default::default()
             },
         );
@@ -540,7 +540,7 @@ mod tests {
 
     #[test]
     fn known_environments_includes_step_references() {
-        use crate::config::schema::{StepConfig, StepEnvironmentOverride};
+        use crate::config::schema::{EnvironmentScopingConfig, StepConfig, StepEnvironmentOverride};
         use std::collections::HashMap;
 
         let mut step_envs = HashMap::new();
@@ -550,8 +550,7 @@ mod tests {
         steps.insert(
             "deploy".to_string(),
             StepConfig {
-                environments: step_envs,
-                only_environments: vec!["production".to_string(), "staging".to_string()],
+                scoping: EnvironmentScopingConfig { environments: step_envs, only_environments: vec!["production".to_string(), "staging".to_string()], },
                 ..Default::default()
             },
         );
@@ -571,7 +570,7 @@ mod tests {
 
     #[test]
     fn known_environments_deduplicates() {
-        use crate::config::schema::{EnvironmentConfig, StepConfig};
+        use crate::config::schema::{EnvironmentConfig, EnvironmentScopingConfig, StepConfig};
         use std::collections::HashMap;
 
         let mut environments = HashMap::new();
@@ -581,7 +580,7 @@ mod tests {
         steps.insert(
             "deploy".to_string(),
             StepConfig {
-                only_environments: vec!["staging".to_string(), "ci".to_string()],
+                scoping: EnvironmentScopingConfig { only_environments: vec!["staging".to_string(), "ci".to_string()], ..Default::default() },
                 ..Default::default()
             },
         );

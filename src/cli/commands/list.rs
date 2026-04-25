@@ -122,12 +122,12 @@ impl Command for ListCommand {
                     .steps
                     .iter()
                     .map(|(name, step)| {
-                        let skipped = !step.only_environments.is_empty()
-                            && !step.only_environments.iter().any(|e| e == env_name);
+                        let skipped = !step.scoping.only_environments.is_empty()
+                            && !step.scoping.only_environments.iter().any(|e| e == env_name);
                         StepJsonEntry {
                             name: name.clone(),
                             template: step.template.clone(),
-                            command: step.command.clone(),
+                            command: step.execution.command.clone(),
                             description: step.description.clone(),
                             title: step.title.clone(),
                             depends_on: step.depends_on.clone(),
@@ -185,8 +185,8 @@ impl Command for ListCommand {
             ui.message(&format!("  {}", theme.key.apply_to("Steps:")));
             for (name, step) in &config.steps {
                 // Check if step is skipped by only_environments
-                let skipped = !step.only_environments.is_empty()
-                    && !step.only_environments.iter().any(|e| e == env_name);
+                let skipped = !step.scoping.only_environments.is_empty()
+                    && !step.scoping.only_environments.iter().any(|e| e == env_name);
 
                 if skipped {
                     ui.message(&format!(
@@ -203,7 +203,7 @@ impl Command for ListCommand {
                         " {}",
                         theme.dim.apply_to(format!("(template: {})", template))
                     )
-                } else if let Some(ref cmd) = step.command {
+                } else if let Some(ref cmd) = step.execution.command {
                     format!(
                         " {} {}",
                         theme.dim.apply_to("—"),
