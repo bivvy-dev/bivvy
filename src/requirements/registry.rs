@@ -117,6 +117,21 @@ impl RequirementRegistry {
             },
         );
 
+        // Bundler (Ruby gem manager, ships with Ruby but may be missing or wrong version)
+        requirements.insert(
+            "bundler".to_string(),
+            Requirement {
+                name: "bundler".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "bundle --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some("Install Bundler: gem install bundler".to_string()),
+                depends_on: vec!["ruby".to_string()],
+                install_requires: None,
+            },
+        );
+
         // Node
         requirements.insert(
             "node".to_string(),
@@ -327,6 +342,350 @@ impl RequirementRegistry {
             },
         );
 
+        // Go
+        requirements.insert(
+            "go".to_string(),
+            Requirement {
+                name: "go".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds("go version".to_string())],
+                install_template: None,
+                install_hint: Some(
+                    "Install Go: brew install go, or https://go.dev/dl/".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Elixir
+        requirements.insert(
+            "elixir".to_string(),
+            Requirement {
+                name: "elixir".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "elixir --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Elixir: brew install elixir, or https://elixir-lang.org/install.html"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Swift
+        requirements.insert(
+            "swift".to_string(),
+            Requirement {
+                name: "swift".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "swift --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Swift: included with Xcode, or https://swift.org/install".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Dart
+        requirements.insert(
+            "dart".to_string(),
+            Requirement {
+                name: "dart".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "dart --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Dart: brew install dart, or https://dart.dev/get-dart".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Flutter
+        requirements.insert(
+            "flutter".to_string(),
+            Requirement {
+                name: "flutter".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "flutter --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Flutter: https://docs.flutter.dev/get-started/install".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // .NET
+        requirements.insert(
+            "dotnet".to_string(),
+            Requirement {
+                name: "dotnet".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "dotnet --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install .NET: brew install dotnet, or https://dot.net/download".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Deno
+        requirements.insert(
+            "deno".to_string(),
+            Requirement {
+                name: "deno".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "deno --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Deno: brew install deno, or https://deno.land/#installation"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // PHP
+        requirements.insert(
+            "php".to_string(),
+            Requirement {
+                name: "php".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "php --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some("Install PHP: brew install php, or https://php.net".to_string()),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Maven
+        requirements.insert(
+            "mvn".to_string(),
+            Requirement {
+                name: "mvn".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "mvn --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Maven: brew install maven, or https://maven.apache.org/download.cgi"
+                        .to_string(),
+                ),
+                depends_on: vec!["java".to_string()],
+                install_requires: None,
+            },
+        );
+
+        // Helm
+        requirements.insert(
+            "helm".to_string(),
+            Requirement {
+                name: "helm".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "helm version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Helm: brew install helm, or https://helm.sh/docs/intro/install/"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Ansible
+        requirements.insert(
+            "ansible".to_string(),
+            Requirement {
+                name: "ansible".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "ansible --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Ansible: pip install ansible, or brew install ansible".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Pulumi
+        requirements.insert(
+            "pulumi".to_string(),
+            Requirement {
+                name: "pulumi".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "pulumi version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install Pulumi: brew install pulumi, or https://www.pulumi.com/docs/install/"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // pre-commit
+        requirements.insert(
+            "pre-commit".to_string(),
+            Requirement {
+                name: "pre-commit".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "pre-commit --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install pre-commit: pip install pre-commit, or brew install pre-commit"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Diesel CLI
+        requirements.insert(
+            "diesel".to_string(),
+            Requirement {
+                name: "diesel".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "diesel --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some("Install Diesel CLI: cargo install diesel_cli".to_string()),
+                depends_on: vec!["rust".to_string()],
+                install_requires: None,
+            },
+        );
+
+        // Version managers (used by install templates)
+
+        // fnm (Fast Node Manager)
+        requirements.insert(
+            "fnm".to_string(),
+            Requirement {
+                name: "fnm".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "fnm --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install fnm: brew install fnm, or https://github.com/Schniz/fnm".to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // rbenv
+        requirements.insert(
+            "rbenv".to_string(),
+            Requirement {
+                name: "rbenv".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "rbenv --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install rbenv: brew install rbenv, or https://github.com/rbenv/rbenv"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // nvm (Node Version Manager)
+        requirements.insert(
+            "nvm".to_string(),
+            Requirement {
+                name: "nvm".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "nvm --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install nvm: https://github.com/nvm-sh/nvm#installing-and-updating"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // Volta
+        requirements.insert(
+            "volta".to_string(),
+            Requirement {
+                name: "volta".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "volta --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some("Install Volta: https://volta.sh".to_string()),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // pyenv
+        requirements.insert(
+            "pyenv".to_string(),
+            Requirement {
+                name: "pyenv".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "pyenv --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install pyenv: brew install pyenv, or https://github.com/pyenv/pyenv"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        // asdf
+        requirements.insert(
+            "asdf".to_string(),
+            Requirement {
+                name: "asdf".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds(
+                    "asdf --version".to_string(),
+                )],
+                install_template: None,
+                install_hint: Some(
+                    "Install asdf: brew install asdf, or https://asdf-vm.com/guide/getting-started.html"
+                        .to_string(),
+                ),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
         Self { requirements }
     }
 
@@ -421,18 +780,44 @@ mod tests {
     fn registry_new_has_builtins() {
         let registry = RequirementRegistry::new();
         let names = registry.known_names();
-        assert!(names.contains(&"ruby"));
-        assert!(names.contains(&"node"));
-        assert!(names.contains(&"python"));
-        assert!(names.contains(&"postgres"));
-        assert!(names.contains(&"postgres-server"));
-        assert!(names.contains(&"redis-server"));
-        assert!(names.contains(&"docker"));
-        assert!(names.contains(&"brew"));
-        assert!(names.contains(&"mise"));
-        assert!(names.contains(&"rust"));
-        assert!(names.contains(&"java"));
-        assert!(names.contains(&"terraform"));
+        let expected = [
+            "ruby",
+            "bundler",
+            "node",
+            "python",
+            "postgres",
+            "postgres-server",
+            "redis-server",
+            "docker",
+            "brew",
+            "mise",
+            "rust",
+            "java",
+            "terraform",
+            "go",
+            "elixir",
+            "swift",
+            "dart",
+            "flutter",
+            "dotnet",
+            "deno",
+            "php",
+            "mvn",
+            "helm",
+            "ansible",
+            "pulumi",
+            "pre-commit",
+            "diesel",
+            "fnm",
+            "rbenv",
+            "nvm",
+            "volta",
+            "pyenv",
+            "asdf",
+        ];
+        for name in &expected {
+            assert!(names.contains(name), "registry missing built-in '{}'", name);
+        }
     }
 
     #[test]
@@ -475,6 +860,145 @@ mod tests {
         let names = registry.known_names();
         // At least 10 built-in requirements
         assert!(names.len() >= 10);
+    }
+
+    /// Helper: assert a requirement uses CommandSucceeds with the given command string.
+    fn assert_command_succeeds(req: &Requirement, expected_cmd: &str) {
+        assert_eq!(req.checks.len(), 1, "{}: expected 1 check", req.name);
+        match &req.checks[0] {
+            RequirementCheck::CommandSucceeds(cmd) => {
+                assert_eq!(cmd, expected_cmd, "{}: wrong check command", req.name);
+            }
+            _ => panic!(
+                "{}: expected CommandSucceeds, got different check type",
+                req.name
+            ),
+        }
+    }
+
+    // --- Comprehensive property tests for all CommandSucceeds requirements ---
+
+    #[test]
+    fn command_succeeds_requirements_have_correct_checks() {
+        let registry = RequirementRegistry::new();
+
+        // (name, expected_command, expected_depends_on, must_have_install_hint)
+        let expectations: &[(&str, &str, &[&str], bool)] = &[
+            ("bundler", "bundle --version", &["ruby"], true),
+            ("postgres", "psql --version", &[], true),
+            ("docker", "docker info", &[], true),
+            ("brew", "brew --version", &[], true),
+            ("mise", "mise --version", &[], true),
+            ("rust", "rustc --version", &[], true),
+            ("java", "java -version", &[], true),
+            ("terraform", "terraform version", &[], true),
+            ("go", "go version", &[], true),
+            ("elixir", "elixir --version", &[], true),
+            ("swift", "swift --version", &[], true),
+            ("dart", "dart --version", &[], true),
+            ("flutter", "flutter --version", &[], true),
+            ("dotnet", "dotnet --version", &[], true),
+            ("deno", "deno --version", &[], true),
+            ("php", "php --version", &[], true),
+            ("mvn", "mvn --version", &["java"], true),
+            ("helm", "helm version", &[], true),
+            ("ansible", "ansible --version", &[], true),
+            ("pulumi", "pulumi version", &[], true),
+            ("pre-commit", "pre-commit --version", &[], true),
+            ("diesel", "diesel --version", &["rust"], true),
+            ("fnm", "fnm --version", &[], true),
+            ("rbenv", "rbenv --version", &[], true),
+            ("nvm", "nvm --version", &[], true),
+            ("volta", "volta --version", &[], true),
+            ("pyenv", "pyenv --version", &[], true),
+            ("asdf", "asdf --version", &[], true),
+        ];
+
+        for (name, expected_cmd, expected_deps, must_have_hint) in expectations {
+            let req = registry
+                .get(name)
+                .unwrap_or_else(|| panic!("requirement '{}' not in registry", name));
+
+            assert_command_succeeds(req, expected_cmd);
+
+            let expected_deps: Vec<String> = expected_deps.iter().map(|s| s.to_string()).collect();
+            assert_eq!(req.depends_on, expected_deps, "{}: wrong depends_on", name);
+
+            if *must_have_hint {
+                assert!(req.install_hint.is_some(), "{}: missing install_hint", name);
+            }
+        }
+    }
+
+    // --- ManagedCommand requirements have correct check types ---
+
+    #[test]
+    fn managed_command_requirements_have_correct_checks() {
+        let registry = RequirementRegistry::new();
+
+        for name in &["ruby", "node"] {
+            let req = registry.get(name).unwrap();
+            assert_eq!(req.checks.len(), 1, "{}: expected 1 check", name);
+            assert!(
+                matches!(req.checks[0], RequirementCheck::ManagedCommand { .. }),
+                "{}: expected ManagedCommand check type",
+                name
+            );
+        }
+    }
+
+    #[test]
+    fn python_uses_any_check_for_python3_and_python() {
+        let registry = RequirementRegistry::new();
+        let python = registry.get("python").unwrap();
+        assert_eq!(python.checks.len(), 1);
+        assert!(
+            matches!(python.checks[0], RequirementCheck::Any(_)),
+            "python: expected Any check wrapping python3 and python"
+        );
+    }
+
+    // --- ServiceReachable requirements ---
+
+    #[test]
+    fn service_requirements_have_service_reachable_checks() {
+        let registry = RequirementRegistry::new();
+
+        let services: &[(&str, &str)] = &[
+            ("postgres-server", "pg_isready -q"),
+            ("redis-server", "redis-cli ping"),
+        ];
+
+        for (name, expected_cmd) in services {
+            let req = registry.get(name).unwrap();
+            assert_eq!(req.checks.len(), 1, "{}: expected 1 check", name);
+            match &req.checks[0] {
+                RequirementCheck::ServiceReachable(cmd) => {
+                    assert_eq!(cmd, expected_cmd, "{}: wrong service check command", name);
+                }
+                _ => panic!("{}: expected ServiceReachable check type", name),
+            }
+        }
+    }
+
+    // --- Dependency chain correctness ---
+
+    #[test]
+    fn requirements_with_dependencies_point_to_registered_requirements() {
+        let registry = RequirementRegistry::new();
+        let names: std::collections::HashSet<&str> = registry.known_names().into_iter().collect();
+
+        for name in registry.known_names() {
+            let req = registry.get(name).unwrap();
+            for dep in &req.depends_on {
+                assert!(
+                    names.contains(dep.as_str()),
+                    "requirement '{}' depends on '{}' which is not registered",
+                    name,
+                    dep
+                );
+            }
+        }
     }
 
     #[test]

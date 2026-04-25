@@ -338,20 +338,109 @@ step:
     }
 
     #[test]
-    fn builtin_templates_declare_requires() {
+    fn builtin_templates_declare_correct_requires() {
         let registry = Registry::new(None).unwrap();
 
+        // Every template that declares requires, with the exact expected list.
+        // Sorted by category to match all_template_names() output.
         let expected: &[(&str, &[&str])] = &[
-            ("bundle-install", &["ruby"]),
-            ("yarn-install", &["node"]),
-            ("npm-install", &["node"]),
-            ("pnpm-install", &["node"]),
-            ("bun-install", &["node"]),
-            ("pip-install", &["python"]),
-            ("poetry-install", &["python"]),
-            ("uv-sync", &["python"]),
-            ("cargo-build", &["rust"]),
-            ("brew-bundle", &["brew"]),
+            // Audit
+            ("audit/docker-artifact-audit", &["docker"]),
+            ("audit/dotnet-artifact-audit", &["dotnet"]),
+            ("audit/elixir-artifact-audit", &["elixir"]),
+            ("audit/go-artifact-audit", &["go"]),
+            ("audit/java-artifact-audit", &["java"]),
+            ("audit/node-artifact-audit", &["node"]),
+            ("audit/php-artifact-audit", &["php"]),
+            ("audit/python-artifact-audit", &["python"]),
+            ("audit/ruby-artifact-audit", &["ruby"]),
+            ("audit/rust-artifact-audit", &["rust"]),
+            ("audit/swift-artifact-audit", &["swift"]),
+            // Common
+            ("common/pre-commit-install", &["pre-commit"]),
+            // Containers
+            ("containers/docker-compose-up", &["docker"]),
+            ("containers/helm-deps", &["helm"]),
+            // Dart
+            ("dart/dart-pub-get", &["dart"]),
+            ("dart/flutter-pub-get", &["flutter"]),
+            // Deno
+            ("deno/deno-install", &["deno"]),
+            // .NET
+            ("dotnet/dotnet-restore", &["dotnet"]),
+            // Elixir
+            ("elixir/mix-deps-get", &["elixir"]),
+            ("elixir/version-bump", &["elixir"]),
+            // Go
+            ("go/version-bump", &["go"]),
+            // Gradle
+            ("gradle/gradle-deps", &["java"]),
+            ("gradle/spring-boot-build", &["java"]),
+            // IaC
+            ("iac/ansible-install", &["ansible"]),
+            ("iac/pulumi-install", &["pulumi"]),
+            ("iac/terraform-init", &["terraform"]),
+            // Install templates
+            ("install/asdf-elixir", &["asdf"]),
+            ("install/asdf-node", &["asdf"]),
+            ("install/asdf-php", &["asdf"]),
+            ("install/asdf-python", &["asdf"]),
+            ("install/asdf-ruby", &["asdf"]),
+            ("install/brew-elixir", &["brew"]),
+            ("install/brew-go", &["brew"]),
+            ("install/brew-node", &["brew"]),
+            ("install/brew-php", &["brew"]),
+            ("install/brew-python", &["brew"]),
+            ("install/brew-ruby", &["brew"]),
+            ("install/fnm-node", &["fnm"]),
+            ("install/mise-elixir", &["mise"]),
+            ("install/mise-node", &["mise"]),
+            ("install/mise-php", &["mise"]),
+            ("install/mise-python", &["mise"]),
+            ("install/mise-ruby", &["mise"]),
+            ("install/nvm-node", &["nvm"]),
+            ("install/pyenv-python", &["pyenv"]),
+            ("install/rbenv-ruby", &["rbenv"]),
+            ("install/volta-node", &["volta"]),
+            // Java
+            ("java/maven-resolve", &["mvn"]),
+            // Monorepo
+            ("monorepo/lerna-bootstrap", &["node"]),
+            ("monorepo/nx-build", &["node"]),
+            ("monorepo/turbo-build", &["node"]),
+            // Node
+            ("node/bun-install", &["node"]),
+            ("node/nextjs-build", &["node"]),
+            ("node/npm-install", &["node"]),
+            ("node/pnpm-install", &["node"]),
+            ("node/prisma-migrate", &["node"]),
+            ("node/remix-build", &["node"]),
+            ("node/version-bump", &["node"]),
+            ("node/vite-build", &["node"]),
+            ("node/yarn-install", &["node"]),
+            // PHP
+            ("php/composer-install", &["php"]),
+            ("php/laravel-setup", &["php"]),
+            ("php/version-bump", &["php"]),
+            // Python
+            ("python/alembic-migrate", &["python"]),
+            ("python/django-migrate", &["python"]),
+            ("python/pip-install", &["python"]),
+            ("python/poetry-install", &["python"]),
+            ("python/uv-sync", &["python"]),
+            ("python/version-bump", &["python"]),
+            // Ruby
+            ("ruby/bundle-install", &["ruby"]),
+            ("ruby/rails-db", &["ruby", "bundler"]),
+            ("ruby/version-bump", &["ruby"]),
+            // Rust
+            ("rust/cargo-build", &["rust"]),
+            ("rust/diesel-migrate", &["diesel"]),
+            ("rust/version-bump", &["rust"]),
+            // System
+            ("system/brew-bundle", &["brew"]),
+            // Version manager
+            ("version_manager/fnm-setup", &["fnm"]),
         ];
 
         for (name, reqs) in expected {
@@ -365,6 +454,72 @@ step:
                 name, actual
             );
         }
+    }
+
+    #[test]
+    fn all_templates_with_requires_are_covered_by_property_test() {
+        // Guard: if a new template adds requires, the test above must be updated.
+        let registry = Registry::new(None).unwrap();
+
+        let templates_with_requires: Vec<String> = registry
+            .all_template_names()
+            .into_iter()
+            .filter(|name| {
+                registry
+                    .get(name)
+                    .map(|t| !t.step.requires.is_empty())
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        // This list must match the count in builtin_templates_declare_correct_requires.
+        // If this fails, a new template was added with requires but the property test
+        // above wasn't updated.
+        let expected_count = 77; // Update this when adding new templates with requires
+        assert_eq!(
+            templates_with_requires.len(),
+            expected_count,
+            "Number of templates with requires changed. Update \
+             builtin_templates_declare_correct_requires and this count.\n\
+             Templates with requires:\n{}",
+            templates_with_requires
+                .iter()
+                .map(|n| format!("  {}", n))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    #[test]
+    fn all_template_requires_exist_in_requirement_registry() {
+        use crate::requirements::registry::RequirementRegistry;
+        use std::collections::HashSet;
+
+        let template_registry = Registry::new(None).unwrap();
+        let req_registry = RequirementRegistry::new();
+        let known: HashSet<&str> = req_registry.known_names().into_iter().collect();
+
+        let mut missing: Vec<(String, String)> = Vec::new();
+
+        for name in template_registry.all_template_names() {
+            if let Some(template) = template_registry.get(&name) {
+                for req in &template.step.requires {
+                    if !known.contains(req.as_str()) {
+                        missing.push((name.clone(), req.clone()));
+                    }
+                }
+            }
+        }
+
+        assert!(
+            missing.is_empty(),
+            "Templates reference requirements not in the registry:\n{}",
+            missing
+                .iter()
+                .map(|(t, r)| format!("  template '{}' requires unknown '{}'", t, r))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
     }
 
     #[test]

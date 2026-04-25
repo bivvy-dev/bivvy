@@ -571,4 +571,260 @@ mod tests {
             status
         );
     }
+
+    // --- Happy/sad path tests for all CommandSucceeds requirements ---
+    //
+    // These verify that the evaluator correctly returns Satisfied when a
+    // command succeeds (`true`) and Missing when it fails (`false`),
+    // using synthetic requirements that mirror each real requirement's
+    // check type without needing the actual tools installed.
+
+    /// Build a mock requirement that uses CommandSucceeds with the given command.
+    fn mock_command_req(name: &str, command: &str, depends_on: Vec<String>) -> Requirement {
+        Requirement {
+            name: name.to_string(),
+            checks: vec![RequirementCheck::CommandSucceeds(command.to_string())],
+            install_template: None,
+            install_hint: Some(format!("Install {}", name)),
+            depends_on,
+            install_requires: None,
+        }
+    }
+
+    #[test]
+    fn command_succeeds_happy_path_returns_satisfied() {
+        let temp = TempDir::new().unwrap();
+        let probe = make_probe();
+        let mut registry = RequirementRegistry::new();
+
+        // All CommandSucceeds requirements: simulate with `true`
+        let names = [
+            "bundler",
+            "postgres",
+            "docker",
+            "brew",
+            "mise",
+            "rust",
+            "java",
+            "terraform",
+            "go",
+            "elixir",
+            "swift",
+            "dart",
+            "flutter",
+            "dotnet",
+            "deno",
+            "php",
+            "mvn",
+            "helm",
+            "ansible",
+            "pulumi",
+            "pre-commit",
+            "diesel",
+            "fnm",
+            "rbenv",
+            "nvm",
+            "volta",
+            "pyenv",
+            "asdf",
+        ];
+
+        for name in &names {
+            registry.insert(
+                format!("mock-{}", name),
+                mock_command_req(&format!("mock-{}", name), "true", vec![]),
+            );
+        }
+
+        let evaluator = make_evaluator(&registry, &probe, temp.path());
+
+        for name in &names {
+            let status = evaluator.evaluate(&format!("mock-{}", name));
+            assert!(
+                matches!(status, RequirementStatus::Satisfied),
+                "mock-{}: expected Satisfied when command succeeds, got: {:?}",
+                name,
+                status
+            );
+        }
+    }
+
+    #[test]
+    fn command_succeeds_sad_path_returns_missing() {
+        let temp = TempDir::new().unwrap();
+        let probe = make_probe();
+        let mut registry = RequirementRegistry::new();
+
+        let names = [
+            "bundler",
+            "postgres",
+            "docker",
+            "brew",
+            "mise",
+            "rust",
+            "java",
+            "terraform",
+            "go",
+            "elixir",
+            "swift",
+            "dart",
+            "flutter",
+            "dotnet",
+            "deno",
+            "php",
+            "mvn",
+            "helm",
+            "ansible",
+            "pulumi",
+            "pre-commit",
+            "diesel",
+            "fnm",
+            "rbenv",
+            "nvm",
+            "volta",
+            "pyenv",
+            "asdf",
+        ];
+
+        for name in &names {
+            registry.insert(
+                format!("mock-{}", name),
+                mock_command_req(&format!("mock-{}", name), "false", vec![]),
+            );
+        }
+
+        let evaluator = make_evaluator(&registry, &probe, temp.path());
+
+        for name in &names {
+            let status = evaluator.evaluate(&format!("mock-{}", name));
+            assert!(
+                matches!(status, RequirementStatus::Missing { .. }),
+                "mock-{}: expected Missing when command fails, got: {:?}",
+                name,
+                status
+            );
+        }
+    }
+
+    #[test]
+    fn command_succeeds_sad_path_carries_install_hint() {
+        let temp = TempDir::new().unwrap();
+        let probe = make_probe();
+        let mut registry = RequirementRegistry::new();
+        registry.insert(
+            "mock-go".to_string(),
+            Requirement {
+                name: "mock-go".to_string(),
+                checks: vec![RequirementCheck::CommandSucceeds("false".to_string())],
+                install_template: Some("go-install".to_string()),
+                install_hint: Some("Install Go: brew install go".to_string()),
+                depends_on: vec![],
+                install_requires: None,
+            },
+        );
+
+        let evaluator = make_evaluator(&registry, &probe, temp.path());
+        let status = evaluator.evaluate("mock-go");
+        match status {
+            RequirementStatus::Missing {
+                install_template,
+                install_hint,
+            } => {
+                assert_eq!(install_template, Some("go-install".to_string()));
+                assert_eq!(
+                    install_hint,
+                    Some("Install Go: brew install go".to_string())
+                );
+            }
+            other => panic!("expected Missing with hint, got: {:?}", other),
+        }
+    }
+
+    // --- ServiceReachable happy/sad path ---
+
+    #[test]
+    fn service_reachable_happy_path_returns_satisfied() {
+        let temp = TempDir::new().unwrap();
+        let probe = make_probe();
+        let mut registry = RequirementRegistry::new();
+
+        for name in &["mock-postgres-server", "mock-redis-server"] {
+            registry.insert(
+                name.to_string(),
+                Requirement {
+                    name: name.to_string(),
+                    checks: vec![RequirementCheck::ServiceReachable("true".to_string())],
+                    install_template: None,
+                    install_hint: None,
+                    depends_on: vec![],
+                    install_requires: None,
+                },
+            );
+        }
+
+        let evaluator = make_evaluator(&registry, &probe, temp.path());
+
+        for name in &["mock-postgres-server", "mock-redis-server"] {
+            let status = evaluator.evaluate(name);
+            assert!(
+                matches!(status, RequirementStatus::Satisfied),
+                "{}: expected Satisfied, got: {:?}",
+                name,
+                status
+            );
+        }
+    }
+
+    #[test]
+    fn service_reachable_sad_path_returns_service_down() {
+        let temp = TempDir::new().unwrap();
+        let probe = make_probe();
+        let mut registry = RequirementRegistry::new();
+
+        for name in &["mock-postgres-server", "mock-redis-server"] {
+            registry.insert(
+                name.to_string(),
+                Requirement {
+                    name: name.to_string(),
+                    checks: vec![RequirementCheck::ServiceReachable("false".to_string())],
+                    install_template: None,
+                    install_hint: Some(format!("Start {}", name)),
+                    depends_on: vec![],
+                    install_requires: None,
+                },
+            );
+        }
+
+        let evaluator = make_evaluator(&registry, &probe, temp.path());
+
+        for name in &["mock-postgres-server", "mock-redis-server"] {
+            let status = evaluator.evaluate(name);
+            assert!(
+                matches!(status, RequirementStatus::ServiceDown { .. }),
+                "{}: expected ServiceDown, got: {:?}",
+                name,
+                status
+            );
+        }
+    }
+
+    // --- Every builtin requirement evaluates without panic ---
+
+    #[test]
+    fn all_builtin_requirements_evaluate_without_panic() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let evaluator = make_evaluator(&registry, &probe, temp.path());
+
+        for name in registry.known_names() {
+            let status = evaluator.evaluate(name);
+            // Should never return Unknown for a registered requirement
+            assert!(
+                !matches!(status, RequirementStatus::Unknown),
+                "builtin '{}' returned Unknown — this means the registry entry is broken",
+                name
+            );
+        }
+    }
 }
