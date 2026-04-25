@@ -4,11 +4,11 @@
 //! allowing the user to retry, fix, skip, open a debug shell, enter a custom
 //! fix command, or abort.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::error::Result;
-use crate::shell::{execute, CommandOptions};
+use crate::shell::{execute_streaming, CommandOptions, OutputLine};
 use crate::ui::{Prompt, PromptOption, PromptType, Prompter};
 
 use super::patterns::FixSuggestion;
@@ -35,12 +35,15 @@ pub enum RecoveryAction {
 /// Returns the chosen action. The `fix` parameter controls whether a Fix
 /// option appears in the menu. The `has_hint` flag indicates a low-confidence
 /// match exists, which adds a "Fix (custom)" option for the user to enter
-/// their own command.
+/// their own command. The `fix_history` set tracks which fix commands have
+/// already been attempted — if the suggested fix was already tried, it is
+/// not offered again.
 pub fn prompt_recovery(
     ui: &mut dyn Prompter,
     step_name: &str,
     fix: Option<&FixSuggestion>,
     has_hint: bool,
+    fix_history: &HashSet<String>,
 ) -> Result<RecoveryAction> {
     let mut options = vec![PromptOption {
         label: "Retry".to_string(),
@@ -48,10 +51,17 @@ pub fn prompt_recovery(
     }];
 
     if let Some(f) = fix {
-        options.push(PromptOption {
-            label: format!("Fix — {}", f.label),
-            value: "fix".to_string(),
-        });
+        if fix_history.contains(&f.command) {
+            eprintln!(
+                "    Previous fix `{}` did not resolve this error.",
+                f.command
+            );
+        } else {
+            options.push(PromptOption {
+                label: format!("Fix — {}", f.label),
+                value: "fix".to_string(),
+            });
+        }
     }
 
     if has_hint {
@@ -132,16 +142,32 @@ pub fn confirm_fix(ui: &mut dyn Prompter, step_name: &str, command: &str) -> Res
 }
 
 /// Execute a fix command with the step's environment and working directory.
+///
+/// Output is streamed through `execute_streaming` with each line prefixed
+/// by `"    fix: "` for consistent TUI formatting. After the command
+/// completes, any buffered terminal input is drained to prevent queued
+/// keypresses from triggering unintended recovery menu actions.
 pub fn run_fix(command: &str, project_root: &Path, env: &HashMap<String, String>) -> Result<bool> {
     let options = CommandOptions {
         cwd: Some(project_root.to_path_buf()),
         env: env.clone(),
-        capture_stdout: false,
-        capture_stderr: false,
         ..Default::default()
     };
 
-    let result = execute(command, &options)?;
+    let callback: crate::shell::OutputCallback = Box::new(|line| {
+        let text = match &line {
+            OutputLine::Stdout(s) | OutputLine::Stderr(s) => s,
+        };
+        eprintln!("    fix: {}", text);
+    });
+
+    let result = execute_streaming(command, &options, callback)?;
+
+    // Drain buffered terminal input to prevent queued keypresses
+    // from triggering unintended recovery menu actions.
+    #[cfg(unix)]
+    crate::shell::command::drain_input();
+
     Ok(result.success)
 }
 
@@ -156,7 +182,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // No response set — falls back to default "retry"
-        let action = prompt_recovery(&mut ui, "bundler", None, false).unwrap();
+        let action = prompt_recovery(&mut ui, "bundler", None, false, &HashSet::new()).unwrap();
         assert_eq!(action, RecoveryAction::Retry);
     }
 
@@ -173,7 +199,8 @@ mod tests {
             confidence: Confidence::High,
         };
 
-        let action = prompt_recovery(&mut ui, "bundler", Some(&fix), false).unwrap();
+        let action =
+            prompt_recovery(&mut ui, "bundler", Some(&fix), false, &HashSet::new()).unwrap();
         assert_eq!(
             action,
             RecoveryAction::Fix("bundle update nokogiri".to_string())
@@ -186,7 +213,7 @@ mod tests {
         ui.set_interactive(true);
         ui.set_prompt_response("recovery_bundler", "skip");
 
-        let action = prompt_recovery(&mut ui, "bundler", None, false).unwrap();
+        let action = prompt_recovery(&mut ui, "bundler", None, false, &HashSet::new()).unwrap();
         assert_eq!(action, RecoveryAction::Skip);
     }
 
@@ -196,7 +223,7 @@ mod tests {
         ui.set_interactive(true);
         ui.set_prompt_response("recovery_test", "abort");
 
-        let action = prompt_recovery(&mut ui, "test", None, false).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, false, &HashSet::new()).unwrap();
         assert_eq!(action, RecoveryAction::Abort);
     }
 
@@ -206,7 +233,7 @@ mod tests {
         ui.set_interactive(true);
         ui.set_prompt_response("recovery_test", "shell");
 
-        let action = prompt_recovery(&mut ui, "test", None, false).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, false, &HashSet::new()).unwrap();
         assert_eq!(action, RecoveryAction::Shell);
     }
 
@@ -217,7 +244,7 @@ mod tests {
         ui.queue_prompt_responses("recovery_test", vec!["custom_fix"]);
         ui.set_prompt_response("custom_fix_test", "chmod +x script.sh");
 
-        let action = prompt_recovery(&mut ui, "test", None, true).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, true, &HashSet::new()).unwrap();
         assert_eq!(
             action,
             RecoveryAction::CustomFix("chmod +x script.sh".to_string())
@@ -231,7 +258,7 @@ mod tests {
         ui.queue_prompt_responses("recovery_test", vec!["custom_fix"]);
         ui.set_prompt_response("custom_fix_test", "");
 
-        let action = prompt_recovery(&mut ui, "test", None, true).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, true, &HashSet::new()).unwrap();
         assert_eq!(action, RecoveryAction::Retry);
     }
 
@@ -265,5 +292,27 @@ mod tests {
         let temp = tempfile::TempDir::new().unwrap();
         let result = run_fix("false", temp.path(), &HashMap::new()).unwrap();
         assert!(!result);
+    }
+
+    #[test]
+    fn prompt_recovery_skips_fix_already_in_history() {
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        // When "fix" is not an option (already in history), the default "retry" is returned
+        ui.set_prompt_response("recovery_bundler", "retry");
+
+        let fix = FixSuggestion {
+            label: "bundle update nokogiri".to_string(),
+            command: "bundle update nokogiri".to_string(),
+            explanation: "Native ext build failed".to_string(),
+            confidence: Confidence::High,
+        };
+
+        let mut history = HashSet::new();
+        history.insert("bundle update nokogiri".to_string());
+
+        let action = prompt_recovery(&mut ui, "bundler", Some(&fix), false, &history).unwrap();
+        // Fix was in history, so "fix" option was not offered and default "retry" is returned
+        assert_eq!(action, RecoveryAction::Retry);
     }
 }

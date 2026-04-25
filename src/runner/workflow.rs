@@ -738,6 +738,7 @@ impl<'a> WorkflowRunner<'a> {
             };
 
             let mut retry_count: u32 = 0;
+            let mut fix_history: HashSet<String> = HashSet::new();
             let mut skipped_by_user = false;
             #[allow(unused_assignments)]
             let mut final_result: Option<StepResult> = None;
@@ -914,8 +915,13 @@ impl<'a> WorkflowRunner<'a> {
                         // Interactive recovery menu
                         let has_hint = hint.is_some();
                         'recovery_menu: loop {
-                            let action =
-                                recovery::prompt_recovery(ui, step_name, fix.as_ref(), has_hint)?;
+                            let action = recovery::prompt_recovery(
+                                ui,
+                                step_name,
+                                fix.as_ref(),
+                                has_hint,
+                                &fix_history,
+                            )?;
 
                             match action {
                                 RecoveryAction::Retry => {
@@ -926,6 +932,7 @@ impl<'a> WorkflowRunner<'a> {
                                     if recovery::confirm_fix(ui, step_name, &cmd)? {
                                         let fix_ok =
                                             recovery::run_fix(&cmd, project_root, &step.env)?;
+                                        fix_history.insert(cmd.clone());
                                         if fix_ok {
                                             ui.message("    Fix command succeeded.");
                                         } else {

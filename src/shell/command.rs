@@ -32,6 +32,24 @@ pub(crate) fn claim_foreground() {
     }
 }
 
+/// Drain any buffered terminal input to prevent queued keypresses
+/// from triggering unintended actions after a child process exits.
+#[cfg(unix)]
+pub(crate) fn drain_input() {
+    use std::io::Read;
+    // Set stdin to non-blocking, read and discard, restore blocking
+    unsafe {
+        let fd = libc::STDIN_FILENO;
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        if flags >= 0 {
+            libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+            let mut buf = [0u8; 1024];
+            while std::io::stdin().read(&mut buf).unwrap_or(0) > 0 {}
+            libc::fcntl(fd, libc::F_SETFL, flags);
+        }
+    }
+}
+
 /// Result of executing a shell command.
 #[derive(Debug, Clone)]
 pub struct CommandResult {
@@ -167,6 +185,10 @@ pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult>
         command: command.to_string(),
         code: None,
     })?;
+
+    // Re-claim foreground after the child's process group exits.
+    #[cfg(unix)]
+    claim_foreground();
 
     let duration = start.elapsed();
 
@@ -346,12 +368,18 @@ fn detect_shell() -> String {
 
 /// Get the flag to pass commands to the shell.
 ///
-/// Uses `-lc` (login, non-interactive) on Unix so that the user's
-/// login shell environment is available. Login shells source
-/// `.zprofile`/`.bash_profile`/`.zshenv`, which is where most tools
-/// (mise, asdf, homebrew, rbenv, pyenv) install their PATH additions.
+/// Uses `-c` (non-login, non-interactive) on Unix. Bivvy inherits
+/// the invoking shell's environment, so re-sourcing login configs
+/// via `-l` is unnecessary and can override the correct PATH/tool
+/// versions that are already set up in the parent environment.
 ///
-/// **Why not `-lic` (interactive)?**  The `-i` flag makes the child
+/// **Why not `-l` (login)?**  The parent shell has already sourced
+/// `.zprofile`/`.bash_profile`/`.zshenv`. Re-sourcing them in the
+/// child can reset PATH modifications made by version managers
+/// (mise, asdf, rbenv) that activate per-directory, causing the
+/// wrong tool version to be used.
+///
+/// **Why not `-i` (interactive)?**  The `-i` flag makes the child
 /// shell set up job control: it calls `setpgid`/`tcsetpgrp` to create
 /// its own process group and steal the terminal foreground. This causes:
 ///   - **SIGTTOU** — bivvy becomes a background process; terminal
@@ -360,15 +388,11 @@ fn detect_shell() -> String {
 ///     group, not bivvy's, so the user can't interrupt or suspend
 ///   - **Prompt hangs** — after the child exits, bivvy is background;
 ///     `read_key()` returns EIO or blocks
-///
-/// Tools that only activate in `.zshrc`/`.bashrc` (interactive-only
-/// configs) won't be available. Users who need this should move their
-/// PATH additions to `.zshenv` (zsh) or `.bash_profile` (bash).
 fn shell_flag(_shell: &str) -> &'static str {
     if cfg!(target_os = "windows") {
         "/C"
     } else {
-        "-lc"
+        "-c"
     }
 }
 
@@ -518,11 +542,11 @@ mod tests {
     }
 
     #[test]
-    fn shell_flag_uses_non_interactive_login_shell() {
-        // shell_flag always uses -lc (login, non-interactive) to avoid
-        // the child shell stealing the terminal foreground group via
-        // job control setup, which causes SIGTTOU and breaks Ctrl+C/Z.
+    fn shell_flag_uses_non_login_non_interactive() {
+        // shell_flag uses -c (non-login, non-interactive) because bivvy
+        // inherits the invoking shell's environment — re-sourcing login
+        // configs is unnecessary and can override correct PATH/tool versions.
         let flag = shell_flag("/bin/bash");
-        assert_eq!(flag, "-lc");
+        assert_eq!(flag, "-c");
     }
 }
