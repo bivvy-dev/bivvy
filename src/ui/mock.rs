@@ -26,7 +26,7 @@ use std::collections::{HashMap, VecDeque};
 use crate::error::Result;
 
 use super::{
-    OutputMode, OutputWriter, Prompt, PromptResult, PromptType, Prompter, ProgressDisplay,
+    OutputMode, OutputWriter, ProgressDisplay, Prompt, PromptResult, PromptType, Prompter,
     RunSummary, SpinnerFactory, SpinnerHandle, UiState, WorkflowDisplay,
 };
 

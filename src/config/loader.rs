@@ -8,7 +8,7 @@ use crate::config::merger::merge_configs;
 use crate::config::schema::BivvyConfig;
 use crate::config::trust::{TrustPolicy, TrustStore};
 use crate::error::{BivvyError, Result};
-use crate::ui::{Prompt, PromptResult, PromptType, UserInterface};
+use crate::ui::{Prompt, PromptResult, PromptType, Prompter};
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -261,7 +261,7 @@ pub fn load_merged_config_with_trust(
     resolver: &ExtendsResolver,
     trust_policy: TrustPolicy,
     trust_store_path: &Path,
-    ui: &mut dyn UserInterface,
+    ui: &mut dyn Prompter,
 ) -> Result<BivvyConfig> {
     let paths = ConfigPaths::discover(project_root);
 

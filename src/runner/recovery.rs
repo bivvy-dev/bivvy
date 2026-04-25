@@ -9,7 +9,7 @@ use std::path::Path;
 
 use crate::error::Result;
 use crate::shell::{execute, CommandOptions};
-use crate::ui::{Prompt, PromptOption, PromptType, UserInterface};
+use crate::ui::{Prompt, PromptOption, PromptType, Prompter};
 
 use super::patterns::FixSuggestion;
 
@@ -37,7 +37,7 @@ pub enum RecoveryAction {
 /// match exists, which adds a "Fix (custom)" option for the user to enter
 /// their own command.
 pub fn prompt_recovery(
-    ui: &mut dyn UserInterface,
+    ui: &mut dyn Prompter,
     step_name: &str,
     fix: Option<&FixSuggestion>,
     has_hint: bool,
@@ -119,7 +119,7 @@ pub fn prompt_recovery(
 }
 
 /// Ask user to confirm running a fix command before executing it.
-pub fn confirm_fix(ui: &mut dyn UserInterface, step_name: &str, command: &str) -> Result<bool> {
+pub fn confirm_fix(ui: &mut dyn Prompter, step_name: &str, command: &str) -> Result<bool> {
     let prompt = Prompt {
         key: format!("confirm_fix_{}", step_name),
         question: format!("Run `{}`?", command),

@@ -7,7 +7,7 @@ use crate::error::{BivvyError, Result};
 use super::progress::format_duration;
 use super::theme::BivvyTheme;
 use super::{
-    OutputMode, OutputWriter, Prompt, PromptResult, PromptType, Prompter, ProgressDisplay,
+    OutputMode, OutputWriter, ProgressDisplay, Prompt, PromptResult, PromptType, Prompter,
     RunSummary, SpinnerFactory, SpinnerHandle, StatusKind, UiState, WorkflowDisplay,
 };
 
