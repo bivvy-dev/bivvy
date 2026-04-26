@@ -1,0 +1,974 @@
+//! Structured event types for bivvy session logging.
+//!
+//! Events are emitted by any bivvy command — not just workflow execution.
+//! They are consumed by the [`EventLogger`](super::EventLogger) (JSONL writer),
+//! the state recorder, and the presenter independently.
+//!
+//! # Design
+//!
+//! Events use owned data rather than references to simplify consumer
+//! implementations. Each event carries enough context to be meaningful
+//! in isolation (when read from a JSONL log file).
+
+use serde::Serialize;
+
+/// A structured event emitted during a bivvy session.
+///
+/// Any bivvy operation — running a workflow, running a single step,
+/// taking a snapshot, evaluating a check — emits events. The event
+/// type is `BivvyEvent`, not `WorkflowEvent`, because events can
+/// originate from any command.
+///
+/// # Consumers
+///
+/// Events are consumed by:
+/// 1. **Event logger** — writes all events to JSONL for debugging/auditing
+/// 2. **State recorder** — listens for completion events to update persistent state
+/// 3. **Presenter** — listens for events to show real-time progress
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum BivvyEvent {
+    // --- Session lifecycle ---
+    /// A bivvy session has started.
+    SessionStarted {
+        /// The CLI command being run (e.g., "run", "snapshot", "lint").
+        command: String,
+        /// Command-line arguments.
+        args: Vec<String>,
+        /// Bivvy version.
+        version: String,
+        /// Operating system identifier.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        os: Option<String>,
+        /// Working directory.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        working_directory: Option<String>,
+    },
+
+    /// A bivvy session has ended.
+    SessionEnded {
+        /// Process exit code.
+        exit_code: i32,
+        /// Total session duration in milliseconds.
+        duration_ms: u64,
+    },
+
+    /// Configuration was loaded and parsed.
+    ConfigLoaded {
+        /// Path to the config file.
+        config_path: String,
+        /// Parse duration in milliseconds.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        parse_duration_ms: Option<u64>,
+        /// Deprecation warnings emitted during parsing.
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        deprecation_warnings: Vec<String>,
+    },
+
+    // --- Check evaluation ---
+    /// A check was evaluated (any context — workflow, lint, etc.).
+    CheckEvaluated {
+        /// Step this check belongs to.
+        step: String,
+        /// Optional check name (if the check was named).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        check_name: Option<String>,
+        /// Type of check evaluated (e.g., "presence", "execution", "change").
+        check_type: String,
+        /// Outcome: "passed", "failed", or "indeterminate".
+        outcome: String,
+        /// Human-readable description of what was checked.
+        description: String,
+        /// Optional details (e.g., error message, file path).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        details: Option<String>,
+        /// Evaluation duration in milliseconds.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+    },
+
+    /// A precondition was evaluated.
+    PreconditionEvaluated {
+        /// Step this precondition belongs to.
+        step: String,
+        /// Type of check used as precondition.
+        check_type: String,
+        /// Outcome: "passed", "failed", or "indeterminate".
+        outcome: String,
+        /// Human-readable description.
+        description: String,
+    },
+
+    /// Satisfaction conditions for a step were evaluated.
+    SatisfactionEvaluated {
+        /// Step whose satisfaction was evaluated.
+        step: String,
+        /// Whether all conditions were satisfied.
+        satisfied: bool,
+        /// Number of conditions evaluated.
+        condition_count: usize,
+        /// Number of conditions that passed.
+        passed_count: usize,
+    },
+
+    // --- Step lifecycle ---
+    /// A step was included in the execution plan.
+    StepPlanned {
+        /// Step name.
+        name: String,
+        /// Position in execution order (0-based).
+        index: usize,
+        /// Total number of steps in the plan.
+        total: usize,
+    },
+
+    /// A step was filtered out of the execution plan.
+    StepFilteredOut {
+        /// Step name.
+        name: String,
+        /// Why it was filtered (e.g., "environment", "only_filter", "skip_filter").
+        reason: String,
+    },
+
+    /// The orchestrator decided what to do with a step.
+    StepDecided {
+        /// Step name.
+        name: String,
+        /// Decision: "run", "skip", "prompt", or "block".
+        decision: String,
+        /// Reason for the decision.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        reason: Option<String>,
+    },
+
+    /// A step is about to start executing.
+    StepStarting {
+        /// Step name.
+        name: String,
+    },
+
+    /// A line of output from a running step.
+    StepOutput {
+        /// Step name.
+        name: String,
+        /// Output stream: "stdout" or "stderr".
+        stream: String,
+        /// The output line content.
+        line: String,
+    },
+
+    /// A step finished executing.
+    StepCompleted {
+        /// Step name.
+        name: String,
+        /// Whether the step succeeded.
+        success: bool,
+        /// Exit code (if a command was run).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exit_code: Option<i32>,
+        /// Execution duration in milliseconds.
+        duration_ms: u64,
+        /// Error message (if failed).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        error: Option<String>,
+    },
+
+    /// A step was skipped (not executed).
+    StepSkipped {
+        /// Step name.
+        name: String,
+        /// Why it was skipped.
+        reason: String,
+    },
+
+    /// A rerun was detected for a step.
+    RerunDetected {
+        /// Step name.
+        name: String,
+        /// When the step last ran (ISO 8601).
+        last_run: String,
+        /// Time since last run, in a human-readable string (e.g., "2 minutes ago").
+        time_since: String,
+    },
+
+    /// A step was blocked by an unsatisfied dependency.
+    DependencyBlocked {
+        /// Step that was blocked.
+        name: String,
+        /// The dependency step that caused the block.
+        blocked_by: String,
+        /// Why the dependency blocked this step.
+        reason: String,
+    },
+
+    /// A requirement gap was detected for a step.
+    RequirementGap {
+        /// Step name.
+        name: String,
+        /// The requirement that is missing (e.g., "ruby", "node").
+        requirement: String,
+        /// Status of the requirement (e.g., "not_found", "wrong_version").
+        status: String,
+    },
+
+    // --- User interaction ---
+    /// The user was prompted for input.
+    UserPrompted {
+        /// Step context (if the prompt is step-related).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        step: Option<String>,
+        /// The prompt text shown to the user.
+        prompt: String,
+        /// Options presented (if applicable).
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        options: Vec<String>,
+    },
+
+    /// The user responded to a prompt.
+    UserResponded {
+        /// Step context (if the prompt was step-related).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        step: Option<String>,
+        /// The user's input value.
+        input: String,
+        /// How the user provided input.
+        method: InputMethod,
+    },
+
+    // --- Snapshots ---
+    /// A baseline was established for the first time.
+    BaselineEstablished {
+        /// Step this baseline belongs to.
+        step: String,
+        /// What was hashed (file path, glob, command).
+        target: String,
+        /// The computed hash.
+        hash: String,
+        /// Scope: "project" or "workflow:<name>".
+        scope: String,
+    },
+
+    /// A baseline was updated after a successful step execution.
+    BaselineUpdated {
+        /// Step this baseline belongs to.
+        step: String,
+        /// What was hashed.
+        target: String,
+        /// Previous hash value.
+        old_hash: String,
+        /// New hash value.
+        new_hash: String,
+    },
+
+    /// A named snapshot was captured via `bivvy snapshot`.
+    SnapshotCaptured {
+        /// Snapshot slug.
+        slug: String,
+        /// Step this snapshot belongs to.
+        step: String,
+        /// What was hashed.
+        target: String,
+        /// The computed hash.
+        hash: String,
+    },
+
+    // --- Recovery ---
+    /// Recovery flow started for a failed step.
+    RecoveryStarted {
+        /// Step that failed.
+        step: String,
+        /// Error that triggered recovery.
+        error: String,
+    },
+
+    /// A recovery action was taken.
+    RecoveryActionTaken {
+        /// Step being recovered.
+        step: String,
+        /// Action: "retry", "fix", "custom_fix", "skip", "shell", "abort".
+        action: String,
+        /// Command run for fix/custom_fix actions.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        command: Option<String>,
+    },
+
+    // --- Workflow (only when running a workflow) ---
+    /// A workflow execution started.
+    WorkflowStarted {
+        /// Workflow name.
+        name: String,
+        /// Number of steps in the plan.
+        step_count: usize,
+    },
+
+    /// A workflow execution completed.
+    WorkflowCompleted {
+        /// Workflow name.
+        name: String,
+        /// Whether all steps succeeded.
+        success: bool,
+        /// Whether the user aborted.
+        aborted: bool,
+        /// Number of steps that ran.
+        steps_run: usize,
+        /// Number of steps skipped.
+        steps_skipped: usize,
+        /// Total duration in milliseconds.
+        duration_ms: u64,
+    },
+}
+
+impl BivvyEvent {
+    /// Returns the event type name as used in JSONL output.
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            BivvyEvent::SessionStarted { .. } => "session_started",
+            BivvyEvent::SessionEnded { .. } => "session_ended",
+            BivvyEvent::ConfigLoaded { .. } => "config_loaded",
+            BivvyEvent::CheckEvaluated { .. } => "check_evaluated",
+            BivvyEvent::PreconditionEvaluated { .. } => "precondition_evaluated",
+            BivvyEvent::SatisfactionEvaluated { .. } => "satisfaction_evaluated",
+            BivvyEvent::StepPlanned { .. } => "step_planned",
+            BivvyEvent::StepFilteredOut { .. } => "step_filtered_out",
+            BivvyEvent::StepDecided { .. } => "step_decided",
+            BivvyEvent::StepStarting { .. } => "step_starting",
+            BivvyEvent::StepOutput { .. } => "step_output",
+            BivvyEvent::StepCompleted { .. } => "step_completed",
+            BivvyEvent::StepSkipped { .. } => "step_skipped",
+            BivvyEvent::RerunDetected { .. } => "rerun_detected",
+            BivvyEvent::DependencyBlocked { .. } => "dependency_blocked",
+            BivvyEvent::RequirementGap { .. } => "requirement_gap",
+            BivvyEvent::UserPrompted { .. } => "user_prompted",
+            BivvyEvent::UserResponded { .. } => "user_responded",
+            BivvyEvent::BaselineEstablished { .. } => "baseline_established",
+            BivvyEvent::BaselineUpdated { .. } => "baseline_updated",
+            BivvyEvent::SnapshotCaptured { .. } => "snapshot_captured",
+            BivvyEvent::RecoveryStarted { .. } => "recovery_started",
+            BivvyEvent::RecoveryActionTaken { .. } => "recovery_action_taken",
+            BivvyEvent::WorkflowStarted { .. } => "workflow_started",
+            BivvyEvent::WorkflowCompleted { .. } => "workflow_completed",
+        }
+    }
+}
+
+/// How the user provided input in response to a prompt.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+pub enum InputMethod {
+    /// Single keypress (e.g., 'y', 'n').
+    Keypress(char),
+    /// Arrow key selection + enter.
+    ArrowSelect,
+    /// Typed text + enter. Contains the typed string.
+    TypedInput(String),
+}
+
+/// Trait for consuming bivvy events.
+///
+/// Any subsystem can register as an event consumer. The three primary
+/// consumers are:
+///
+/// 1. **State recorder** — updates persistent state on step completion
+/// 2. **Presenter (UI)** — shows real-time progress and prompts
+/// 3. **Event logger** — writes all events to JSONL
+///
+/// Consumers handle only the events they care about and ignore the rest.
+pub trait EventConsumer: Send {
+    /// Process an event.
+    ///
+    /// Implementations should be fast and non-blocking. The event logger
+    /// writes synchronously (one JSON line per event is negligible overhead).
+    fn on_event(&mut self, event: &BivvyEvent);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn session_started_serializes_to_json() {
+        let event = BivvyEvent::SessionStarted {
+            command: "run".to_string(),
+            args: vec!["--verbose".to_string()],
+            version: "1.9.0".to_string(),
+            os: None,
+            working_directory: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "session_started");
+        assert_eq!(value["command"], "run");
+        assert_eq!(value["args"][0], "--verbose");
+        assert_eq!(value["version"], "1.9.0");
+    }
+
+    #[test]
+    fn session_ended_serializes_to_json() {
+        let event = BivvyEvent::SessionEnded {
+            exit_code: 0,
+            duration_ms: 1234,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "session_ended");
+        assert_eq!(value["exit_code"], 0);
+        assert_eq!(value["duration_ms"], 1234);
+    }
+
+    #[test]
+    fn check_evaluated_serializes_with_optional_fields() {
+        let event = BivvyEvent::CheckEvaluated {
+            step: "install_deps".to_string(),
+            check_name: Some("deps_installed".to_string()),
+            check_type: "presence".to_string(),
+            outcome: "passed".to_string(),
+            description: "node_modules exists".to_string(),
+            details: None,
+            duration_ms: Some(5),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "check_evaluated");
+        assert_eq!(value["step"], "install_deps");
+        assert_eq!(value["check_name"], "deps_installed");
+        assert_eq!(value["outcome"], "passed");
+        // details should be absent when None
+        assert!(value.get("details").is_none());
+    }
+
+    #[test]
+    fn check_evaluated_omits_none_fields() {
+        let event = BivvyEvent::CheckEvaluated {
+            step: "build".to_string(),
+            check_name: None,
+            check_type: "execution".to_string(),
+            outcome: "failed".to_string(),
+            description: "cargo build failed".to_string(),
+            details: Some("exit code 1".to_string()),
+            duration_ms: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value.get("check_name").is_none());
+        assert!(value.get("duration_ms").is_none());
+        assert_eq!(value["details"], "exit code 1");
+    }
+
+    #[test]
+    fn precondition_evaluated_serializes() {
+        let event = BivvyEvent::PreconditionEvaluated {
+            step: "db_migrate".to_string(),
+            check_type: "execution".to_string(),
+            outcome: "passed".to_string(),
+            description: "pg_isready -q succeeded".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "precondition_evaluated");
+        assert_eq!(value["step"], "db_migrate");
+    }
+
+    #[test]
+    fn satisfaction_evaluated_serializes() {
+        let event = BivvyEvent::SatisfactionEvaluated {
+            step: "install_deps".to_string(),
+            satisfied: true,
+            condition_count: 2,
+            passed_count: 2,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "satisfaction_evaluated");
+        assert_eq!(value["satisfied"], true);
+        assert_eq!(value["condition_count"], 2);
+        assert_eq!(value["passed_count"], 2);
+    }
+
+    #[test]
+    fn step_planned_serializes() {
+        let event = BivvyEvent::StepPlanned {
+            name: "build".to_string(),
+            index: 2,
+            total: 5,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_planned");
+        assert_eq!(value["name"], "build");
+        assert_eq!(value["index"], 2);
+        assert_eq!(value["total"], 5);
+    }
+
+    #[test]
+    fn step_filtered_out_serializes() {
+        let event = BivvyEvent::StepFilteredOut {
+            name: "deploy".to_string(),
+            reason: "environment".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_filtered_out");
+        assert_eq!(value["reason"], "environment");
+    }
+
+    #[test]
+    fn step_decided_serializes_with_reason() {
+        let event = BivvyEvent::StepDecided {
+            name: "db_migrate".to_string(),
+            decision: "block".to_string(),
+            reason: Some("dependency_unsatisfied".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_decided");
+        assert_eq!(value["decision"], "block");
+        assert_eq!(value["reason"], "dependency_unsatisfied");
+    }
+
+    #[test]
+    fn step_decided_omits_none_reason() {
+        let event = BivvyEvent::StepDecided {
+            name: "build".to_string(),
+            decision: "run".to_string(),
+            reason: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value.get("reason").is_none());
+    }
+
+    #[test]
+    fn step_starting_serializes() {
+        let event = BivvyEvent::StepStarting {
+            name: "build".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_starting");
+        assert_eq!(value["name"], "build");
+    }
+
+    #[test]
+    fn step_output_serializes() {
+        let event = BivvyEvent::StepOutput {
+            name: "build".to_string(),
+            stream: "stdout".to_string(),
+            line: "Compiling bivvy v1.9.0".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_output");
+        assert_eq!(value["stream"], "stdout");
+    }
+
+    #[test]
+    fn step_completed_serializes_success() {
+        let event = BivvyEvent::StepCompleted {
+            name: "build".to_string(),
+            success: true,
+            exit_code: Some(0),
+            duration_ms: 5432,
+            error: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_completed");
+        assert_eq!(value["success"], true);
+        assert_eq!(value["exit_code"], 0);
+        assert!(value.get("error").is_none());
+    }
+
+    #[test]
+    fn step_completed_serializes_failure() {
+        let event = BivvyEvent::StepCompleted {
+            name: "build".to_string(),
+            success: false,
+            exit_code: Some(1),
+            duration_ms: 1000,
+            error: Some("cargo build failed".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["success"], false);
+        assert_eq!(value["error"], "cargo build failed");
+    }
+
+    #[test]
+    fn step_skipped_serializes() {
+        let event = BivvyEvent::StepSkipped {
+            name: "deploy".to_string(),
+            reason: "user_declined".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_skipped");
+        assert_eq!(value["reason"], "user_declined");
+    }
+
+    #[test]
+    fn config_loaded_serializes() {
+        let event = BivvyEvent::ConfigLoaded {
+            config_path: ".bivvy/config.yml".to_string(),
+            parse_duration_ms: Some(12),
+            deprecation_warnings: vec!["'completed_check' is deprecated".to_string()],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "config_loaded");
+        assert_eq!(value["config_path"], ".bivvy/config.yml");
+        assert_eq!(value["parse_duration_ms"], 12);
+        assert_eq!(
+            value["deprecation_warnings"][0],
+            "'completed_check' is deprecated"
+        );
+    }
+
+    #[test]
+    fn config_loaded_omits_empty_warnings() {
+        let event = BivvyEvent::ConfigLoaded {
+            config_path: ".bivvy/config.yml".to_string(),
+            parse_duration_ms: None,
+            deprecation_warnings: vec![],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value.get("parse_duration_ms").is_none());
+        assert!(value.get("deprecation_warnings").is_none());
+    }
+
+    #[test]
+    fn rerun_detected_serializes() {
+        let event = BivvyEvent::RerunDetected {
+            name: "build".to_string(),
+            last_run: "2026-04-25T10:00:00Z".to_string(),
+            time_since: "2 minutes ago".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "rerun_detected");
+        assert_eq!(value["name"], "build");
+        assert_eq!(value["last_run"], "2026-04-25T10:00:00Z");
+        assert_eq!(value["time_since"], "2 minutes ago");
+    }
+
+    #[test]
+    fn dependency_blocked_serializes() {
+        let event = BivvyEvent::DependencyBlocked {
+            name: "db_seed".to_string(),
+            blocked_by: "install_deps".to_string(),
+            reason: "not satisfied".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "dependency_blocked");
+        assert_eq!(value["name"], "db_seed");
+        assert_eq!(value["blocked_by"], "install_deps");
+    }
+
+    #[test]
+    fn requirement_gap_serializes() {
+        let event = BivvyEvent::RequirementGap {
+            name: "bundle_install".to_string(),
+            requirement: "ruby".to_string(),
+            status: "not_found".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "requirement_gap");
+        assert_eq!(value["requirement"], "ruby");
+        assert_eq!(value["status"], "not_found");
+    }
+
+    #[test]
+    fn session_started_with_os_and_working_directory() {
+        let event = BivvyEvent::SessionStarted {
+            command: "run".to_string(),
+            args: vec![],
+            version: "1.9.0".to_string(),
+            os: Some("darwin".to_string()),
+            working_directory: Some("/home/user/project".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["os"], "darwin");
+        assert_eq!(value["working_directory"], "/home/user/project");
+    }
+
+    #[test]
+    fn user_prompted_serializes_with_options() {
+        let event = BivvyEvent::UserPrompted {
+            step: Some("install_deps".to_string()),
+            prompt: "Install dependencies?".to_string(),
+            options: vec!["Yes (y)".to_string(), "No (n)".to_string()],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "user_prompted");
+        assert_eq!(value["prompt"], "Install dependencies?");
+        assert_eq!(value["options"][0], "Yes (y)");
+    }
+
+    #[test]
+    fn user_prompted_omits_empty_options() {
+        let event = BivvyEvent::UserPrompted {
+            step: None,
+            prompt: "Continue?".to_string(),
+            options: vec![],
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value.get("step").is_none());
+        assert!(value.get("options").is_none());
+    }
+
+    #[test]
+    fn user_responded_keypress_serializes() {
+        let event = BivvyEvent::UserResponded {
+            step: Some("build".to_string()),
+            input: "y".to_string(),
+            method: InputMethod::Keypress('y'),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "user_responded");
+        assert_eq!(value["input"], "y");
+        assert_eq!(value["method"]["type"], "keypress");
+        assert_eq!(value["method"]["value"], "y");
+    }
+
+    #[test]
+    fn user_responded_arrow_select_serializes() {
+        let event = BivvyEvent::UserResponded {
+            step: None,
+            input: "Skip".to_string(),
+            method: InputMethod::ArrowSelect,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["method"]["type"], "arrow_select");
+    }
+
+    #[test]
+    fn user_responded_typed_input_serializes() {
+        let event = BivvyEvent::UserResponded {
+            step: None,
+            input: "my-project".to_string(),
+            method: InputMethod::TypedInput("my-project".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["method"]["type"], "typed_input");
+        assert_eq!(value["method"]["value"], "my-project");
+    }
+
+    #[test]
+    fn baseline_established_serializes() {
+        let event = BivvyEvent::BaselineEstablished {
+            step: "install_deps".to_string(),
+            target: "Gemfile.lock".to_string(),
+            hash: "sha256:abc123".to_string(),
+            scope: "project".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "baseline_established");
+        assert_eq!(value["hash"], "sha256:abc123");
+    }
+
+    #[test]
+    fn baseline_updated_serializes() {
+        let event = BivvyEvent::BaselineUpdated {
+            step: "install_deps".to_string(),
+            target: "Gemfile.lock".to_string(),
+            old_hash: "sha256:abc".to_string(),
+            new_hash: "sha256:def".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "baseline_updated");
+        assert_eq!(value["old_hash"], "sha256:abc");
+        assert_eq!(value["new_hash"], "sha256:def");
+    }
+
+    #[test]
+    fn snapshot_captured_serializes() {
+        let event = BivvyEvent::SnapshotCaptured {
+            slug: "v1.0".to_string(),
+            step: "install_deps".to_string(),
+            target: "Gemfile.lock".to_string(),
+            hash: "sha256:abc123".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "snapshot_captured");
+        assert_eq!(value["slug"], "v1.0");
+    }
+
+    #[test]
+    fn recovery_started_serializes() {
+        let event = BivvyEvent::RecoveryStarted {
+            step: "build".to_string(),
+            error: "exit code 1".to_string(),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "recovery_started");
+    }
+
+    #[test]
+    fn recovery_action_taken_serializes_with_command() {
+        let event = BivvyEvent::RecoveryActionTaken {
+            step: "build".to_string(),
+            action: "fix".to_string(),
+            command: Some("cargo clean".to_string()),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "recovery_action_taken");
+        assert_eq!(value["action"], "fix");
+        assert_eq!(value["command"], "cargo clean");
+    }
+
+    #[test]
+    fn recovery_action_taken_omits_none_command() {
+        let event = BivvyEvent::RecoveryActionTaken {
+            step: "build".to_string(),
+            action: "retry".to_string(),
+            command: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value.get("command").is_none());
+    }
+
+    #[test]
+    fn workflow_started_serializes() {
+        let event = BivvyEvent::WorkflowStarted {
+            name: "default".to_string(),
+            step_count: 5,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "workflow_started");
+        assert_eq!(value["step_count"], 5);
+    }
+
+    #[test]
+    fn workflow_completed_serializes() {
+        let event = BivvyEvent::WorkflowCompleted {
+            name: "default".to_string(),
+            success: true,
+            aborted: false,
+            steps_run: 4,
+            steps_skipped: 1,
+            duration_ms: 12345,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "workflow_completed");
+        assert_eq!(value["success"], true);
+        assert_eq!(value["aborted"], false);
+        assert_eq!(value["steps_run"], 4);
+        assert_eq!(value["steps_skipped"], 1);
+        assert_eq!(value["duration_ms"], 12345);
+    }
+
+    #[test]
+    fn type_name_matches_serde_tag() {
+        // Verify type_name() matches the serde tag for a representative sample
+        let events: Vec<BivvyEvent> = vec![
+            BivvyEvent::SessionStarted {
+                command: "run".to_string(),
+                args: vec![],
+                version: "1.0.0".to_string(),
+                os: None,
+                working_directory: None,
+            },
+            BivvyEvent::SessionEnded {
+                exit_code: 0,
+                duration_ms: 0,
+            },
+            BivvyEvent::CheckEvaluated {
+                step: "s".to_string(),
+                check_name: None,
+                check_type: "presence".to_string(),
+                outcome: "passed".to_string(),
+                description: "d".to_string(),
+                details: None,
+                duration_ms: None,
+            },
+            BivvyEvent::StepCompleted {
+                name: "s".to_string(),
+                success: true,
+                exit_code: None,
+                duration_ms: 0,
+                error: None,
+            },
+            BivvyEvent::WorkflowStarted {
+                name: "default".to_string(),
+                step_count: 0,
+            },
+        ];
+
+        for event in &events {
+            let json = serde_json::to_string(event).unwrap();
+            let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+            assert_eq!(
+                value["type"].as_str().unwrap(),
+                event.type_name(),
+                "type_name() mismatch for {:?}",
+                event.type_name()
+            );
+        }
+    }
+
+    #[test]
+    fn input_method_keypress_serializes() {
+        let method = InputMethod::Keypress('y');
+        let json = serde_json::to_string(&method).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "keypress");
+        assert_eq!(value["value"], "y");
+    }
+
+    #[test]
+    fn input_method_arrow_select_serializes() {
+        let method = InputMethod::ArrowSelect;
+        let json = serde_json::to_string(&method).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "arrow_select");
+    }
+
+    #[test]
+    fn input_method_typed_input_serializes() {
+        let method = InputMethod::TypedInput("hello".to_string());
+        let json = serde_json::to_string(&method).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "typed_input");
+    }
+
+    /// Verify that a mock EventConsumer can receive events.
+    #[test]
+    fn event_consumer_trait_works() {
+        struct Counter {
+            count: usize,
+        }
+        impl EventConsumer for Counter {
+            fn on_event(&mut self, _event: &BivvyEvent) {
+                self.count += 1;
+            }
+        }
+
+        let mut consumer = Counter { count: 0 };
+        let event = BivvyEvent::SessionStarted {
+            command: "run".to_string(),
+            args: vec![],
+            version: "1.0.0".to_string(),
+            os: None,
+            working_directory: None,
+        };
+        consumer.on_event(&event);
+        consumer.on_event(&event);
+        assert_eq!(consumer.count, 2);
+    }
+}

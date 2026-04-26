@@ -10,6 +10,7 @@
 //! - [`environment`] - Environment detection and resolution
 //! - [`error`] - Error types and result aliases
 //! - [`lint`] - Configuration validation and linting
+//! - [`logging`] - Structured event logging (JSONL)
 //! - [`registry`] - Template registry and resolution
 //! - [`runner`] - Step execution orchestration and dependency management
 //! - [`shell`] - Shell command execution
@@ -41,6 +42,7 @@ pub mod environment;
 pub mod error;
 pub mod feedback;
 pub mod lint;
+pub mod logging;
 pub mod registry;
 pub mod requirements;
 pub mod runner;
