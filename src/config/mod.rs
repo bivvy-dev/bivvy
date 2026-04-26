@@ -56,6 +56,12 @@ pub use schema::{
     WorkflowSettings,
 };
 
+// Check type re-exports (new check system)
+pub use crate::checks::{
+    BaselineConfig, ChangeKind, Check, CheckOutcome, CheckResult as NewCheckResult, OnChange,
+    PresenceKind, SatisfactionCondition, SizeLimit, SnapshotScope, ValidationMode,
+};
+
 // Vars re-exports
 pub use vars::evaluate_vars;
 

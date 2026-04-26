@@ -33,6 +33,7 @@
 //! For file-based config loading, see the integration tests.
 
 pub mod cache;
+pub mod checks;
 pub mod cli;
 pub mod config;
 pub mod detection;
@@ -46,6 +47,7 @@ pub mod runner;
 pub mod secrets;
 pub mod session;
 pub mod shell;
+pub mod snapshots;
 pub mod state;
 pub mod steps;
 pub mod ui;

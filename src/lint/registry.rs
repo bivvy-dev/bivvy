@@ -7,12 +7,13 @@ use std::collections::HashMap;
 
 use super::rule::{LintRule, RuleId};
 use super::rules::{
-    AppNameRule, CircularDependencyRule, CircularRequirementDepRule,
-    CustomEnvironmentShadowsBuiltinRule, EnvironmentCircularDependencyRule,
-    EnvironmentDefaultWorkflowMissingRule, InstallTemplateMissingRule, RedundantEnvNullRule,
-    RedundantEnvironmentOverrideRule, RequiredFieldsRule, SelfDependencyRule,
-    ServiceRequirementWithoutHintRule, UndefinedDependencyRule, UnknownEnvironmentInOnlyRule,
-    UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
+    AppNameRule, CheckFieldsMutualExclusivityRule, CircularDependencyRule,
+    CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule,
+    EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
+    InstallTemplateMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
+    RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
+    UndefinedDependencyRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
+    UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -52,6 +53,7 @@ impl RuleRegistry {
         registry.register(Box::new(RedundantEnvironmentOverrideRule));
         registry.register(Box::new(RedundantEnvNullRule));
         registry.register(Box::new(EnvironmentCircularDependencyRule));
+        registry.register(Box::new(CheckFieldsMutualExclusivityRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
@@ -175,8 +177,8 @@ mod tests {
     fn registry_with_builtins_has_rules() {
         let registry = RuleRegistry::with_builtins();
         assert!(!registry.is_empty());
-        // Should have at least 17 built-in rules (13 original + 4 requirement rules)
-        assert!(registry.len() >= 17);
+        // Should have at least 18 built-in rules (13 original + 4 requirement + 1 check-fields)
+        assert!(registry.len() >= 18);
         // Verify some specific rules are registered
         assert!(registry.get(&RuleId::new("app-name-format")).is_some());
         assert!(registry.get(&RuleId::new("required-fields")).is_some());

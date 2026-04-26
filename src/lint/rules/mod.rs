@@ -3,6 +3,7 @@
 //! This module contains all the built-in validation rules that come with Bivvy.
 
 pub mod app_name;
+pub mod check_fields;
 pub mod circular_dependency;
 pub mod required_fields;
 pub mod self_dependency;
@@ -13,6 +14,7 @@ pub mod valid_environments;
 pub mod valid_requires;
 
 pub use app_name::AppNameRule;
+pub use check_fields::CheckFieldsMutualExclusivityRule;
 pub use circular_dependency::CircularDependencyRule;
 pub use required_fields::RequiredFieldsRule;
 pub use self_dependency::SelfDependencyRule;

@@ -3,6 +3,7 @@
 //! This module contains all the struct definitions that map to
 //! the YAML configuration file format.
 
+use crate::checks::{Check, SatisfactionCondition};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -224,9 +225,19 @@ pub struct ExecutionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
 
-    /// Check if step is already complete
+    /// Check if step is already complete (legacy field name)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_check: Option<CompletedCheck>,
+
+    /// New check system: single check (new `Check` enum).
+    /// Mutually exclusive with `completed_check` and `checks`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check: Option<Check>,
+
+    /// New check system: multiple checks (implicit `all`).
+    /// Mutually exclusive with `completed_check` and `check`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checks: Vec<Check>,
 
     /// Precondition that must pass before the step runs.
     /// Unlike `completed_check` (which skips when passing), a precondition
@@ -280,8 +291,13 @@ pub struct BehaviorConfig {
     #[serde(default, skip_serializing_if = "is_false")]
     pub required: bool,
 
-    /// Ask before re-running completed steps
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    /// Ask before re-running completed steps.
+    /// Also accepts `prompt_on_rerun` in YAML.
+    #[serde(
+        default = "default_true",
+        skip_serializing_if = "is_true",
+        alias = "prompt_on_rerun"
+    )]
     pub prompt_if_complete: bool,
 
     /// Continue workflow if this step fails
@@ -372,6 +388,11 @@ pub struct StepConfig {
     /// System-level prerequisites this step requires (e.g., ruby, node, postgres-server).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub requires: Vec<String>,
+
+    /// Declarative satisfaction conditions.
+    /// If all conditions pass, the step's purpose is already fulfilled.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub satisfied_when: Vec<SatisfactionCondition>,
 
     /// Execution settings (command, checks, watches, retry, sudo)
     #[serde(flatten)]
@@ -560,8 +581,9 @@ pub struct StepOverride {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
 
-    /// Override prompt_if_complete flag
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Override prompt_if_complete flag.
+    /// Also accepts `prompt_on_rerun` in YAML.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "prompt_on_rerun")]
     pub prompt_if_complete: Option<bool>,
 }
 
