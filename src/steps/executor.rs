@@ -97,7 +97,7 @@ pub struct StepResult {
 }
 
 impl StepResult {
-    /// Create a skipped result.
+    /// Create a skipped result (user actively declined to run this step).
     pub fn skipped(name: &str, check_result: CheckResult) -> Self {
         Self {
             name: name.to_string(),
@@ -105,6 +105,24 @@ impl StepResult {
             duration: Duration::ZERO,
             exit_code: None,
             skipped: true,
+            check_result: Some(check_result),
+            error: None,
+            output: None,
+            recovery_detail: None,
+        }
+    }
+
+    /// Create a check-passed result (completed_check passed, step didn't need to run).
+    ///
+    /// Unlike `skipped`, this records as a successful completion — dependents
+    /// should proceed, and the summary shows ✓ instead of ○.
+    pub fn check_passed(name: &str, check_result: CheckResult) -> Self {
+        Self {
+            name: name.to_string(),
+            success: true,
+            duration: Duration::ZERO,
+            exit_code: None,
+            skipped: false,
             check_result: Some(check_result),
             error: None,
             output: None,

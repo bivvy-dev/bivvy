@@ -546,9 +546,9 @@ impl<'a> WorkflowRunner<'a> {
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
                                     question: format!(
-                                        "{}Already complete ({}). Re-run?",
+                                        "{}{}",
                                         step_pad,
-                                        check_result.short_description()
+                                        check.prompt_label(check_result.short_description())
                                     ),
                                     prompt_type: PromptType::Select {
                                         options: vec![
@@ -569,14 +569,15 @@ impl<'a> WorkflowRunner<'a> {
                                 if answer.as_string() != "yes" {
                                     // Clear prompt output (question + answer = 2 lines)
                                     ui.clear_lines(2);
-                                    let reason = check_result.short_description();
+                                    let label = check.skip_label(check_result.short_description());
                                     ui.message(&format!(
                                         "{}{}",
                                         step_pad,
-                                        theme.format_skipped(&format!("Skipped ({})", reason))
+                                        StatusKind::Success.format(&theme, &label)
                                     ));
-                                    user_skipped_steps.insert(step_name.clone());
-                                    results.push(StepResult::skipped(&step.name, check_result));
+                                    // Record as check-passed (not skipped) — dependents proceed.
+                                    results
+                                        .push(StepResult::check_passed(&step.name, check_result));
                                     continue;
                                 }
                                 // Clear prompt output so spinner starts below step header
@@ -591,15 +592,15 @@ impl<'a> WorkflowRunner<'a> {
                                 needs_force = true;
                             }
                         } else {
-                            // Not interactive or prompt_if_complete is false: silently skip
+                            // Not interactive or prompt_if_complete is false: check passed
                             ui.message(&step_display);
-                            let reason = check_result.short_description();
+                            let label = check.skip_label(check_result.short_description());
                             ui.message(&format!(
                                 "{}{}",
                                 step_pad,
-                                theme.format_skipped(&format!("Skipped ({})", reason))
+                                StatusKind::Success.format(&theme, &label)
                             ));
-                            results.push(StepResult::skipped(&step.name, check_result));
+                            results.push(StepResult::check_passed(&step.name, check_result));
                             continue;
                         }
                     }
@@ -1666,9 +1667,10 @@ mod tests {
         assert!(result.success);
         // Should have prompted
         assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
-        // Step should be skipped since user declined
+        // Step should be check-passed (not skipped) since check succeeded
         assert_eq!(result.steps.len(), 1);
-        assert!(result.steps[0].skipped);
+        assert!(!result.steps[0].skipped);
+        assert!(result.steps[0].check_result.is_some());
     }
 
     #[test]
@@ -1777,9 +1779,10 @@ mod tests {
         assert!(result.success);
         // No prompts should have been shown
         assert!(ui.prompts_shown().is_empty());
-        // Step should be skipped
+        // Step should be check-passed (not skipped)
         assert_eq!(result.steps.len(), 1);
-        assert!(result.steps[0].skipped);
+        assert!(!result.steps[0].skipped);
+        assert!(result.steps[0].check_result.is_some());
     }
 
     #[test]
@@ -1832,7 +1835,8 @@ mod tests {
         assert!(result.success);
         // Should NOT have prompted even though interactive
         assert!(ui.prompts_shown().is_empty());
-        assert!(result.steps[0].skipped);
+        assert!(!result.steps[0].skipped);
+        assert!(result.steps[0].check_result.is_some());
     }
 
     #[test]
@@ -1978,7 +1982,8 @@ mod tests {
 
         assert!(result.success);
         assert!(ui.prompts_shown().is_empty());
-        assert!(result.steps[0].skipped);
+        assert!(!result.steps[0].skipped);
+        assert!(result.steps[0].check_result.is_some());
     }
 
     #[test]
@@ -2041,7 +2046,8 @@ mod tests {
         assert!(result.success);
         // Should NOT have prompted because override disables it
         assert!(ui.prompts_shown().is_empty());
-        assert!(result.steps[0].skipped);
+        assert!(!result.steps[0].skipped);
+        assert!(result.steps[0].check_result.is_some());
     }
 
     #[test]

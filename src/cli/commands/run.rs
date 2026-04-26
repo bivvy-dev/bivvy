@@ -359,6 +359,14 @@ impl Command for RunCommand {
                             .map(|c| c.short_description().to_string())
                             .unwrap_or_else(|| "already complete".to_string()),
                     )
+                } else if s.success && s.check_result.is_some() && s.duration.as_millis() == 0 {
+                    // check_passed result: show what check determined completion
+                    Some(
+                        s.check_result
+                            .as_ref()
+                            .map(|c| format!("Check passed ({})", c.short_description()))
+                            .unwrap_or_else(|| "Check passed".to_string()),
+                    )
                 } else if !s.success && !s.skipped {
                     s.error.clone()
                 } else {
@@ -717,12 +725,12 @@ workflows:
         let summaries = ui.summaries();
         assert!(!summaries.is_empty());
         let step = &summaries[0].step_results[0];
-        assert_eq!(step.status, StatusKind::Skipped);
-        // Should show the check command, not "already complete"
+        assert_eq!(step.status, StatusKind::Success);
+        // Should show the check description with context
         let detail = step.detail.as_deref().unwrap();
         assert!(
-            detail.contains("exit 0"),
-            "expected check description in summary detail, got: {}",
+            detail.contains("Check passed") && detail.contains("exit 0"),
+            "expected 'Check passed' with check description in summary detail, got: {}",
             detail
         );
     }

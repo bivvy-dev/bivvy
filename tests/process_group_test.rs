@@ -511,8 +511,8 @@ fn completed_check_steps_under_zsh_job_control() {
     // Step 1: file doesn't exist yet → regular prompt
     wait_and_send(&session, "Install tools?", KEY_Y, "Step 1 prompt");
 
-    // Step 2: git rev-parse succeeds → "Already complete" re-run prompt
-    wait_and_send(&session, "Already complete", KEY_Y, "Step 2 re-run prompt");
+    // Step 2: git rev-parse succeeds → "Check passed" re-run prompt
+    wait_and_send(&session, "Check passed", KEY_Y, "Step 2 re-run prompt");
 
     // Step 3: no completed_check → regular prompt
     wait_and_send(&session, "Run analysis?", KEY_Y, "Step 3 prompt");
