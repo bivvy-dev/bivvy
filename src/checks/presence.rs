@@ -2,7 +2,7 @@
 //!
 //! Confirms the existence of a file, binary, or custom resource.
 
-use super::{Check, CheckResult, PresenceKind};
+use super::{truncate_display, Check, CheckResult, PresenceKind};
 use crate::shell::execute_check;
 use std::path::Path;
 
@@ -130,20 +130,12 @@ fn check_binary(name: &str) -> CheckResult {
 
 fn check_custom(command: &str, project_root: &Path) -> CheckResult {
     if execute_check(command, Some(project_root)) {
-        CheckResult::passed(format!("{} succeeded", truncate(command, 50)))
+        CheckResult::passed(format!("{} succeeded", truncate_display(command, 50)))
     } else {
         CheckResult::failed(
-            format!("{} failed", truncate(command, 50)),
+            format!("{} failed", truncate_display(command, 50)),
             "Command exited with non-zero status",
         )
-    }
-}
-
-fn truncate(s: &str, max_len: usize) -> String {
-    if s.len() <= max_len {
-        s.to_string()
-    } else {
-        format!("{}...", &s[..max_len - 3])
     }
 }
 

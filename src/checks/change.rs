@@ -35,7 +35,9 @@ pub fn hash_file(path: &Path) -> HashResult {
 ///
 /// The hash is computed over the sorted concatenation of
 /// (relative_path + file_contents) for all matched files.
-pub fn hash_glob(pattern: &str, project_root: &Path) -> HashResult {
+/// If a `size_limit` is provided, the total size of all matched files
+/// is checked before hashing.
+pub fn hash_glob(pattern: &str, project_root: &Path, size_limit: &SizeLimit) -> HashResult {
     let full_pattern = if Path::new(pattern).is_absolute() {
         pattern.to_string()
     } else {
@@ -47,34 +49,51 @@ pub fn hash_glob(pattern: &str, project_root: &Path) -> HashResult {
         Err(e) => return HashResult::Error(format!("Invalid glob pattern '{}': {}", pattern, e)),
     };
 
-    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    let mut file_paths: Vec<std::path::PathBuf> = Vec::new();
     for entry in paths {
         match entry {
             Ok(path) => {
                 if path.is_file() {
-                    let rel = path
-                        .strip_prefix(project_root)
-                        .unwrap_or(&path)
-                        .to_string_lossy()
-                        .to_string();
-                    match std::fs::read(&path) {
-                        Ok(contents) => entries.push((rel, contents)),
-                        Err(e) => {
-                            return HashResult::Error(format!(
-                                "Cannot read {}: {}",
-                                path.display(),
-                                e
-                            ))
-                        }
-                    }
+                    file_paths.push(path);
                 }
             }
             Err(e) => return HashResult::Error(format!("Glob error: {}", e)),
         }
     }
 
-    if entries.is_empty() {
+    if file_paths.is_empty() {
         return HashResult::NotFound(format!("No files matched pattern '{}'", pattern));
+    }
+
+    // Check total size against limit
+    if let SizeLimit {
+        max_bytes: Some(limit),
+    } = size_limit
+    {
+        let total_size: u64 = file_paths
+            .iter()
+            .filter_map(|p| std::fs::metadata(p).ok())
+            .map(|m| m.len())
+            .sum();
+        if total_size > *limit {
+            return HashResult::SizeLimitExceeded {
+                actual: total_size,
+                limit: *limit,
+            };
+        }
+    }
+
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for path in &file_paths {
+        let rel = path
+            .strip_prefix(project_root)
+            .unwrap_or(path)
+            .to_string_lossy()
+            .to_string();
+        match std::fs::read(path) {
+            Ok(contents) => entries.push((rel, contents)),
+            Err(e) => return HashResult::Error(format!("Cannot read {}: {}", path.display(), e)),
+        }
     }
 
     // Sort for deterministic hashing
@@ -213,7 +232,7 @@ pub fn compute_target_hash(
 
             hash_file(&path)
         }
-        ChangeKind::Glob => hash_glob(target, project_root),
+        ChangeKind::Glob => hash_glob(target, project_root, size_limit),
         ChangeKind::Command => hash_command(target, project_root),
     }
 }
@@ -269,7 +288,7 @@ mod tests {
         fs::write(temp.path().join("b.rb"), "class B; end").unwrap();
         fs::write(temp.path().join("c.txt"), "not ruby").unwrap();
 
-        let result = hash_glob("*.rb", temp.path());
+        let result = hash_glob("*.rb", temp.path(), &SizeLimit::default());
         assert!(matches!(result, HashResult::Ok(_)));
     }
 
@@ -280,8 +299,8 @@ mod tests {
         fs::write(temp.path().join("b.rb"), "class B; end").unwrap();
 
         match (
-            hash_glob("*.rb", temp.path()),
-            hash_glob("*.rb", temp.path()),
+            hash_glob("*.rb", temp.path(), &SizeLimit::default()),
+            hash_glob("*.rb", temp.path(), &SizeLimit::default()),
         ) {
             (HashResult::Ok(h1), HashResult::Ok(h2)) => assert_eq!(h1, h2),
             _ => panic!("Expected Ok results"),
@@ -291,7 +310,7 @@ mod tests {
     #[test]
     fn hash_glob_no_matches() {
         let temp = TempDir::new().unwrap();
-        let result = hash_glob("*.nonexistent", temp.path());
+        let result = hash_glob("*.nonexistent", temp.path(), &SizeLimit::default());
         assert!(matches!(result, HashResult::NotFound(_)));
     }
 
@@ -300,14 +319,14 @@ mod tests {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("a.rb"), "class A; end").unwrap();
 
-        let hash1 = match hash_glob("*.rb", temp.path()) {
+        let hash1 = match hash_glob("*.rb", temp.path(), &SizeLimit::default()) {
             HashResult::Ok(h) => h,
             _ => panic!("Expected Ok"),
         };
 
         fs::write(temp.path().join("b.rb"), "class B; end").unwrap();
 
-        let hash2 = match hash_glob("*.rb", temp.path()) {
+        let hash2 = match hash_glob("*.rb", temp.path(), &SizeLimit::default()) {
             HashResult::Ok(h) => h,
             _ => panic!("Expected Ok"),
         };
@@ -521,5 +540,51 @@ mod tests {
             &SizeLimit::bytes(10),
         );
         assert!(matches!(result, HashResult::SizeLimitExceeded { .. }));
+    }
+
+    // --- Glob size limit tests ---
+
+    #[test]
+    fn glob_size_limit_exceeded() {
+        let temp = TempDir::new().unwrap();
+        // Create two files that together exceed the limit
+        fs::write(temp.path().join("a.rb"), "x".repeat(60)).unwrap();
+        fs::write(temp.path().join("b.rb"), "x".repeat(60)).unwrap();
+
+        let result = compute_target_hash(
+            "*.rb",
+            ChangeKind::Glob,
+            temp.path(),
+            &SizeLimit::bytes(100),
+        );
+        assert!(matches!(result, HashResult::SizeLimitExceeded { .. }));
+        if let HashResult::SizeLimitExceeded { actual, limit } = result {
+            assert_eq!(actual, 120);
+            assert_eq!(limit, 100);
+        }
+    }
+
+    #[test]
+    fn glob_size_limit_not_exceeded() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("a.rb"), "small").unwrap();
+        fs::write(temp.path().join("b.rb"), "also small").unwrap();
+
+        let result = compute_target_hash(
+            "*.rb",
+            ChangeKind::Glob,
+            temp.path(),
+            &SizeLimit::bytes(1024),
+        );
+        assert!(matches!(result, HashResult::Ok(_)));
+    }
+
+    #[test]
+    fn glob_no_size_limit_allows_any_size() {
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("a.rb"), "x".repeat(1000)).unwrap();
+
+        let result = compute_target_hash("*.rb", ChangeKind::Glob, temp.path(), &SizeLimit::none());
+        assert!(matches!(result, HashResult::Ok(_)));
     }
 }

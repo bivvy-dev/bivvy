@@ -263,12 +263,7 @@ impl SnapshotStore {
 }
 
 fn now_iso8601() -> String {
-    // Use a simple approach — will be replaced with chrono or time if available
-    use std::time::SystemTime;
-    let duration = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    format!("{}s", duration.as_secs())
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true)
 }
 
 #[cfg(test)]

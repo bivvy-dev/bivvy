@@ -18,6 +18,7 @@
 //! to the state store or UI — it's pure evaluation.
 
 pub mod change;
+pub mod evaluator;
 pub mod execution;
 pub mod presence;
 
@@ -355,6 +356,15 @@ pub enum CheckOutcome {
     Failed,
     /// The check could not be evaluated (e.g., no baseline for change detection).
     Indeterminate(String),
+}
+
+/// Truncate a string to a maximum length, appending "..." if truncated.
+pub(crate) fn truncate_display(s: &str, max_len: usize) -> String {
+    if s.len() <= max_len {
+        s.to_string()
+    } else {
+        format!("{}...", &s[..max_len - 3])
+    }
 }
 
 /// A satisfaction condition entry in `satisfied_when`.
