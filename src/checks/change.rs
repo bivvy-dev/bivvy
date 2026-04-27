@@ -131,6 +131,34 @@ pub fn hash_command(command: &str, project_root: &Path) -> HashResult {
     }
 }
 
+/// Hash a change check target based on its kind.
+///
+/// Dispatches to [`hash_file`], [`hash_glob`], or [`hash_command`] depending on
+/// the `ChangeKind`. Returns the hash as a `Result<String, String>` for convenience.
+pub fn hash_target(target: &str, kind: &ChangeKind, project_root: &Path) -> Result<String, String> {
+    let result = match kind {
+        ChangeKind::File => {
+            let path = if Path::new(target).is_absolute() {
+                std::path::PathBuf::from(target)
+            } else {
+                project_root.join(target)
+            };
+            hash_file(&path)
+        }
+        ChangeKind::Glob => hash_glob(target, project_root, &SizeLimit::default()),
+        ChangeKind::Command => hash_command(target, project_root),
+    };
+
+    match result {
+        HashResult::Ok(hash) => Ok(hash),
+        HashResult::NotFound(msg) => Err(msg),
+        HashResult::SizeLimitExceeded { actual, limit } => {
+            Err(format!("Size limit exceeded: {} > {}", actual, limit))
+        }
+        HashResult::Error(msg) => Err(msg),
+    }
+}
+
 /// Check total file size against the limit.
 pub fn check_size_limit(path: &Path, size_limit: &SizeLimit) -> Option<(u64, u64)> {
     let limit = match size_limit {

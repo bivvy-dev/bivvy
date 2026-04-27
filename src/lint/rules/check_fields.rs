@@ -61,6 +61,20 @@ impl LintRule for CheckFieldsMutualExclusivityRule {
                     ),
                 ));
             }
+
+            // Check for precondition field conflicts
+            let has_legacy_precondition = step.execution.precondition.is_some();
+            let has_new_precondition = step.execution.new_precondition.is_some();
+            if has_legacy_precondition && has_new_precondition {
+                diagnostics.push(LintDiagnostic::new(
+                    self.id(),
+                    self.default_severity(),
+                    format!(
+                        "Step '{}' has both 'precondition' (legacy) and 'new_precondition'. Use only one.",
+                        name,
+                    ),
+                ));
+            }
         }
 
         diagnostics

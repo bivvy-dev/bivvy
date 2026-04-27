@@ -242,7 +242,7 @@ impl ResolvedStep {
                         .unwrap_or_default(),
                     new_check: config.execution.check.clone(),
                     new_checks: config.execution.checks.clone(),
-                    new_precondition: None,
+                    new_precondition: config.execution.new_precondition.clone(),
                     completed_check,
                     precondition,
                     watches: if config.execution.watches.is_empty() {
@@ -308,7 +308,7 @@ impl ResolvedStep {
                 command: config.execution.command.clone().unwrap_or_default(),
                 new_check: config.execution.check.clone(),
                 new_checks: config.execution.checks.clone(),
-                new_precondition: None,
+                new_precondition: config.execution.new_precondition.clone(),
                 completed_check: config.execution.completed_check.clone(),
                 precondition: config.execution.precondition.clone(),
                 watches: config.execution.watches.clone(),

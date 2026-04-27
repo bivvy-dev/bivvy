@@ -151,6 +151,34 @@ impl Command for LintCommand {
             Err(e) => return Err(e),
         };
 
+        let mut deprecation_warnings =
+            crate::lint::rules::deprecated_fields::collect_deprecation_warnings(&config);
+
+        // Scan raw YAML for alias-based deprecations (e.g., prompt_if_complete)
+        {
+            let config_file_paths: Vec<std::path::PathBuf> =
+                if let Some(ref p) = self.config_override {
+                    vec![p.clone()]
+                } else {
+                    let paths = ConfigPaths::discover(&self.project_root);
+                    paths
+                        .all_existing()
+                        .iter()
+                        .map(|p| p.to_path_buf())
+                        .collect()
+                };
+            let refs: Vec<&std::path::Path> =
+                config_file_paths.iter().map(|p| p.as_path()).collect();
+            deprecation_warnings.extend(
+                crate::lint::rules::deprecated_fields::collect_raw_yaml_deprecation_warnings(&refs),
+            );
+        }
+
+        // Display deprecation warnings to the user
+        for warning in &deprecation_warnings {
+            ui.warning(warning);
+        }
+
         event_bus.emit(&crate::logging::BivvyEvent::ConfigLoaded {
             config_path: self
                 .config_override
@@ -158,7 +186,7 @@ impl Command for LintCommand {
                 .map(|p| p.display().to_string())
                 .unwrap_or_else(|| ".bivvy/config.yml".to_string()),
             parse_duration_ms: None,
-            deprecation_warnings: vec![],
+            deprecation_warnings,
         });
 
         // Apply config default_output when no CLI flag was explicitly set

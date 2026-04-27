@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use super::rule::{LintRule, RuleId};
 use super::rules::{
     AppNameRule, CheckFieldsMutualExclusivityRule, CircularDependencyRule,
-    CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule,
+    CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule, DeprecatedFieldsRule,
     EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
     InstallTemplateMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
     RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
@@ -54,6 +54,7 @@ impl RuleRegistry {
         registry.register(Box::new(RedundantEnvNullRule));
         registry.register(Box::new(EnvironmentCircularDependencyRule));
         registry.register(Box::new(CheckFieldsMutualExclusivityRule));
+        registry.register(Box::new(DeprecatedFieldsRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
@@ -177,8 +178,8 @@ mod tests {
     fn registry_with_builtins_has_rules() {
         let registry = RuleRegistry::with_builtins();
         assert!(!registry.is_empty());
-        // Should have at least 18 built-in rules (13 original + 4 requirement + 1 check-fields)
-        assert!(registry.len() >= 18);
+        // Should have at least 19 built-in rules (13 original + 4 requirement + 1 check-fields + 1 deprecated-fields)
+        assert!(registry.len() >= 19);
         // Verify some specific rules are registered
         assert!(registry.get(&RuleId::new("app-name-format")).is_some());
         assert!(registry.get(&RuleId::new("required-fields")).is_some());

@@ -47,6 +47,7 @@ pub struct Cli {
 
 use super::commands::cache::CacheArgs;
 use super::commands::feedback::FeedbackArgs;
+use super::commands::snapshot::SnapshotArgs;
 use super::commands::update::UpdateArgs;
 
 /// Available subcommands.
@@ -87,6 +88,9 @@ pub enum Commands {
 
     /// Capture and manage feedback
     Feedback(FeedbackArgs),
+
+    /// Manage change check snapshots
+    Snapshot(SnapshotArgs),
 
     /// Check for and install updates
     Update(UpdateArgs),

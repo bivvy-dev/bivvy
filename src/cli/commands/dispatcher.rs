@@ -158,6 +158,11 @@ impl CommandDispatcher {
                 let cmd = super::update::UpdateCommand::new(args.clone());
                 cmd.execute(ui)
             }
+            Some(Commands::Snapshot(args)) => {
+                let cmd = super::snapshot::SnapshotCommand::new(&self.project_root, args.clone())
+                    .with_config_override(config_override);
+                cmd.execute(ui)
+            }
             Some(Commands::Completions(args)) => {
                 let cmd = super::completions::CompletionsCommand::new(args.clone());
                 cmd.execute(ui)

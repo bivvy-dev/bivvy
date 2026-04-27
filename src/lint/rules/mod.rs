@@ -5,6 +5,7 @@
 pub mod app_name;
 pub mod check_fields;
 pub mod circular_dependency;
+pub mod deprecated_fields;
 pub mod required_fields;
 pub mod self_dependency;
 pub mod template_inputs;
@@ -16,6 +17,7 @@ pub mod valid_requires;
 pub use app_name::AppNameRule;
 pub use check_fields::CheckFieldsMutualExclusivityRule;
 pub use circular_dependency::CircularDependencyRule;
+pub use deprecated_fields::DeprecatedFieldsRule;
 pub use required_fields::RequiredFieldsRule;
 pub use self_dependency::SelfDependencyRule;
 pub use template_inputs::TemplateInputsRule;

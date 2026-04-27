@@ -239,11 +239,17 @@ pub struct ExecutionConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<Check>,
 
-    /// Precondition that must pass before the step runs.
+    /// Precondition that must pass before the step runs (legacy `CompletedCheck` type).
     /// Unlike `completed_check` (which skips when passing), a precondition
     /// *fails* the step when it does not pass. `--force` does not bypass preconditions.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub precondition: Option<CompletedCheck>,
+
+    /// Precondition using the new `Check` type.
+    /// Mutually exclusive with the legacy `precondition` field above.
+    /// Uses the same check types as `check`/`checks` (presence, execution, change, combinators).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub new_precondition: Option<Check>,
 
     /// Files to watch for change detection
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
