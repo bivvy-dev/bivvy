@@ -145,6 +145,22 @@ impl Check {
         }
     }
 
+    /// Returns true if this check or any nested sub-check has a name.
+    ///
+    /// Used to avoid unnecessary evaluation when collecting named check results
+    /// for cross-step ref resolution.
+    pub fn has_named_checks(&self) -> bool {
+        if self.name().is_some() {
+            return true;
+        }
+        match self {
+            Check::All { checks, .. } | Check::Any { checks, .. } => {
+                checks.iter().any(|c| c.has_named_checks())
+            }
+            _ => false,
+        }
+    }
+
     /// Compute a short hash of this check's configuration for snapshot key isolation.
     ///
     /// Two checks with different configs (different targets, on_change values, etc.)
@@ -1062,5 +1078,73 @@ mod tests {
             }
             _ => panic!("Expected Change check"),
         }
+    }
+
+    // --- has_named_checks tests ---
+
+    #[test]
+    fn has_named_checks_true_for_named_check() {
+        let check = Check::Presence {
+            name: Some("deps".to_string()),
+            target: Some("node_modules".to_string()),
+            kind: Some(PresenceKind::File),
+            command: None,
+        };
+        assert!(check.has_named_checks());
+    }
+
+    #[test]
+    fn has_named_checks_false_for_unnamed_check() {
+        let check = Check::Presence {
+            name: None,
+            target: Some("node_modules".to_string()),
+            kind: Some(PresenceKind::File),
+            command: None,
+        };
+        assert!(!check.has_named_checks());
+    }
+
+    #[test]
+    fn has_named_checks_recurses_into_combinators() {
+        let check = Check::All {
+            name: None,
+            checks: vec![
+                Check::Presence {
+                    name: None,
+                    target: Some("a".to_string()),
+                    kind: None,
+                    command: None,
+                },
+                Check::Presence {
+                    name: Some("b_exists".to_string()),
+                    target: Some("b".to_string()),
+                    kind: None,
+                    command: None,
+                },
+            ],
+        };
+        assert!(check.has_named_checks());
+    }
+
+    #[test]
+    fn has_named_checks_false_for_all_unnamed_in_combinator() {
+        let check = Check::All {
+            name: None,
+            checks: vec![
+                Check::Presence {
+                    name: None,
+                    target: Some("a".to_string()),
+                    kind: None,
+                    command: None,
+                },
+                Check::Presence {
+                    name: None,
+                    target: Some("b".to_string()),
+                    kind: None,
+                    command: None,
+                },
+            ],
+        };
+        assert!(!check.has_named_checks());
     }
 }

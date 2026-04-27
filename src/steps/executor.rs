@@ -387,6 +387,7 @@ mod tests {
             depends_on: vec![],
             requires: vec![],
             inputs: HashMap::new(),
+            satisfied_when: vec![],
             execution: ResolvedExecution {
                 command: command.to_string(),
                 ..Default::default()

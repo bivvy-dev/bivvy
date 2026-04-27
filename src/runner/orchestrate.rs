@@ -34,6 +34,7 @@ use super::decision;
 use super::patterns::{self, StepContext};
 use super::plan::build_execution_plan;
 use super::recovery::{self, RecoveryAction};
+use super::satisfaction;
 use super::workflow::{record_step_state, RunOptions, WorkflowResult, WorkflowRunner};
 
 /// Maximum total execution attempts per step (auto-retries + manual retries).
@@ -109,6 +110,8 @@ impl<'a> WorkflowRunner<'a> {
         let mut all_success = true;
         let mut failed_steps: HashSet<String> = HashSet::new();
         let mut user_skipped_steps: HashSet<String> = HashSet::new();
+        let mut satisfied_steps: HashSet<String> = HashSet::new();
+        let mut named_check_results: HashMap<String, CheckResult> = HashMap::new();
         let mut workflow_aborted = false;
 
         for (index, step_name) in plan.steps_to_run.iter().enumerate() {
@@ -161,8 +164,8 @@ impl<'a> WorkflowRunner<'a> {
                 continue;
             }
 
-            // Auto-skip if any dependency was user-skipped
-            if decision::blocked_by_user_skip(step, &user_skipped_steps) {
+            // Auto-skip if any dependency was user-skipped and not satisfied
+            if decision::blocked_by_user_skip(step, &user_skipped_steps, &satisfied_steps) {
                 ui.message(&step_display);
                 ui.message(&format!(
                     "{}{}",
@@ -234,6 +237,67 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
+            // Collect named check results from this step's checks for cross-step
+            // ref resolution. Must happen for ALL steps with named checks, not just
+            // those with satisfied_when, because downstream steps may reference them
+            // via `ref: step_name.check_name` in their own satisfied_when conditions.
+            if !options.dry_run {
+                if let Some(check) = step.execution.effective_check() {
+                    if check.has_named_checks() {
+                        let mut evaluator =
+                            CheckEvaluator::new(project_root, &context, &mut self.snapshot_store);
+                        let step_named = satisfaction::collect_named_check_results(
+                            step_name,
+                            &check,
+                            &mut evaluator,
+                        );
+                        named_check_results.extend(step_named);
+                    }
+                }
+            }
+
+            // Evaluate satisfied_when (unless forced). If satisfied, auto-skip.
+            // --force bypasses satisfaction-based auto-skip.
+            if !needs_force && !options.dry_run && !step.satisfied_when.is_empty() {
+                let mut evaluator =
+                    CheckEvaluator::new(project_root, &context, &mut self.snapshot_store);
+
+                let sat_result = satisfaction::evaluate_satisfaction(
+                    step,
+                    &mut evaluator,
+                    &named_check_results,
+                    step_name,
+                );
+
+                if let Some(ref result) = sat_result {
+                    if result.satisfied {
+                        satisfied_steps.insert(step_name.clone());
+
+                        // Build a description of why it's satisfied
+                        let descriptions: Vec<&str> = result
+                            .condition_results
+                            .iter()
+                            .map(|r| r.description.as_str())
+                            .collect();
+                        let satisfied_desc = descriptions.join(", ");
+
+                        ui.message(&step_display);
+                        let skip_label = format!("Satisfied ({})", satisfied_desc);
+                        ui.message(&format!(
+                            "{}{}",
+                            step_pad,
+                            StatusKind::Success.format(&theme, &skip_label)
+                        ));
+                        ui.show_workflow_progress(index + 1, total, start.elapsed());
+                        results.push(StepResult::check_passed(
+                            &step.name,
+                            CheckResult::passed(format!("satisfied: {}", satisfied_desc)),
+                        ));
+                        continue;
+                    }
+                }
+            }
+
             // Check if already complete (unless forced) using the new CheckEvaluator
             if !needs_force && !options.dry_run {
                 if let Some(check) = step.execution.effective_check() {
@@ -282,6 +346,7 @@ impl<'a> WorkflowRunner<'a> {
                                         StatusKind::Success.format(&theme, &skip_label)
                                     ));
                                     // Record as check-passed (not skipped) — dependents proceed.
+                                    satisfied_steps.insert(step_name.clone());
                                     results
                                         .push(StepResult::check_passed(&step.name, check_result));
                                     continue;
@@ -307,6 +372,7 @@ impl<'a> WorkflowRunner<'a> {
                                 step_pad,
                                 StatusKind::Success.format(&theme, &skip_label)
                             ));
+                            satisfied_steps.insert(step_name.clone());
                             results.push(StepResult::check_passed(&step.name, check_result));
                             continue;
                         }
@@ -489,6 +555,13 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             let status = exec_result.result.status();
+
+            // Successfully completed steps are satisfied (conservative default:
+            // if satisfied_when is omitted, satisfaction = "step ran successfully")
+            if status == StepStatus::Completed {
+                satisfied_steps.insert(step_name.clone());
+            }
+
             results.push(exec_result.result);
 
             if status == StepStatus::Failed {

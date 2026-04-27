@@ -3,7 +3,7 @@
 //! A ResolvedStep combines template defaults with config overrides,
 //! producing a fully-specified step that can be executed.
 
-use crate::checks::Check;
+use crate::checks::{Check, SatisfactionCondition};
 use crate::config::schema::{PromptConfig, StepEnvironmentOverride};
 use crate::config::{CompletedCheck, StepConfig};
 use crate::registry::template::Template;
@@ -167,6 +167,10 @@ pub struct ResolvedStep {
     /// Resolved template input values for interpolation.
     pub inputs: HashMap<String, String>,
 
+    /// Declarative satisfaction conditions.
+    /// If all conditions pass, the step's purpose is already fulfilled.
+    pub satisfied_when: Vec<SatisfactionCondition>,
+
     /// Execution settings (command, checks, watches, retry, sudo).
     pub execution: ResolvedExecution,
 
@@ -217,6 +221,7 @@ impl ResolvedStep {
             depends_on: config.depends_on.clone(),
             requires: merge_requires(&step.requires, &config.requires),
             inputs: resolved_inputs.clone(),
+            satisfied_when: config.satisfied_when.clone(),
             execution: {
                 let completed_check = config
                     .execution
@@ -298,6 +303,7 @@ impl ResolvedStep {
             depends_on: config.depends_on.clone(),
             requires: config.requires.clone(),
             inputs: HashMap::new(),
+            satisfied_when: config.satisfied_when.clone(),
             execution: ResolvedExecution {
                 command: config.execution.command.clone().unwrap_or_default(),
                 new_check: config.execution.check.clone(),
@@ -1491,5 +1497,53 @@ mod tests {
         let resolved = ResolvedStep::from_config("test", &config, None);
         assert_eq!(resolved.output.prompts.len(), 1);
         assert_eq!(resolved.output.prompts[0].key, "name");
+    }
+
+    // --- satisfied_when propagation tests ---
+
+    #[test]
+    fn from_config_carries_satisfied_when() {
+        use crate::checks::{Check, PresenceKind, SatisfactionCondition};
+
+        let config = StepConfig {
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            satisfied_when: vec![SatisfactionCondition::Check(Check::Presence {
+                name: None,
+                target: Some("node_modules".to_string()),
+                kind: Some(PresenceKind::File),
+                command: None,
+            })],
+            ..Default::default()
+        };
+
+        let resolved = ResolvedStep::from_config("install_deps", &config, None);
+        assert_eq!(resolved.satisfied_when.len(), 1);
+    }
+
+    #[test]
+    fn from_config_empty_satisfied_when_by_default() {
+        let config = StepConfig::default();
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.satisfied_when.is_empty());
+    }
+
+    #[test]
+    fn from_template_carries_satisfied_when() {
+        use crate::checks::SatisfactionCondition;
+
+        let template = make_template();
+        let config = StepConfig {
+            satisfied_when: vec![SatisfactionCondition::Ref {
+                check_ref: "deps_installed".to_string(),
+            }],
+            ..Default::default()
+        };
+
+        let resolved =
+            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
+        assert_eq!(resolved.satisfied_when.len(), 1);
     }
 }

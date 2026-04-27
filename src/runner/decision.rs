@@ -29,10 +29,12 @@ pub enum StepDecision {
 pub enum BlockReason {
     /// A dependency of this step failed.
     DependencyFailed,
-    /// A dependency of this step was skipped by the user.
+    /// A dependency of this step was skipped by the user and is not satisfied.
     DependencySkipped,
     /// A precondition check failed.
     PreconditionFailed,
+    /// A dependency was skipped and its `satisfied_when` conditions failed.
+    DependencyUnsatisfied,
 }
 
 impl BlockReason {
@@ -42,6 +44,7 @@ impl BlockReason {
             BlockReason::DependencyFailed => "Blocked (dependency failed)",
             BlockReason::DependencySkipped => "Skipped (dependency skipped)",
             BlockReason::PreconditionFailed => "Blocked (precondition failed)",
+            BlockReason::DependencyUnsatisfied => "Blocked (dependency not satisfied)",
         }
     }
 }
@@ -51,6 +54,8 @@ impl BlockReason {
 pub enum SkipReason {
     /// The step's completed check passed (work already done).
     CheckPassed,
+    /// The step's `satisfied_when` conditions all passed (purpose already fulfilled).
+    Satisfied,
     /// The user declined to run the step.
     UserDeclined,
     /// The user declined a sensitive step.
@@ -64,6 +69,7 @@ impl SkipReason {
     pub fn message(&self) -> &'static str {
         match self {
             SkipReason::CheckPassed => "Already complete",
+            SkipReason::Satisfied => "Already satisfied",
             SkipReason::UserDeclined => "Skipped",
             SkipReason::SensitiveDeclined => "Skipped (declined sensitive step)",
             SkipReason::RequirementNotMet => "Skipped (requirement not met)",
@@ -77,8 +83,18 @@ pub fn blocked_by_failure(step: &ResolvedStep, failed_steps: &HashSet<String>) -
 }
 
 /// Check if a step should be auto-skipped due to a user-skipped dependency.
-pub fn blocked_by_user_skip(step: &ResolvedStep, user_skipped: &HashSet<String>) -> bool {
-    step.depends_on.iter().any(|dep| user_skipped.contains(dep))
+///
+/// A user-skipped dependency only blocks dependents if it is NOT satisfied.
+/// If the skipped dependency's `satisfied_when` conditions passed, dependents
+/// can proceed — the step's purpose is already fulfilled.
+pub fn blocked_by_user_skip(
+    step: &ResolvedStep,
+    user_skipped: &HashSet<String>,
+    satisfied_steps: &HashSet<String>,
+) -> bool {
+    step.depends_on
+        .iter()
+        .any(|dep| user_skipped.contains(dep) && !satisfied_steps.contains(dep))
 }
 
 /// Resolve the effective `prompt_if_complete` value for a step, considering
@@ -111,6 +127,7 @@ mod tests {
             depends_on,
             requires: vec![],
             inputs: HashMap::new(),
+            satisfied_when: vec![],
             execution: ResolvedExecution {
                 command: format!("echo {}", name),
                 ..Default::default()
@@ -139,18 +156,30 @@ mod tests {
     }
 
     #[test]
-    fn blocked_by_user_skip_when_dep_skipped() {
+    fn blocked_by_user_skip_when_dep_skipped_and_unsatisfied() {
         let step = make_step("b", vec!["a".to_string()]);
         let mut skipped = HashSet::new();
         skipped.insert("a".to_string());
-        assert!(blocked_by_user_skip(&step, &skipped));
+        let satisfied = HashSet::new();
+        assert!(blocked_by_user_skip(&step, &skipped, &satisfied));
+    }
+
+    #[test]
+    fn not_blocked_when_dep_skipped_but_satisfied() {
+        let step = make_step("b", vec!["a".to_string()]);
+        let mut skipped = HashSet::new();
+        skipped.insert("a".to_string());
+        let mut satisfied = HashSet::new();
+        satisfied.insert("a".to_string());
+        assert!(!blocked_by_user_skip(&step, &skipped, &satisfied));
     }
 
     #[test]
     fn not_blocked_when_dep_not_skipped() {
         let step = make_step("b", vec!["a".to_string()]);
         let skipped = HashSet::new();
-        assert!(!blocked_by_user_skip(&step, &skipped));
+        let satisfied = HashSet::new();
+        assert!(!blocked_by_user_skip(&step, &skipped, &satisfied));
     }
 
     #[test]
@@ -177,6 +206,7 @@ mod tests {
     #[test]
     fn skip_reason_messages() {
         assert_eq!(SkipReason::CheckPassed.message(), "Already complete");
+        assert_eq!(SkipReason::Satisfied.message(), "Already satisfied");
         assert_eq!(SkipReason::UserDeclined.message(), "Skipped");
         assert_eq!(
             SkipReason::SensitiveDeclined.message(),
@@ -202,6 +232,34 @@ mod tests {
             BlockReason::PreconditionFailed.message(),
             "Blocked (precondition failed)"
         );
+        assert_eq!(
+            BlockReason::DependencyUnsatisfied.message(),
+            "Blocked (dependency not satisfied)"
+        );
+    }
+
+    #[test]
+    fn blocked_by_user_skip_multiple_deps_one_satisfied() {
+        let step = make_step("c", vec!["a".to_string(), "b".to_string()]);
+        let mut skipped = HashSet::new();
+        skipped.insert("a".to_string());
+        skipped.insert("b".to_string());
+        let mut satisfied = HashSet::new();
+        satisfied.insert("a".to_string());
+        // "a" is satisfied but "b" is not — still blocked
+        assert!(blocked_by_user_skip(&step, &skipped, &satisfied));
+    }
+
+    #[test]
+    fn not_blocked_when_all_skipped_deps_satisfied() {
+        let step = make_step("c", vec!["a".to_string(), "b".to_string()]);
+        let mut skipped = HashSet::new();
+        skipped.insert("a".to_string());
+        skipped.insert("b".to_string());
+        let mut satisfied = HashSet::new();
+        satisfied.insert("a".to_string());
+        satisfied.insert("b".to_string());
+        assert!(!blocked_by_user_skip(&step, &skipped, &satisfied));
     }
 
     #[test]

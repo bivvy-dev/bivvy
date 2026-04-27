@@ -6,6 +6,7 @@ mod orchestrate;
 pub mod patterns;
 pub mod plan;
 pub mod recovery;
+pub mod satisfaction;
 pub mod telemetry;
 pub mod workflow;
 

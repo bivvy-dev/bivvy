@@ -93,6 +93,7 @@ mod tests {
             depends_on,
             requires: vec![],
             inputs: HashMap::new(),
+            satisfied_when: vec![],
             execution: ResolvedExecution {
                 command: format!("echo {}", name),
                 ..Default::default()
