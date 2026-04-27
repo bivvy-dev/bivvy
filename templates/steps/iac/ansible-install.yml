@@ -13,14 +13,18 @@ step:
   requires:
     - ansible
   precondition:
-    type: file_exists
-    path: requirements.yml
-  completed_check:
-    type: command_succeeds
-    command: "ansible-galaxy list 2>&1 | grep -q ."
-  watches:
-    - requirements.yml
-    - ansible.cfg
+    type: presence
+    target: requirements.yml
+  checks:
+    - type: execution
+      command: "ansible-galaxy list 2>&1 | grep -q ."
+      validation: success
+    - type: change
+      target: requirements.yml
+      on_change: proceed
+    - type: change
+      target: ansible.cfg
+      on_change: proceed
 
 environment_impact:
   note: "Galaxy roles are installed to ~/.ansible/roles"

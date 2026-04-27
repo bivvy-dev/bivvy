@@ -121,7 +121,7 @@ impl OutputWriter for TerminalUI {
 impl Prompter for TerminalUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
         // Re-claim the terminal foreground process group before each prompt.
-        // Child processes (completed_check, step commands) may steal the
+        // Child processes (check commands, step commands) may steal the
         // foreground group when they run. After they exit, nobody restores
         // it, so our next read_key() call gets EIO. Fix: always re-claim
         // before prompting.

@@ -595,8 +595,8 @@ app_name: "FeedbackTestApp"
 steps:
   check_rust:
     command: "rustc --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 workflows:
   default:

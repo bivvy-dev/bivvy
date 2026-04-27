@@ -33,8 +33,8 @@ steps:
     title: "Verify toolchain"
     command: "rustc --version && git --version"
     skippable: false
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   check-repo:
@@ -42,8 +42,8 @@ steps:
     command: "git status --short"
     skippable: false
     depends_on: [check-tools]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git rev-parse --git-dir"
 
   gather-info:
@@ -57,12 +57,9 @@ steps:
     command: "git ls-files Cargo.toml Cargo.lock src/main.rs"
     skippable: false
     depends_on: [check-repo]
-    completed_check:
-      type: file_exists
-      path: "Cargo.toml"
-    watches:
-      - Cargo.toml
-      - Cargo.lock
+    check:
+      type: presence
+      target: "Cargo.toml"
 
   generate-manifest:
     title: "Generate build manifest"
@@ -134,16 +131,16 @@ steps:
   check-tools:
     title: "Verify toolchain"
     command: "rustc --version && git --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   check-repo:
     title: "Verify git repository"
     command: "git status --short"
     depends_on: [check-tools]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git rev-parse --git-dir"
 
   show-info:
@@ -240,7 +237,7 @@ workflows:
     steps: [normal, secrets]
 "#;
 
-/// Config with marker completed_check type.
+/// Config with no check (formerly marker type).
 const MARKER_CHECK_CONFIG: &str = r#"
 app_name: "MarkerApp"
 steps:
@@ -248,14 +245,12 @@ steps:
     title: "Setup step"
     command: "rustc --version && uname -s"
     skippable: false
-    completed_check:
-      type: marker
 workflows:
   default:
     steps: [setup]
 "#;
 
-/// Config with `all` combinator for completed_check.
+/// Config with `all` combinator for check.
 const ALL_CHECK_CONFIG: &str = r#"
 app_name: "AllCheckApp"
 steps:
@@ -263,19 +258,19 @@ steps:
     title: "Full check step"
     command: "rustc --version && wc -l Cargo.toml"
     skippable: false
-    completed_check:
+    check:
       type: all
       checks:
-        - type: file_exists
-          path: "Cargo.toml"
-        - type: command_succeeds
+        - type: presence
+          target: "Cargo.toml"
+        - type: execution
           command: "rustc --version"
 workflows:
   default:
     steps: [full-check]
 "#;
 
-/// Config with `any` combinator for completed_check.
+/// Config with `any` combinator for check.
 const ANY_CHECK_CONFIG: &str = r#"
 app_name: "AnyCheckApp"
 steps:
@@ -283,12 +278,12 @@ steps:
     title: "Any check step"
     command: "git --version && uname -s"
     skippable: false
-    completed_check:
+    check:
       type: any
       checks:
-        - type: file_exists
-          path: "nonexistent-file-that-does-not-exist.lock"
-        - type: command_succeeds
+        - type: presence
+          target: "nonexistent-file-that-does-not-exist.lock"
+        - type: execution
           command: "rustc --version"
 workflows:
   default:
@@ -304,7 +299,7 @@ steps:
     command: "rustc --version && uname -s"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "rustc --version"
 workflows:
   default:
@@ -320,7 +315,7 @@ steps:
     command: "rustc --version"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "git --no-such-flag-xyz"
 workflows:
   default:
@@ -1314,12 +1309,12 @@ steps:
   full-check:
     title: "Full check step"
     command: "rustc --version && wc -l Cargo.toml"
-    completed_check:
+    check:
       type: all
       checks:
-        - type: file_exists
-          path: "Cargo.toml"
-        - type: command_succeeds
+        - type: presence
+          target: "Cargo.toml"
+        - type: execution
           command: "rustc --version"
 workflows:
   default:
@@ -1344,12 +1339,12 @@ steps:
   any-check:
     title: "Any check step"
     command: "git --version && rustc --version"
-    completed_check:
+    check:
       type: any
       checks:
-        - type: file_exists
-          path: "nonexistent-file.lock"
-        - type: command_succeeds
+        - type: presence
+          target: "nonexistent-file.lock"
+        - type: execution
           command: "rustc --version"
 workflows:
   default:

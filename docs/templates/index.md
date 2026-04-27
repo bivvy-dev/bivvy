@@ -91,9 +91,9 @@ inputs:
 step:
   title: "Run my setup"
   command: "my-setup --env ${env}"
-  completed_check:
-    type: file_exists
-    path: ".setup-complete"
+  check:
+    type: presence
+    target: ".setup-complete"
 ```
 
 ## Next Steps

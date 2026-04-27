@@ -31,8 +31,8 @@ steps:
     title: "Verify development tools"
     command: "rustc --version && cargo --version"
     skippable: false
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   check-repo:
@@ -40,8 +40,8 @@ steps:
     command: "git rev-parse --git-dir && git branch --show-current"
     skippable: false
     depends_on: [verify-tools]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git rev-parse --git-dir"
 
   analyze-project:
@@ -49,10 +49,8 @@ steps:
     command: "cargo metadata --format-version 1 --no-deps --manifest-path Cargo.toml"
     skippable: false
     depends_on: [check-repo]
-    watches:
-      - Cargo.toml
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "cargo metadata --format-version 1 --no-deps --manifest-path Cargo.toml"
 
   build-report:

@@ -12,12 +12,15 @@ step:
   command: "cargo build"
   requires:
     - rust
-  completed_check:
-    type: file_exists
-    path: "target"
-  watches:
-    - Cargo.toml
-    - Cargo.lock
+  checks:
+    - type: presence
+      target: target
+    - type: change
+      target: Cargo.toml
+      on_change: proceed
+    - type: change
+      target: Cargo.lock
+      on_change: proceed
 
 environment_impact:
   note: "Build artifacts are placed in the target/ directory"

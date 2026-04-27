@@ -15,8 +15,8 @@ use std::process::Command;
 use system::helpers::*;
 use tempfile::TempDir;
 
-/// Config where all steps have passing completed_checks — triggers "Already complete" prompts.
-/// Uses real commands (rustc, git, cargo) and real dependencies/watches/workflows.
+/// Config where all steps have passing checks — triggers "Already complete" prompts.
+/// Uses real commands (rustc, git, cargo) and real dependencies/workflows.
 /// Steps are skippable (default true) so interactive prompts appear.
 const COMPLETED_CONFIG: &str = r#"
 app_name: "RunTest"
@@ -27,16 +27,16 @@ steps:
   deps:
     title: "Install dependencies"
     command: "rustc --version && git --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   build:
     title: "Build project"
     command: "cargo --version"
     depends_on: [deps]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "cargo --version"
 
   test:
@@ -57,7 +57,7 @@ workflows:
     steps: [lint, test]
 "#;
 
-/// Config with no completed_checks — everything runs fresh.
+/// Config with no checks — everything runs fresh.
 /// Steps are NOT skippable so they run without prompts.
 /// Uses real commands (git, rustc) and realistic features.
 const FRESH_CONFIG: &str = r#"
@@ -227,7 +227,7 @@ fn run_interactive_completed_step_shows_rerun_prompt() {
     let home = isolated_home();
     let mut s = spawn_bivvy_isolated(&["run"], temp.path(), home.path());
 
-    // deps has completed_check `rustc --version`, so the prompt reads
+    // deps has check `rustc --version`, so the prompt reads
     // "Already complete (command: rustc --version). Re-run?".
     wait_and_answer(
         &s,
@@ -299,7 +299,7 @@ fn run_interactive_accept_rerun_completed_step() {
         "build step should prompt for rerun",
     );
 
-    // Remaining steps (test, lint) have no completed_check, so they are
+    // Remaining steps (test, lint) have no check, so they are
     // skippable and prompt with their title.
     wait_and_answer(&s, "Run tests?", KEY_Y, "test step should show run prompt");
     wait_and_answer(&s, "Lint code?", KEY_Y, "lint step should show run prompt");
@@ -327,7 +327,7 @@ fn run_dry_run_flag() {
         "Dry-run banner should appear",
     );
     expect_or_dump(&mut s, "Summary", "Summary section should appear");
-    // In dry-run mode, completed_checks are not prompted (non-interactive-ish),
+    // In dry-run mode, checks are not prompted (non-interactive-ish),
     // so 4 steps should be listed in the summary.
     expect_or_dump(
         &mut s,

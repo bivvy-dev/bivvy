@@ -330,11 +330,11 @@ impl<'a> WorkflowRunner<'a> {
 
 /// Record a step's result in the state store.
 pub(super) fn record_step_state(
-    step: &ResolvedStep,
+    _step: &ResolvedStep,
     step_name: &str,
     result: &StepResult,
     state: &mut StateStore,
-    project_root: &Path,
+    _project_root: &Path,
 ) {
     let state_status = match result.status() {
         StepStatus::Completed => crate::state::StepStatus::Success,
@@ -342,13 +342,7 @@ pub(super) fn record_step_state(
         StepStatus::Skipped => crate::state::StepStatus::Skipped,
         _ => crate::state::StepStatus::NeverRun,
     };
-    let watches_hash = if !step.execution.watches.is_empty() {
-        let detector = crate::state::ChangeDetector::new(state, project_root);
-        detector.compute_watches_hash(&step.execution.watches)
-    } else {
-        None
-    };
-    state.record_step_result(step_name, state_status, result.duration, watches_hash);
+    state.record_step_result(step_name, state_status, result.duration);
 }
 
 #[cfg(test)]
@@ -653,7 +647,7 @@ mod tests {
     fn make_step_with_check(
         name: &str,
         command: &str,
-        check: Option<crate::config::CompletedCheck>,
+        check: Option<crate::checks::Check>,
     ) -> ResolvedStep {
         ResolvedStep {
             name: name.to_string(),
@@ -665,7 +659,7 @@ mod tests {
             satisfied_when: vec![],
             execution: ResolvedExecution {
                 command: command.to_string(),
-                completed_check: check,
+                check,
                 ..Default::default()
             },
             env_vars: ResolvedEnvironmentVars::default(),
@@ -796,8 +790,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 &format!("touch {}", marker.display()),
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );
@@ -830,10 +827,7 @@ mod tests {
         assert!(ui.prompts_shown().contains(&"run_install".to_string()));
         assert!(!ui.prompts_shown().contains(&"rerun_install".to_string()));
         // Verify command actually ran
-        assert!(
-            marker.exists(),
-            "step should run when completed_check does not pass"
-        );
+        assert!(marker.exists(), "step should run when check does not pass");
     }
 
     #[test]
@@ -857,8 +851,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 "echo installed",
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );
@@ -916,8 +913,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 "echo reinstalled",
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );
@@ -973,8 +973,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 "echo installed",
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );
@@ -1011,7 +1014,7 @@ mod tests {
     }
 
     #[test]
-    fn run_with_ui_silent_skip_when_prompt_if_complete_false() {
+    fn run_with_ui_silent_skip_when_prompt_on_rerun_false() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("marker.txt"), "done").unwrap();
 
@@ -1027,11 +1030,14 @@ mod tests {
         let mut step = make_step_with_check(
             "install",
             "echo installed",
-            Some(crate::config::CompletedCheck::FileExists {
-                path: "marker.txt".to_string(),
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("marker.txt".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
             }),
         );
-        step.behavior.prompt_if_complete = false;
+        step.behavior.prompt_on_rerun = false;
 
         let mut steps = HashMap::new();
         steps.insert("install".to_string(), step);
@@ -1180,8 +1186,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 "echo installed",
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );
@@ -1216,7 +1225,7 @@ mod tests {
     }
 
     #[test]
-    fn run_with_ui_step_override_disables_prompt_if_complete() {
+    fn run_with_ui_step_override_disables_prompt_on_rerun() {
         let temp = TempDir::new().unwrap();
         fs::write(temp.path().join("marker.txt"), "done").unwrap();
 
@@ -1235,8 +1244,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 "echo installed",
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );
@@ -1248,12 +1260,12 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
 
-        // Override prompt_if_complete to false for this step
+        // Override prompt_on_rerun to false for this step
         let mut overrides = HashMap::new();
         overrides.insert(
             "install".to_string(),
             StepOverride {
-                prompt_if_complete: Some(false),
+                prompt_on_rerun: Some(false),
                 ..Default::default()
             },
         );
@@ -1956,8 +1968,11 @@ mod tests {
             make_step_with_check(
                 "install",
                 "echo installed",
-                Some(crate::config::CompletedCheck::FileExists {
-                    path: "marker.txt".to_string(),
+                Some(crate::checks::Check::Presence {
+                    name: None,
+                    target: Some("marker.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
             ),
         );

@@ -12,14 +12,21 @@ step:
   command: "./gradlew build -x test"
   requires:
     - java
-  completed_check:
-    type: file_exists
-    path: "build/libs"
-  watches:
-    - build.gradle.kts
-    - build.gradle
-    - src/main/resources/application.properties
-    - src/main/resources/application.yml
+  checks:
+    - type: presence
+      target: build/libs
+    - type: change
+      target: build.gradle.kts
+      on_change: proceed
+    - type: change
+      target: build.gradle
+      on_change: proceed
+    - type: change
+      target: src/main/resources/application.properties
+      on_change: proceed
+    - type: change
+      target: src/main/resources/application.yml
+      on_change: proceed
 
 environment_impact:
   note: "Builds application JARs in build/libs directory"

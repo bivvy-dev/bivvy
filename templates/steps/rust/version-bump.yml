@@ -25,11 +25,13 @@ step:
   description: "Update version in Cargo.toml and Cargo.lock using cargo set-version"
   requires:
     - rust
-  precondition:
-    type: command_succeeds
-    command: "cargo set-version --version"
   command: |
     case "${bump}" in
       patch|minor|major) cargo set-version --bump "${bump}" ;;
       *) cargo set-version "${bump}" ;;
     esac && cargo generate-lockfile
+
+  precondition:
+    type: execution
+    command: "cargo set-version --version"
+    validation: success

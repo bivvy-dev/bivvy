@@ -82,12 +82,7 @@ impl SchemaGenerator {
                         "items": { "type": "string" },
                         "description": "Steps that must run before this one"
                     },
-                    "completed_check": self.completed_check_schema(),
-                    "watches": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Files to watch for changes"
-                    },
+                    "check": self.check_schema(),
                     "inputs": {
                         "type": "object",
                         "additionalProperties": true,
@@ -99,24 +94,24 @@ impl SchemaGenerator {
         })
     }
 
-    /// Generate schema for completed_check.
-    fn completed_check_schema(&self) -> Value {
+    /// Generate schema for check.
+    fn check_schema(&self) -> Value {
         json!({
             "type": "object",
             "description": "How to check if step is complete",
             "properties": {
                 "type": {
                     "type": "string",
-                    "enum": ["file_exists", "command_succeeds", "marker"],
-                    "description": "Type of completion check"
+                    "enum": ["presence", "execution", "change", "all", "any"],
+                    "description": "Type of check"
                 },
-                "path": {
+                "target": {
                     "type": "string",
-                    "description": "Path for file_exists check"
+                    "description": "Target for presence check"
                 },
                 "command": {
                     "type": "string",
-                    "description": "Command for command_succeeds check"
+                    "description": "Command for execution check"
                 }
             },
             "required": ["type"]
@@ -203,7 +198,7 @@ mod tests {
         let step_props = &schema["properties"]["steps"]["additionalProperties"]["properties"];
         assert!(step_props["template"].is_object());
         assert!(step_props["depends_on"].is_object());
-        assert!(step_props["watches"].is_object());
+        assert!(step_props["check"].is_object());
     }
 
     #[test]
@@ -217,13 +212,12 @@ mod tests {
     }
 
     #[test]
-    fn completed_check_has_type_required() {
+    fn check_has_type_required() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        let completed_check =
-            &schema["properties"]["steps"]["additionalProperties"]["properties"]["completed_check"];
-        let required = completed_check["required"].as_array().unwrap();
+        let check = &schema["properties"]["steps"]["additionalProperties"]["properties"]["check"];
+        let required = check["required"].as_array().unwrap();
         assert!(required.contains(&json!("type")));
     }
 

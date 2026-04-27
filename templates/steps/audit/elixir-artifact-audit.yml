@@ -88,13 +88,22 @@ step:
   requires:
     - elixir
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d ${release_dir}"
-  watches:
-    - mix.exs
-    - mix.lock
-    - config/runtime.exs
-    - config/prod.exs
+    validation: success
+  checks:
+    - type: change
+      target: mix.exs
+      on_change: proceed
+    - type: change
+      target: mix.lock
+      on_change: proceed
+    - type: change
+      target: config/runtime.exs
+      on_change: proceed
+    - type: change
+      target: config/prod.exs
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify release artifacts"

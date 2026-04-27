@@ -12,12 +12,15 @@ step:
   command: "bun install"
   requires:
     - node
-  completed_check:
-    type: file_exists
-    path: "node_modules"
-  watches:
-    - package.json
-    - bun.lockb
+  checks:
+    - type: presence
+      target: node_modules
+    - type: change
+      target: package.json
+      on_change: proceed
+    - type: change
+      target: bun.lockb
+      on_change: proceed
 
 environment_impact:
   path_additions:

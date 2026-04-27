@@ -12,12 +12,15 @@ step:
   command: "dart pub get"
   requires:
     - dart
-  completed_check:
-    type: file_exists
-    path: ".dart_tool"
-  watches:
-    - pubspec.yaml
-    - pubspec.lock
+  checks:
+    - type: presence
+      target: .dart_tool
+    - type: change
+      target: pubspec.yaml
+      on_change: proceed
+    - type: change
+      target: pubspec.lock
+      on_change: proceed
 
 environment_impact:
   note: "Packages are cached in ~/.pub-cache"

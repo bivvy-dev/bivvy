@@ -12,11 +12,12 @@ step:
   command: "mvn dependency:resolve"
   requires:
     - mvn
-  completed_check:
-    type: file_exists
-    path: "target"
-  watches:
-    - pom.xml
+  checks:
+    - type: presence
+      target: target
+    - type: change
+      target: pom.xml
+      on_change: proceed
 
 environment_impact:
   note: "Dependencies are downloaded to the local Maven repository (~/.m2)"

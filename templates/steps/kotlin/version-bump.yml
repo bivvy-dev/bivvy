@@ -23,9 +23,6 @@ inputs:
 step:
   title: "Bump version"
   description: "Update version in build.gradle.kts or gradle.properties"
-  precondition:
-    type: command_succeeds
-    command: "test -f build.gradle.kts || test -f gradle.properties"
   command: |
     if [ -f gradle.properties ] && grep -q '^version=' gradle.properties; then
       version_file="gradle.properties"
@@ -51,3 +48,8 @@ step:
     else
       sed -i.bak "s/version = \"${current}\"/version = \"${new_version}\"/" build.gradle.kts && rm -f build.gradle.kts.bak
     fi
+
+  precondition:
+    type: execution
+    command: "test -f build.gradle.kts || test -f gradle.properties"
+    validation: success

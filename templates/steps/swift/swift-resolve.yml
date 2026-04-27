@@ -10,12 +10,15 @@ step:
   title: "Resolve Swift packages"
   description: "Download and resolve Swift Package Manager dependencies"
   command: "swift package resolve"
-  completed_check:
-    type: file_exists
-    path: ".build"
-  watches:
-    - Package.swift
-    - Package.resolved
+  checks:
+    - type: presence
+      target: .build
+    - type: change
+      target: Package.swift
+      on_change: proceed
+    - type: change
+      target: Package.resolved
+      on_change: proceed
 
 environment_impact:
   note: "Dependencies are resolved into the .build directory"

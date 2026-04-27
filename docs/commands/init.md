@@ -143,9 +143,10 @@ The generated config includes commented-out template details so you can see what
 #     setup_db:
 #       title: "Set up database"
 #       command: "bin/rails db:setup"
-#       completed_check:
-#         type: command_succeeds
+#       check:
+#         type: execution
 #         command: "bin/rails db:version"
+#         validation: success
 #
 # Create named workflows:
 #   workflows:
@@ -163,18 +164,18 @@ steps:
   bundle-install:
     template: bundle-install
     # command: bundle install
-    # completed_check:
-    #   type: command_succeeds
+    # check:
+    #   type: execution
     #   command: "bundle check"
-    # watches: [Gemfile, Gemfile.lock]
+    #   validation: success
 
   yarn-install:
     template: yarn-install
     # command: yarn install
-    # completed_check:
-    #   type: command_succeeds
+    # check:
+    #   type: execution
     #   command: "yarn check --verify-tree"
-    # watches: [yarn.lock, package.json]
+    #   validation: success
 
 workflows:
   default:

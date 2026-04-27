@@ -12,13 +12,18 @@ step:
   command: "npx next build"
   requires:
     - node
-  completed_check:
-    type: file_exists
-    path: ".next"
-  watches:
-    - next.config.js
-    - next.config.mjs
-    - next.config.ts
+  checks:
+    - type: presence
+      target: .next
+    - type: change
+      target: next.config.js
+      on_change: proceed
+    - type: change
+      target: next.config.mjs
+      on_change: proceed
+    - type: change
+      target: next.config.ts
+      on_change: proceed
 
 environment_impact:
   note: "Generates optimized production build in .next directory"

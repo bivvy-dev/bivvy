@@ -111,13 +111,22 @@ step:
   requires:
     - python
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d ${dist_dir}"
-  watches:
-    - pyproject.toml
-    - setup.py
-    - setup.cfg
-    - MANIFEST.in
+    validation: success
+  checks:
+    - type: change
+      target: pyproject.toml
+      on_change: proceed
+    - type: change
+      target: setup.py
+      on_change: proceed
+    - type: change
+      target: setup.cfg
+      on_change: proceed
+    - type: change
+      target: MANIFEST.in
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify build artifacts"

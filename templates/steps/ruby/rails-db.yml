@@ -14,14 +14,18 @@ step:
     - ruby
     - bundler
   precondition:
-    type: file_exists
-    path: "config/database.yml"
-  completed_check:
-    type: marker
-  watches:
-    - db/migrate
-    - db/seeds.rb
-    - config/database.yml
+    type: presence
+    target: config/database.yml
+  checks:
+    - type: change
+      target: db/migrate
+      on_change: proceed
+    - type: change
+      target: db/seeds.rb
+      on_change: proceed
+    - type: change
+      target: config/database.yml
+      on_change: proceed
 
 environment_impact:
   note: "Creates and migrates the development database, then seeds it"

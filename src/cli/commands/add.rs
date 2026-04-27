@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::AddArgs;
-use crate::config::{load_config, CompletedCheck};
+use crate::config::load_config;
 use crate::error::{BivvyError, Result};
 use crate::registry::resolver::Registry;
 use crate::registry::template::Template;
@@ -59,29 +59,6 @@ impl AddCommand {
         // Show command as comment
         if let Some(ref cmd) = template.step.command {
             block.push_str(&format!("    # command: {}\n", cmd));
-        }
-
-        // Show completed_check as comment
-        if let Some(ref check) = template.step.completed_check {
-            match check {
-                CompletedCheck::FileExists { path } => {
-                    block.push_str("    # completed_check:\n");
-                    block.push_str("    #   type: file_exists\n");
-                    block.push_str(&format!("    #   path: \"{}\"\n", path));
-                }
-                CompletedCheck::CommandSucceeds { command } => {
-                    block.push_str("    # completed_check:\n");
-                    block.push_str("    #   type: command_succeeds\n");
-                    block.push_str(&format!("    #   command: \"{}\"\n", command));
-                }
-                _ => {}
-            }
-        }
-
-        // Show watches as comment
-        if !template.step.watches.is_empty() {
-            let watches: Vec<&str> = template.step.watches.iter().map(|s| s.as_str()).collect();
-            block.push_str(&format!("    # watches: [{}]\n", watches.join(", ")));
         }
 
         block
@@ -586,8 +563,6 @@ workflows:
 
         assert!(block.contains("  bundle-install:\n    template: bundle-install\n"));
         assert!(block.contains("# command: bundle install"));
-        assert!(block.contains("# completed_check:"));
-        assert!(block.contains("# watches:"));
     }
 
     #[test]

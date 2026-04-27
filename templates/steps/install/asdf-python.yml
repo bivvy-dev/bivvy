@@ -10,9 +10,10 @@ step:
   command: "asdf plugin add python 2>/dev/null; asdf install python"
   requires:
     - asdf
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "asdf where python"
+    validation: success
 
 environment_impact:
   modifies_path: true

@@ -10,9 +10,10 @@ step:
   command: "mise install node"
   requires:
     - mise
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "mise where node"
+    validation: success
 
 environment_impact:
   modifies_path: true

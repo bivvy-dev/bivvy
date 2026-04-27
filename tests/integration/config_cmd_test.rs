@@ -252,9 +252,6 @@ steps:
     command: npm install
     title: Install dependencies
     depends_on: []
-    watches:
-      - package.json
-      - package-lock.json
   test:
     command: npm test
     depends_on: [deps]
@@ -269,7 +266,6 @@ workflows:
     cmd.assert()
         .success()
         .stdout(predicate::str::contains("npm install"))
-        .stdout(predicate::str::contains("package.json"))
         .stdout(predicate::str::contains("npm test"));
     Ok(())
 }
@@ -281,8 +277,6 @@ app_name: Complex
 steps:
   deps:
     command: npm install
-    watches:
-      - package.json
   test:
     command: npm test
     depends_on: [deps]
@@ -340,22 +334,22 @@ workflows:
     Ok(())
 }
 
-// --- Completed check types in config output ---
+// --- Check types in config output ---
 
 #[test]
-fn config_shows_completed_checks() -> Result<(), Box<dyn std::error::Error>> {
+fn config_shows_checks() -> Result<(), Box<dyn std::error::Error>> {
     let config = r#"
 app_name: CheckTest
 steps:
   deps:
     command: npm install
-    completed_check:
-      type: file_exists
-      path: node_modules/.package-lock.json
+    check:
+      type: presence
+      target: node_modules/.package-lock.json
   db:
     command: rails db:setup
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: rails db:version
 workflows:
   default:
@@ -367,9 +361,9 @@ workflows:
     cmd.arg("config");
     cmd.assert()
         .success()
-        .stdout(predicate::str::contains("file_exists"))
+        .stdout(predicate::str::contains("presence"))
         .stdout(predicate::str::contains("node_modules"))
-        .stdout(predicate::str::contains("command_succeeds"))
+        .stdout(predicate::str::contains("execution"))
         .stdout(predicate::str::contains("rails db:version"));
     Ok(())
 }

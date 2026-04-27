@@ -10,9 +10,10 @@ step:
   command: "brew install go"
   requires:
     - brew
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "go version"
+    validation: success
 
 environment_impact:
   modifies_path: true

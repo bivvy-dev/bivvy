@@ -10,9 +10,10 @@ step:
   command: "asdf plugin add ruby 2>/dev/null; asdf install ruby"
   requires:
     - asdf
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "asdf where ruby"
+    validation: success
 
 environment_impact:
   modifies_path: true

@@ -267,9 +267,9 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
-            // Resolve effective prompt_if_complete (step-level, possibly overridden)
-            let effective_prompt_if_complete =
-                decision::effective_prompt_if_complete(step, step_name, step_overrides);
+            // Resolve effective prompt_on_rerun (step-level, possibly overridden)
+            let effective_prompt_on_rerun =
+                decision::effective_prompt_on_rerun(step, step_name, step_overrides);
 
             let mut needs_force = options.force.contains(step_name);
             let mut already_prompted = false;
@@ -407,7 +407,7 @@ impl<'a> WorkflowRunner<'a> {
                         duration_ms: None,
                     });
                     if check_result.passed_check() {
-                        if interactive && effective_prompt_if_complete {
+                        if interactive && effective_prompt_on_rerun {
                             if step.behavior.skippable {
                                 // Show step header, then ask if they want to re-run
                                 ui.message(&step_header);
@@ -476,7 +476,7 @@ impl<'a> WorkflowRunner<'a> {
                                 needs_force = true;
                             }
                         } else {
-                            // Not interactive or prompt_if_complete is false: check passed
+                            // Not interactive or prompt_on_rerun is false: check passed
                             event_bus.emit(&BivvyEvent::StepDecided {
                                 name: step_name.clone(),
                                 decision: "skip".to_string(),

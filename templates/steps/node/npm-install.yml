@@ -12,14 +12,17 @@ step:
   command: "npm install"
   requires:
     - node
-  completed_check:
-    type: file_exists
-    path: "node_modules"
   env:
     NODE_ENV: development
-  watches:
-    - package.json
-    - package-lock.json
+  checks:
+    - type: presence
+      target: node_modules
+    - type: change
+      target: package.json
+      on_change: proceed
+    - type: change
+      target: "package-lock.json"
+      on_change: proceed
 
 environment_impact:
   path_additions:

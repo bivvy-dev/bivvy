@@ -11,6 +11,7 @@ step:
   description: "Install packages using the Scoop package manager"
   command: "scoop install"
 
+
 environment_impact:
   modifies_path: true
   note: "Scoop packages are added to ~/scoop/shims"

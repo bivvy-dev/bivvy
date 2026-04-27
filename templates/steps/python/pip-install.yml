@@ -12,11 +12,13 @@ step:
   command: "pip install -r requirements.txt"
   requires:
     - python
-  completed_check:
-    type: command_succeeds
-    command: "pip check"
-  watches:
-    - requirements.txt
+  checks:
+    - type: execution
+      command: "pip check"
+      validation: success
+    - type: change
+      target: requirements.txt
+      on_change: proceed
 
 environment_impact:
   note: "Packages are installed to the active Python environment"

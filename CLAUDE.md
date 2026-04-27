@@ -138,12 +138,10 @@ steps:
     template: template_name  # OR define inline
     command: "..."
     depends_on: [other_step]
-    completed_check:
-      type: file_exists | command_succeeds | marker
-      path: "..."
+    check:
+      type: presence | execution | change
+      target: "..."
       command: "..."
-    watches:
-      - file_to_watch.lock
 
 workflows:
   default:
@@ -201,7 +199,7 @@ Bivvy has two distinct documentation audiences. Keep them separate.
 
   <standard name="idempotency">
     <rule>Steps should be safe to re-run</rule>
-    <rule>Use `completed_check` to detect if work is already done</rule>
+    <rule>Use `check`/`checks` to detect if work is already done</rule>
     <rule>Prompt before re-running completed steps (unless `--force`)</rule>
   </standard>
 </standards>

@@ -23,9 +23,6 @@ inputs:
 step:
   title: "Bump version"
   description: "Update MARKETING_VERSION in Xcode project using agvtool"
-  precondition:
-    type: command_succeeds
-    command: "agvtool what-marketing-version"
   command: |
     case "${bump}" in
       patch|minor|major)
@@ -44,3 +41,8 @@ step:
         agvtool new-marketing-version "${bump}"
         ;;
     esac
+
+  precondition:
+    type: execution
+    command: "agvtool what-marketing-version"
+    validation: success

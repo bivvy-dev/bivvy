@@ -23,9 +23,6 @@ inputs:
 step:
   title: "Bump version"
   description: "Update Version property in .csproj file"
-  precondition:
-    type: command_succeeds
-    command: "dotnet --version"
   command: |
     csproj=$(find . -maxdepth 2 -name '*.csproj' | head -1)
     if [ -z "$csproj" ]; then
@@ -47,3 +44,8 @@ step:
     else
       sed -i.bak "s|</PropertyGroup>|  <Version>${new_version}</Version>\n  </PropertyGroup>|" "$csproj" && rm -f "${csproj}.bak"
     fi
+
+  precondition:
+    type: execution
+    command: "dotnet --version"
+    validation: success

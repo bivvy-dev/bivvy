@@ -35,8 +35,8 @@ steps:
     title: "Verify toolchain"
     command: "rustc --version && git --version"
     skippable: false
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   validate-repo:
@@ -44,11 +44,9 @@ steps:
     command: "git rev-parse --git-dir && git status --short"
     skippable: false
     depends_on: [verify-toolchain]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git rev-parse --git-dir"
-    watches:
-      - .git/HEAD
 
   analyze-metadata:
     title: "Analyze project metadata"
@@ -67,9 +65,9 @@ steps:
     command: "echo branch=${git_branch} > .build-report.txt && rustc --version >> .build-report.txt && cargo --version >> .build-report.txt"
     skippable: false
     depends_on: [analyze-metadata, extract-version]
-    completed_check:
-      type: file_exists
-      path: ".build-report.txt"
+    check:
+      type: presence
+      target: ".build-report.txt"
 
 workflows:
   default:
@@ -129,29 +127,29 @@ steps:
   check-rust:
     title: "Check Rust toolchain"
     command: "rustc --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   check-cargo-toml:
     title: "Check Cargo.toml exists"
     command: "cargo pkgid"
-    completed_check:
-      type: file_exists
-      path: "Cargo.toml"
+    check:
+      type: presence
+      target: "Cargo.toml"
 
   check-missing-file:
     title: "Check missing lockfile"
     command: "cargo --version && rustc --version"
-    completed_check:
-      type: file_exists
-      path: "nonexistent-file.lock"
+    check:
+      type: presence
+      target: "nonexistent-file.lock"
 
   check-failing-cmd:
     title: "Check failing command"
     command: "rustc --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "cargo verify-project --manifest-path nonexistent/Cargo.toml"
 
 workflows:
@@ -304,7 +302,7 @@ workflows:
     steps: [setup-step, failing-step, retry-step, final-step]
 "#;
 
-/// Realistic config with marker completed_check for second-run detection.
+/// Realistic config for second-run detection (formerly used marker checks).
 const MARKER_REALISTIC_CONFIG: &str = r#"
 app_name: "MarkerRealistic"
 
@@ -316,16 +314,12 @@ steps:
     title: "Initialize database"
     command: "git rev-parse HEAD > .db-marker.txt && rustc --version >> .db-marker.txt"
     skippable: false
-    completed_check:
-      type: marker
 
   seed-data:
     title: "Seed data"
     command: "cargo --version > .seed-marker.txt && git log --oneline -1 >> .seed-marker.txt"
     skippable: false
     depends_on: [init-db]
-    completed_check:
-      type: marker
 
 workflows:
   default:
@@ -344,14 +338,14 @@ steps:
     title: "Full validation"
     command: "rustc --version && cargo pkgid && git rev-parse --short HEAD"
     skippable: false
-    completed_check:
+    check:
       type: all
       checks:
-        - type: file_exists
-          path: "Cargo.toml"
-        - type: file_exists
-          path: "src/main.rs"
-        - type: command_succeeds
+        - type: presence
+          target: "Cargo.toml"
+        - type: presence
+          target: "src/main.rs"
+        - type: execution
           command: "rustc --version"
 
 workflows:
@@ -371,13 +365,13 @@ steps:
     title: "Flexible check"
     command: "git --version && rustc --version"
     skippable: false
-    completed_check:
+    check:
       type: any
       checks:
-        - type: file_exists
-          path: "package.json"
-        - type: file_exists
-          path: "Cargo.toml"
+        - type: presence
+          target: "package.json"
+        - type: presence
+          target: "Cargo.toml"
 
 workflows:
   default:
@@ -397,7 +391,7 @@ steps:
     command: "git rev-parse HEAD && rustc --version"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "git rev-parse --git-dir"
 
 workflows:
@@ -1185,7 +1179,7 @@ steps:
     command: "rustc --version"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "git --no-such-flag-xyz"
 workflows:
   default:

@@ -25,7 +25,9 @@ step:
   description: "Update version in pyproject.toml using bump-my-version"
   requires:
     - python
-  precondition:
-    type: command_succeeds
-    command: "bump-my-version --help"
   command: "bump-my-version bump \"${bump}\" --no-commit --no-tag"
+
+  precondition:
+    type: execution
+    command: "bump-my-version --help"
+    validation: success

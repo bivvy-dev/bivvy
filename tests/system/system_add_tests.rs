@@ -67,24 +67,21 @@ workflows:
     steps: [existing]
 "#;
 
-/// Config with dependencies, watches, and completed_check already present.
+/// Config with dependencies and check already present.
 const COMPLEX_CONFIG: &str = r#"
 app_name: "ComplexProject"
 steps:
   install:
     command: "npm install"
-    completed_check:
-      type: file_exists
-      path: "node_modules/.package-lock.json"
-    watches:
-      - package.json
-      - package-lock.json
+    check:
+      type: presence
+      target: "node_modules/.package-lock.json"
   build:
     command: "npm run build"
     depends_on: [install]
-    completed_check:
-      type: file_exists
-      path: "dist/index.js"
+    check:
+      type: presence
+      target: "dist/index.js"
   test:
     command: "npm test"
     depends_on: [build]
@@ -444,7 +441,7 @@ fn add_all_flags_combined() {
 // =====================================================================
 
 /// The generated step for bundle-install includes commented-out
-/// template details (command, completed_check, watches).
+/// template details (command, check).
 #[test]
 fn add_generates_commented_template_details() {
     let temp = setup_project(BASE_CONFIG);
@@ -452,18 +449,14 @@ fn add_generates_commented_template_details() {
 
     let config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
 
-    // bundle-install template has command, completed_check, and watches
+    // bundle-install template has command and check
     assert!(
         config.contains("# command: bundle install"),
         "Should include commented command from template"
     );
     assert!(
-        config.contains("# completed_check:"),
-        "Should include commented completed_check from template"
-    );
-    assert!(
-        config.contains("# watches:"),
-        "Should include commented watches from template"
+        config.contains("# check:"),
+        "Should include commented check from template"
     );
 }
 
@@ -552,11 +545,11 @@ fn add_preserves_all_comments() {
 }
 
 // =====================================================================
-// ADDING TO COMPLEX CONFIGS (dependencies, watches, completed_check)
+// ADDING TO COMPLEX CONFIGS (dependencies, check)
 // =====================================================================
 
-/// Adding a template to a config with dependencies, watches, and
-/// completed_check fields — verifies no corruption of existing data.
+/// Adding a template to a config with dependencies and
+/// check fields — verifies no corruption of existing data.
 #[test]
 fn add_to_config_with_complex_steps() {
     let temp = setup_project(COMPLEX_CONFIG);
@@ -579,16 +572,8 @@ fn add_to_config_with_complex_steps() {
         "depends_on should be preserved"
     );
     assert!(
-        config.contains("type: file_exists"),
-        "completed_check type should be preserved"
-    );
-    assert!(
-        config.contains("- package.json"),
-        "watches entries should be preserved"
-    );
-    assert!(
-        config.contains("- package-lock.json"),
-        "All watches entries should be preserved"
+        config.contains("type: presence"),
+        "check type should be preserved"
     );
 
     // New step should be inserted in the right place in the workflow

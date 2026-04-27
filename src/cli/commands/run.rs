@@ -174,7 +174,7 @@ impl Command for RunCommand {
         let mut deprecation_warnings =
             crate::lint::rules::deprecated_fields::collect_deprecation_warnings(&config);
 
-        // Scan raw YAML for alias-based deprecations (e.g., prompt_if_complete)
+        // Scan raw YAML for alias-based deprecations (e.g., old field names)
         {
             let config_file_paths: Vec<std::path::PathBuf> =
                 if let Some(ref p) = self.config_override {
@@ -308,22 +308,8 @@ impl Command for RunCommand {
         options.active_environment = Some(env_name.clone());
 
         // Create runner with project-backed snapshot store for change check baselines
-        let mut snapshot_store = crate::snapshots::SnapshotStore::load_for_project(&project_id);
+        let snapshot_store = crate::snapshots::SnapshotStore::load_for_project(&project_id);
 
-        // Migrate v1 watches_hash data to snapshot store baselines
-        let watches_hashes = StateStore::extract_watches_hashes(&project_id);
-        if !watches_hashes.is_empty() {
-            for (step_name, hash) in &watches_hashes {
-                // Use a generic config hash since we don't know the original check config
-                let key = crate::snapshots::SnapshotKey::project(step_name.as_str(), "migrated");
-                snapshot_store.record_baseline(
-                    &key,
-                    "_last_run",
-                    hash.clone(),
-                    "watches".to_string(),
-                );
-            }
-        }
         let mut runner = WorkflowRunner::with_snapshot_store(&config, steps, snapshot_store);
 
         // Create gap checker for requirement detection
@@ -806,8 +792,8 @@ app_name: Test Project
 steps:
   hello:
     command: echo hello
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "exit 0"
 workflows:
   default:

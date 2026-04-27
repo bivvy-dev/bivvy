@@ -1841,10 +1841,10 @@ fn init_generated_config_has_template_comments() {
         config.contains("# command: bundle install"),
         "Config should show the template command as a comment"
     );
-    // Template enrichment: completed_check from the bundle-install template
+    // Template enrichment: check from the bundle-install template
     assert!(
-        config.contains("# completed_check:"),
-        "Config should show completed_check as a comment"
+        config.contains("# check:"),
+        "Config should show check as a comment"
     );
 }
 

@@ -11,7 +11,7 @@ mod system;
 use expectrl::WaitStatus;
 use system::helpers::*;
 
-/// Realistic multi-step config exercising dependencies and a completed_check.
+/// Realistic multi-step config exercising dependencies and a check.
 /// Uses real tools (`cargo`, `rustc`) rather than shell builtins so the test
 /// reflects how Bivvy is actually used.
 const CONFIG: &str = r#"
@@ -20,8 +20,8 @@ steps:
   deps:
     title: "Install dependencies"
     command: "cargo --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "cargo --version"
   build:
     title: "Build project"

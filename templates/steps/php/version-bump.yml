@@ -25,9 +25,6 @@ step:
   description: "Update version in composer.json"
   requires:
     - php
-  precondition:
-    type: file_exists
-    path: "composer.json"
   command: |
     current=$(grep -oP '"version":\s*"\K[^"]+' composer.json)
     major=$(echo "$current" | cut -d. -f1)
@@ -41,3 +38,7 @@ step:
     esac
     new_version="${major}.${minor}.${patch}"
     sed -i.bak "s/\"version\": \"${current}\"/\"version\": \"${new_version}\"/" composer.json && rm -f composer.json.bak
+
+  precondition:
+    type: presence
+    target: composer.json

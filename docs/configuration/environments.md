@@ -155,7 +155,7 @@ Overridable fields:
 | `description` | Human-readable description |
 | `command` | Shell command |
 | `env` | Environment variables (`null` value removes a key) |
-| `completed_check` | Completion detection |
+| `check` / `checks` | Completion detection |
 | `skippable` | Whether user can skip |
 | `allow_failure` | Continue on failure |
 | `requires_sudo` | Needs elevated permissions |
@@ -164,7 +164,7 @@ Overridable fields:
 | `after` | Post-step hooks |
 | `depends_on` | Step dependencies |
 | `requires` | System requirements |
-| `watches` | Files triggering re-run |
+| `satisfied_when` | Satisfaction conditions |
 | `retry` | Retry attempts |
 
 ## Provided requirements

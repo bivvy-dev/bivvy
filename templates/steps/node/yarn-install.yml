@@ -12,14 +12,18 @@ step:
   command: "yarn install"
   requires:
     - node
-  completed_check:
-    type: command_succeeds
-    command: "yarn check --verify-tree"
   env:
     NODE_ENV: development
-  watches:
-    - yarn.lock
-    - package.json
+  checks:
+    - type: execution
+      command: "yarn check --verify-tree"
+      validation: success
+    - type: change
+      target: yarn.lock
+      on_change: proceed
+    - type: change
+      target: package.json
+      on_change: proceed
 
 environment_impact:
   path_additions:

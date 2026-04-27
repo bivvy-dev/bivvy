@@ -12,15 +12,24 @@ step:
   command: "./gradlew dependencies"
   requires:
     - java
-  completed_check:
-    type: file_exists
-    path: ".gradle"
-  watches:
-    - build.gradle.kts
-    - build.gradle
-    - settings.gradle.kts
-    - settings.gradle
-    - gradle.properties
+  checks:
+    - type: presence
+      target: .gradle
+    - type: change
+      target: build.gradle.kts
+      on_change: proceed
+    - type: change
+      target: build.gradle
+      on_change: proceed
+    - type: change
+      target: settings.gradle.kts
+      on_change: proceed
+    - type: change
+      target: settings.gradle
+      on_change: proceed
+    - type: change
+      target: gradle.properties
+      on_change: proceed
 
 environment_impact:
   note: "Dependencies are cached in ~/.gradle/caches and .gradle/"

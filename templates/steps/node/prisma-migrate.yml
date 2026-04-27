@@ -13,13 +13,15 @@ step:
   requires:
     - node
   precondition:
-    type: file_exists
-    path: "prisma/schema.prisma"
-  completed_check:
-    type: marker
-  watches:
-    - prisma/schema.prisma
-    - prisma/migrations
+    type: presence
+    target: prisma/schema.prisma
+  checks:
+    - type: change
+      target: prisma/schema.prisma
+      on_change: proceed
+    - type: change
+      target: prisma/migrations
+      on_change: proceed
 
 environment_impact:
   note: "Applies pending migrations and regenerates Prisma Client"

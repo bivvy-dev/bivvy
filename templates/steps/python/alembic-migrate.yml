@@ -13,13 +13,15 @@ step:
   requires:
     - python
   precondition:
-    type: file_exists
-    path: "alembic.ini"
-  completed_check:
-    type: marker
-  watches:
-    - alembic.ini
-    - alembic/versions
+    type: presence
+    target: alembic.ini
+  checks:
+    - type: change
+      target: alembic.ini
+      on_change: proceed
+    - type: change
+      target: alembic/versions
+      on_change: proceed
 
 environment_impact:
   note: "Applies all pending database migrations up to head"

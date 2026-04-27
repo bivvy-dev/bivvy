@@ -12,12 +12,16 @@ step:
   command: "poetry install"
   requires:
     - python
-  completed_check:
-    type: command_succeeds
-    command: "poetry check"
-  watches:
-    - pyproject.toml
-    - poetry.lock
+  checks:
+    - type: execution
+      command: "poetry check"
+      validation: success
+    - type: change
+      target: pyproject.toml
+      on_change: proceed
+    - type: change
+      target: poetry.lock
+      on_change: proceed
 
 environment_impact:
   note: "Poetry manages a virtual environment for the project"

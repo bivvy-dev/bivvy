@@ -13,13 +13,15 @@ step:
   requires:
     - python
   precondition:
-    type: file_exists
-    path: "manage.py"
-  completed_check:
-    type: marker
-  watches:
-    - manage.py
-    - "*/migrations"
+    type: presence
+    target: manage.py
+  checks:
+    - type: change
+      target: manage.py
+      on_change: proceed
+    - type: change
+      target: "*/migrations"
+      on_change: proceed
 
 environment_impact:
   note: "Applies pending database migrations"

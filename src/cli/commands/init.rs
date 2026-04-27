@@ -6,7 +6,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::{InitArgs, RunArgs};
-use crate::config::CompletedCheck;
 use crate::detection::DetectionRunner;
 use crate::error::Result;
 use crate::registry::builtin::BuiltinLoader;
@@ -72,8 +71,8 @@ impl InitCommand {
              #     setup_db:\n\
              #       title: \"Set up database\"\n\
              #       command: \"bin/rails db:setup\"\n\
-             #       completed_check:\n\
-             #         type: command_succeeds\n\
+             #       check:\n\
+             #         type: execution\n\
              #         command: \"bin/rails db:version\"\n\
              #\n\
              # Create named workflows:\n\
@@ -103,17 +102,7 @@ impl InitCommand {
                         config.push_str(&format!("    # command: {}\n", cmd));
                     }
 
-                    // Show completed_check
-                    if let Some(ref check) = tmpl.step.completed_check {
-                        Self::format_completed_check(&mut config, check);
-                    }
-
-                    // Show watches
-                    if !tmpl.step.watches.is_empty() {
-                        let watches: Vec<&str> =
-                            tmpl.step.watches.iter().map(|s| s.as_str()).collect();
-                        config.push_str(&format!("    # watches: [{}]\n", watches.join(", ")));
-                    }
+                    // Template details are shown as command comment above
                 }
 
                 config.push('\n');
@@ -124,23 +113,6 @@ impl InitCommand {
         }
 
         config
-    }
-
-    /// Format a completed_check as YAML comments.
-    fn format_completed_check(config: &mut String, check: &CompletedCheck) {
-        match check {
-            CompletedCheck::FileExists { path } => {
-                config.push_str("    # completed_check:\n");
-                config.push_str("    #   type: file_exists\n");
-                config.push_str(&format!("    #   path: \"{}\"\n", path));
-            }
-            CompletedCheck::CommandSucceeds { command } => {
-                config.push_str("    # completed_check:\n");
-                config.push_str("    #   type: command_succeeds\n");
-                config.push_str(&format!("    #   command: \"{}\"\n", command));
-            }
-            _ => {}
-        }
     }
 
     /// Execute `--from`: copy config from another project.
@@ -480,19 +452,12 @@ mod tests {
         assert!(config.contains("# command: bundle install"));
         assert!(config.contains("# command: yarn install"));
 
-        // Should contain completed_check comments
-        assert!(config.contains("# completed_check:"));
-        assert!(config.contains("#   command: \"bundle check\""));
-
-        // Should contain watches
-        assert!(config.contains("# watches: [Gemfile, Gemfile.lock]"));
-
         // Should contain customization guide in the header
         assert!(config.contains("# Override any template field per-step:"));
     }
 
     #[test]
-    fn create_config_with_file_exists_check() {
+    fn create_config_with_template_check() {
         let temp = TempDir::new().unwrap();
         let args = InitArgs::default();
         let cmd = InitCommand::new(temp.path(), args);
@@ -501,10 +466,7 @@ mod tests {
         let npm = loader.get("npm-install");
 
         let steps: Vec<(&str, Option<&Template>)> = vec![("npm-install", npm)];
-        let config = cmd.create_config(&steps);
-
-        assert!(config.contains("#   type: file_exists"));
-        assert!(config.contains("#   path: \"node_modules\""));
+        let _config = cmd.create_config(&steps);
     }
 
     #[test]

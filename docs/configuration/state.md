@@ -29,7 +29,6 @@ Bivvy tracks the following for each step:
 | `last_run` | When the step last executed |
 | `status` | Success, Failed, Skipped, or NeverRun |
 | `duration_ms` | How long execution took |
-| `watches_hash` | Hash of watched files at last run |
 
 ### Step Status Values
 
@@ -63,23 +62,22 @@ error: null
 
 ## Change Detection
 
-When a step has `watches` configured, Bivvy detects if those files have changed since the step last ran:
+When a step has `change` checks configured, Bivvy detects if target files have changed from a stored baseline:
 
 ```yaml
 steps:
   dependencies:
     command: bundle install
-    watches:
-      - Gemfile
-      - Gemfile.lock
+    checks:
+      - type: change
+        target: Gemfile
+        on_change: proceed
+      - type: change
+        target: Gemfile.lock
+        on_change: proceed
 ```
 
-Change detection checks:
-
-1. File modification time vs. step last run time
-2. Content hash for files under 1MB
-
-If watched files have changed, the step is marked as "stale" and will re-run even if previously successful.
+Change detection computes a SHA-256 hash of the target and compares it to the stored baseline. If the hashes differ, the step re-runs. Baselines are stored in `~/.bivvy/projects/{hash}/snapshots/` and updated after each successful execution.
 
 ## Preferences
 

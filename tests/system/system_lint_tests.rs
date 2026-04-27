@@ -320,7 +320,7 @@ app_name: "NoInstallTemplate"
 requirements:
   my-tool:
     check:
-      type: command_succeeds
+      type: execution
       command: "my-tool --version"
 steps:
   build:

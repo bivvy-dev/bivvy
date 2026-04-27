@@ -107,12 +107,19 @@ step:
   requires:
     - ruby
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d ${pkg_dir}"
-  watches:
-    - "*.gemspec"
-    - Gemfile
-    - Gemfile.lock
+    validation: success
+  checks:
+    - type: change
+      target: "*.gemspec"
+      on_change: proceed
+    - type: change
+      target: Gemfile
+      on_change: proceed
+    - type: change
+      target: Gemfile.lock
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify gem artifacts"

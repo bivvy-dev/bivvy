@@ -454,20 +454,18 @@ mod tests {
         let bundler = &templates["ruby/bundle-install"];
         assert_eq!(bundler.category, "ruby");
         assert_eq!(bundler.step.command.as_deref(), Some("bundle install"));
-        assert!(bundler.step.completed_check.is_some());
         assert!(!bundler.detectors.is_empty());
         assert!(bundler
             .detectors
             .contains(&"gemfile-present.file".to_string()));
-        assert!(!bundler.step.watches.is_empty());
     }
 
     #[test]
-    fn npm_template_has_file_exists_check() {
+    fn npm_template_loads_with_command() {
         let templates = load_templates().unwrap();
         let npm = &templates["node/npm-install"];
         assert_eq!(npm.category, "node");
-        assert!(npm.step.completed_check.is_some());
+        assert!(npm.step.command.is_some());
     }
 
     #[test]

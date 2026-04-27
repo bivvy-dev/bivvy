@@ -25,9 +25,6 @@ step:
   description: "Create a new semver Git tag for the Go module"
   requires:
     - go
-  precondition:
-    type: command_succeeds
-    command: "git --version"
   command: |
     latest=$(git tag -l 'v*' --sort=-v:refname | head -1)
     if [ -z "$latest" ]; then
@@ -43,3 +40,8 @@ step:
       *) echo "v${bump}"; exit 0 ;;
     esac
     echo "v${major}.${minor}.${patch}"
+
+  precondition:
+    type: execution
+    command: "git --version"
+    validation: success

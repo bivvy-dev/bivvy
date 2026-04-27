@@ -53,9 +53,6 @@ pub struct StepState {
 
     /// Duration of the last run in milliseconds.
     pub duration_ms: Option<u64>,
-
-    /// Hash of watched files at last run.
-    pub watches_hash: Option<String>,
 }
 
 /// Status of a step execution.
@@ -154,56 +151,8 @@ impl StateStore {
 
     /// Apply any pending migrations to bring state to the current version.
     fn migrate(&mut self) {
-        if self.version < 2 {
-            self.migrate_v1_to_v2();
-        }
         // Future migrations would go here: if self.version < 3 { ... }
-    }
-
-    /// Migrate from v1 to v2.
-    ///
-    /// v2 clears `watches_hash` from step state. The watches_hash values
-    /// should be migrated to the SnapshotStore by the caller via
-    /// [`Self::extract_watches_hashes`] before saving.
-    fn migrate_v1_to_v2(&mut self) {
-        // Clear watches_hash from all step states — this data now lives
-        // in the SnapshotStore. The caller should call extract_watches_hashes()
-        // first to get the data for migration.
-        for step_state in self.steps.values_mut() {
-            step_state.watches_hash = None;
-        }
-        self.version = 2;
-    }
-
-    /// Extract watches_hash values from v1 step states before migration clears them.
-    ///
-    /// Returns a map of step_name → watches_hash for steps that have a stored hash.
-    /// Call this before saving a migrated state, and use the returned data to populate
-    /// the SnapshotStore with `_last_run` baselines.
-    pub fn extract_watches_hashes(project_id: &ProjectId) -> HashMap<String, String> {
-        let path = Self::state_file(project_id);
-        if !path.exists() {
-            return HashMap::new();
-        }
-
-        let Ok(content) = fs::read_to_string(&path) else {
-            return HashMap::new();
-        };
-
-        let Ok(state) = serde_yaml::from_str::<Self>(&content) else {
-            return HashMap::new();
-        };
-
-        if state.version >= 2 {
-            // Already migrated
-            return HashMap::new();
-        }
-
-        state
-            .steps
-            .into_iter()
-            .filter_map(|(name, step)| step.watches_hash.map(|hash| (name, hash)))
-            .collect()
+        self.version = Self::CURRENT_VERSION;
     }
 
     /// Save state to disk using atomic write.
@@ -249,13 +198,11 @@ impl StateStore {
         step: &str,
         status: StepStatus,
         duration: std::time::Duration,
-        watches_hash: Option<String>,
     ) {
         let state = StepState {
             last_run: Some(Utc::now()),
             status,
             duration_ms: Some(duration.as_millis() as u64),
-            watches_hash,
         };
         self.steps.insert(step.to_string(), state);
     }
@@ -386,7 +333,6 @@ impl Default for StepState {
             last_run: None,
             status: StepStatus::NeverRun,
             duration_ms: None,
-            watches_hash: None,
         }
     }
 }
@@ -420,7 +366,6 @@ mod tests {
                 status: StepStatus::Success,
                 last_run: Some(Utc::now()),
                 duration_ms: Some(1000),
-                watches_hash: None,
             },
         );
 
@@ -502,13 +447,11 @@ mod step_state_tests {
             "test",
             StepStatus::Success,
             std::time::Duration::from_secs(5),
-            Some("hash123".to_string()),
         );
 
         let step = state.get_step("test").unwrap();
         assert_eq!(step.status, StepStatus::Success);
         assert_eq!(step.duration_ms, Some(5000));
-        assert_eq!(step.watches_hash, Some("hash123".to_string()));
     }
 
     #[test]
@@ -523,7 +466,6 @@ mod step_state_tests {
             "test",
             StepStatus::Success,
             std::time::Duration::from_secs(1),
-            None,
         );
 
         assert!(state.is_step_complete("test"));
@@ -539,7 +481,6 @@ mod step_state_tests {
             "test",
             StepStatus::Failed,
             std::time::Duration::from_secs(1),
-            None,
         );
 
         assert!(!state.is_step_complete("test"));
@@ -551,7 +492,7 @@ mod step_state_tests {
         let project = ProjectId::from_path(temp.path()).unwrap();
         let mut state = StateStore::new(&project);
 
-        state.record_step_result("test", StepStatus::Success, std::time::Duration::ZERO, None);
+        state.record_step_result("test", StepStatus::Success, std::time::Duration::ZERO);
         assert!(state.get_step("test").is_some());
 
         state.clear_step("test");
@@ -564,8 +505,8 @@ mod step_state_tests {
         let project = ProjectId::from_path(temp.path()).unwrap();
         let mut state = StateStore::new(&project);
 
-        state.record_step_result("a", StepStatus::Success, std::time::Duration::ZERO, None);
-        state.record_step_result("b", StepStatus::Success, std::time::Duration::ZERO, None);
+        state.record_step_result("a", StepStatus::Success, std::time::Duration::ZERO);
+        state.record_step_result("b", StepStatus::Success, std::time::Duration::ZERO);
 
         state.clear_all_steps();
 
@@ -641,13 +582,8 @@ mod query_tests {
         let project = super::super::ProjectId::from_path(temp.path()).unwrap();
         let mut state = StateStore::new(&project);
 
-        state.record_step_result(
-            "step1",
-            StepStatus::Success,
-            std::time::Duration::ZERO,
-            None,
-        );
-        state.record_step_result("step2", StepStatus::Failed, std::time::Duration::ZERO, None);
+        state.record_step_result("step1", StepStatus::Success, std::time::Duration::ZERO);
+        state.record_step_result("step2", StepStatus::Failed, std::time::Duration::ZERO);
 
         let summary = state.status_summary();
         assert_eq!(summary.step_count, 2);
@@ -744,12 +680,7 @@ mod prune_tests {
         let mut state = StateStore::new(&project);
 
         // Add orphan step state (not in any run)
-        state.record_step_result(
-            "orphan",
-            StepStatus::Success,
-            std::time::Duration::ZERO,
-            None,
-        );
+        state.record_step_result("orphan", StepStatus::Success, std::time::Duration::ZERO);
 
         // Add a run with a different step
         let record = super::super::RunRecord {
@@ -764,7 +695,7 @@ mod prune_tests {
         state.record_run(record);
 
         // Add the kept step state
-        state.record_step_result("kept", StepStatus::Success, std::time::Duration::ZERO, None);
+        state.record_step_result("kept", StepStatus::Success, std::time::Duration::ZERO);
 
         state.cleanup(50);
 
@@ -789,12 +720,7 @@ mod prune_tests {
         };
         state.record_run(record);
 
-        state.record_step_result(
-            "skipped",
-            StepStatus::Skipped,
-            std::time::Duration::ZERO,
-            None,
-        );
+        state.record_step_result("skipped", StepStatus::Skipped, std::time::Duration::ZERO);
 
         state.cleanup(50);
 
@@ -807,8 +733,8 @@ mod prune_tests {
         let project = super::super::ProjectId::from_path(temp.path()).unwrap();
         let mut state = StateStore::new(&project);
 
-        state.record_step_result("a", StepStatus::Success, std::time::Duration::ZERO, None);
-        state.record_step_result("b", StepStatus::Success, std::time::Duration::ZERO, None);
+        state.record_step_result("a", StepStatus::Success, std::time::Duration::ZERO);
+        state.record_step_result("b", StepStatus::Success, std::time::Duration::ZERO);
 
         let record = super::super::RunRecord {
             timestamp: Utc::now(),
@@ -833,42 +759,7 @@ mod migration_tests {
     use tempfile::TempDir;
 
     #[test]
-    fn v1_state_migrates_to_v2_on_load() {
-        let temp = TempDir::new().unwrap();
-        let project = ProjectId::from_path(temp.path()).unwrap();
-
-        // Write a v1 state file with watches_hash
-        let mut state = StateStore::new(&project);
-        state.version = 1;
-        state.update_step(
-            "bundle_install",
-            StepState {
-                status: StepStatus::Success,
-                last_run: Some(chrono::Utc::now()),
-                duration_ms: Some(5000),
-                watches_hash: Some("sha256:abc123".to_string()),
-            },
-        );
-        state.save(&project).unwrap();
-
-        // Re-load — should migrate to v2
-        let loaded = StateStore::load(&project).unwrap();
-        assert_eq!(loaded.version, 2);
-        // watches_hash should be cleared after migration
-        assert!(loaded
-            .get_step("bundle_install")
-            .unwrap()
-            .watches_hash
-            .is_none());
-        // Other fields preserved
-        assert_eq!(
-            loaded.get_step("bundle_install").unwrap().status,
-            StepStatus::Success,
-        );
-    }
-
-    #[test]
-    fn v2_state_does_not_re_migrate() {
+    fn v2_state_loads_correctly() {
         let temp = TempDir::new().unwrap();
         let project = ProjectId::from_path(temp.path()).unwrap();
 
@@ -889,55 +780,5 @@ mod migration_tests {
             loaded.get_step("step1").unwrap().status,
             StepStatus::Success,
         );
-    }
-
-    #[test]
-    fn extract_watches_hashes_from_v1() {
-        let temp = TempDir::new().unwrap();
-        let project = ProjectId::from_path(temp.path()).unwrap();
-
-        // Write a v1 state with watches_hash
-        let mut state = StateStore::new(&project);
-        state.version = 1;
-        state.update_step(
-            "deps",
-            StepState {
-                watches_hash: Some("hash123".to_string()),
-                ..Default::default()
-            },
-        );
-        state.update_step(
-            "no_hash",
-            StepState {
-                watches_hash: None,
-                ..Default::default()
-            },
-        );
-        state.save(&project).unwrap();
-
-        let hashes = StateStore::extract_watches_hashes(&project);
-        assert_eq!(hashes.len(), 1);
-        assert_eq!(hashes.get("deps"), Some(&"hash123".to_string()));
-    }
-
-    #[test]
-    fn extract_watches_hashes_empty_for_v2() {
-        let temp = TempDir::new().unwrap();
-        let project = ProjectId::from_path(temp.path()).unwrap();
-
-        let state = StateStore::new(&project);
-        state.save(&project).unwrap();
-
-        let hashes = StateStore::extract_watches_hashes(&project);
-        assert!(hashes.is_empty());
-    }
-
-    #[test]
-    fn extract_watches_hashes_empty_for_no_file() {
-        let temp = TempDir::new().unwrap();
-        let project = ProjectId::from_path(temp.path()).unwrap();
-
-        let hashes = StateStore::extract_watches_hashes(&project);
-        assert!(hashes.is_empty());
     }
 }

@@ -11,5 +11,6 @@ step:
   description: "Install packages using pacman package manager"
   command: "sudo pacman -S --noconfirm"
 
+
 environment_impact:
   note: "System packages are installed globally"

@@ -11,5 +11,6 @@ step:
   description: "Install packages using APT package manager"
   command: "sudo apt-get install -y"
 
+
 environment_impact:
   note: "System packages are installed globally"

@@ -12,12 +12,16 @@ step:
   command: "bundle install"
   requires:
     - ruby
-  completed_check:
-    type: command_succeeds
-    command: "bundle check"
-  watches:
-    - Gemfile
-    - Gemfile.lock
+  checks:
+    - type: execution
+      command: "bundle check"
+      validation: success
+    - type: change
+      target: Gemfile
+      on_change: proceed
+    - type: change
+      target: Gemfile.lock
+      on_change: proceed
 
 # If your project has BUNDLE_CLEAN: "true" in .bundle/config and you
 # use a version manager (mise, asdf, rbenv), set BUNDLE_PATH to avoid

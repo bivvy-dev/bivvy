@@ -10,9 +10,10 @@ step:
   command: "asdf plugin add nodejs 2>/dev/null; asdf install nodejs"
   requires:
     - asdf
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "asdf where nodejs"
+    validation: success
 
 environment_impact:
   modifies_path: true

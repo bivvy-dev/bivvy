@@ -103,11 +103,19 @@ step:
     fi
   requires:
     - docker
-  watches:
-    - Dockerfile
-    - docker-compose.yml
-    - compose.yml
-    - .dockerignore
+  checks:
+    - type: change
+      target: Dockerfile
+      on_change: proceed
+    - type: change
+      target: "docker-compose.yml"
+      on_change: proceed
+    - type: change
+      target: compose.yml
+      on_change: proceed
+    - type: change
+      target: .dockerignore
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — runs containers with --rm, does not modify images"

@@ -10,12 +10,16 @@ step:
   title: "Download Go dependencies"
   description: "Download module dependencies using go mod"
   command: "go mod download"
-  completed_check:
-    type: command_succeeds
-    command: "go mod verify"
-  watches:
-    - go.mod
-    - go.sum
+  checks:
+    - type: execution
+      command: "go mod verify"
+      validation: success
+    - type: change
+      target: go.mod
+      on_change: proceed
+    - type: change
+      target: go.sum
+      on_change: proceed
 
 environment_impact:
   note: "Modules are cached in $GOPATH/pkg/mod"

@@ -182,51 +182,6 @@ impl Check {
         let hash = Sha256::digest(yaml.as_bytes());
         format!("{:x}", hash)[..8].to_string()
     }
-
-    /// Convert a legacy `CompletedCheck` to the new `Check` type.
-    ///
-    /// This bridges the old config schema (`completed_check` field) to the new
-    /// check evaluation pipeline. `Marker` checks have no direct equivalent —
-    /// they are converted to a no-op presence check that always fails, since
-    /// marker semantics (state-aware rerun detection) are handled separately
-    /// by the orchestrator's rerun logic rather than the check evaluator.
-    pub fn from_completed_check(old: &crate::config::CompletedCheck) -> Self {
-        match old {
-            crate::config::CompletedCheck::FileExists { path } => Check::Presence {
-                name: None,
-                target: Some(path.clone()),
-                kind: Some(PresenceKind::File),
-                command: None,
-            },
-            crate::config::CompletedCheck::CommandSucceeds { command } => Check::Execution {
-                name: None,
-                command: command.clone(),
-                validation: ValidationMode::Success,
-            },
-            crate::config::CompletedCheck::Marker => {
-                // Marker checks query internal state, not the external world.
-                // The check evaluator cannot evaluate them — they are handled
-                // by the orchestrator's rerun detection. We convert to a custom
-                // presence check that always fails, so the step is treated as
-                // "not yet complete" by the check evaluator. The orchestrator
-                // can then apply state-aware rerun logic on top.
-                Check::Presence {
-                    name: None,
-                    target: None,
-                    kind: Some(PresenceKind::Custom),
-                    command: Some("false".to_string()),
-                }
-            }
-            crate::config::CompletedCheck::All { checks } => Check::All {
-                name: None,
-                checks: checks.iter().map(Check::from_completed_check).collect(),
-            },
-            crate::config::CompletedCheck::Any { checks } => Check::Any {
-                name: None,
-                checks: checks.iter().map(Check::from_completed_check).collect(),
-            },
-        }
-    }
 }
 
 /// Subtype for presence checks.

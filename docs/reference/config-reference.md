@@ -54,18 +54,19 @@ At minimum, a step needs either `command` or `template`.
 | `title` | string | step key | Display title |
 | `description` | string | — | Human-readable description |
 | `depends_on` | list | `[]` | Steps that must run first |
-| `completed_check` | [CompletedCheck](#completed-check) | — | Detect if already done |
-| `precondition` | [CompletedCheck](#completed-check) | — | Gate that must pass before step runs (not bypassed by `--force`) |
+| `check` | [Check](#check) | — | Single check (presence, execution, change) |
+| `checks` | list of [Check](#check) | `[]` | Multiple checks (implicit all) |
+| `satisfied_when` | list | `[]` | Conditions declaring step fulfilled |
+| `precondition` | [Check](#check) | — | Gate that must pass before step runs (not bypassed by `--force`) |
 | `skippable` | bool | `true` | User can skip interactively |
 | `required` | bool | `false` | Cannot be skipped |
-| `prompt_if_complete` | bool | `true` | Ask before re-running |
+| `prompt_on_rerun` | bool | `true` | Ask before re-running |
 | `allow_failure` | bool | `false` | Continue workflow on failure |
 | `retry` | int | `0` | Retry attempts on failure |
 | `env` | map | `{}` | Step-specific env vars |
 | `env_file` | path | — | Env file for this step |
 | `env_file_optional` | bool | `false` | Don't fail if env file missing |
 | `required_env` | list | `[]` | Env vars that must be set |
-| `watches` | list | `[]` | Files triggering re-run on change |
 | `prompts` | list of [Prompt](#prompt) | `[]` | Interactive prompts |
 | `output` | [StepOutput](#step-output) | — | Output settings override |
 | `sensitive` | bool | `false` | Hide command and suppress output |
@@ -76,15 +77,15 @@ At minimum, a step needs either `command` or `template`.
 | `only_environments` | list | `[]` | Limit step to these environments (empty = all) |
 | `environments` | map of [StepEnvironmentOverride](#step-environment-override) | `{}` | Per-environment field overrides |
 
-### Completed Check
+### Check
 
 Tagged union — the `type` field determines which other fields apply.
 
 | Type | Fields | Description |
 |------|--------|-------------|
-| `file_exists` | `path` | Check if file/directory exists |
-| `command_succeeds` | `command` | Check if command exits 0 |
-| `marker` | — | Use Bivvy's internal tracking |
+| `presence` | `target`, `kind` (optional) | Check if file/directory exists |
+| `execution` | `command`, `validation` | Check if command exits 0 |
+| `change` | `target`, `on_change`, `kind`, `baseline` | Detect changes to a file or directory |
 | `all` | `checks` (list) | Every sub-check must pass |
 | `any` | `checks` (list) | At least one sub-check must pass |
 
@@ -124,7 +125,8 @@ Used inside `workflows.<name>.overrides.<step>` to tweak step behavior for a spe
 |-------|------|---------|-------------|
 | `skip_prompt` | bool | `false` | Skip prompts, just run |
 | `required` | bool | — | Override step's `required` flag |
-| `prompt_if_complete` | bool | — | Override step's `prompt_if_complete` flag |
+| `prompt_on_rerun` | bool | — | Override step's `prompt_on_rerun` flag |
+| `check` | [Check](#check) | — | Override step's check |
 
 ### Workflow Settings
 
@@ -190,8 +192,8 @@ Used inside `steps.<name>.environments.<env>`. All fields are optional — only 
 | `description` | string | Override description |
 | `command` | string | Override shell command |
 | `env` | map of string → string\|null | Override env vars (`null` removes a key) |
-| `completed_check` | [CompletedCheck](#completed-check) | Override completion check |
-| `precondition` | [CompletedCheck](#completed-check) | Override precondition |
+| `check` | [Check](#check) | Override completion check |
+| `precondition` | [Check](#check) | Override precondition |
 | `skippable` | bool | Override skip permission |
 | `allow_failure` | bool | Override failure behavior |
 | `requires_sudo` | bool | Override sudo requirement |
@@ -200,7 +202,6 @@ Used inside `steps.<name>.environments.<env>`. All fields are optional — only 
 | `after` | list | Override post-step hooks |
 | `depends_on` | list | Override dependencies |
 | `requires` | list | Override system requirements |
-| `watches` | list | Override watched files |
 | `retry` | int | Override retry attempts |
 
 ### Var Definition
@@ -277,9 +278,9 @@ Tagged union — the `type` field determines which other fields apply.
 | `title` | string | — | Display title (supports `${input}`) |
 | `description` | string | — | Description |
 | `command` | string | — | Command (supports `${input}`) |
-| `completed_check` | [CompletedCheck](#completed-check) | — | Completion detection |
+| `check` | [Check](#check) | — | Single completion check |
+| `checks` | list of [Check](#check) | `[]` | Multiple completion checks |
 | `env` | map | `{}` | Environment variables |
-| `watches` | list | `[]` | Files to watch |
 
 ### Environment Impact
 

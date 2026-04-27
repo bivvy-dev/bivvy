@@ -12,14 +12,22 @@ step:
   command: "docker compose up -d"
   requires:
     - docker
-  completed_check:
-    type: command_succeeds
-    command: "docker compose ps --status running -q | head -1"
-  watches:
-    - docker-compose.yml
-    - docker-compose.yaml
-    - compose.yml
-    - compose.yaml
+  checks:
+    - type: execution
+      command: "docker compose ps --status running -q | head -1"
+      validation: success
+    - type: change
+      target: "docker-compose.yml"
+      on_change: proceed
+    - type: change
+      target: "docker-compose.yaml"
+      on_change: proceed
+    - type: change
+      target: compose.yml
+      on_change: proceed
+    - type: change
+      target: compose.yaml
+      on_change: proceed
 
 environment_impact:
   note: "Starts background services defined in Docker Compose configuration"

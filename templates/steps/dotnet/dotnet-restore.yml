@@ -12,13 +12,19 @@ step:
   command: "dotnet restore"
   requires:
     - dotnet
-  completed_check:
-    type: command_succeeds
-    command: "dotnet restore --no-restore 2>&1 | grep -q 'Nothing to do'"
-  watches:
-    - "*.csproj"
-    - "*.sln"
-    - Directory.Build.props
+  checks:
+    - type: execution
+      command: "dotnet restore --no-restore 2>&1 | grep -q 'Nothing to do"
+      validation: success
+    - type: change
+      target: "*.csproj"
+      on_change: proceed
+    - type: change
+      target: "*.sln"
+      on_change: proceed
+    - type: change
+      target: Directory.Build.props
+      on_change: proceed
 
 environment_impact:
   note: "NuGet packages are cached in ~/.nuget/packages"

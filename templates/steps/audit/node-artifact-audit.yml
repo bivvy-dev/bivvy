@@ -115,17 +115,34 @@ step:
   requires:
     - node
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d ${dist_dir}"
-  watches:
-    - package.json
-    - vite.config.js
-    - vite.config.ts
-    - webpack.config.js
-    - next.config.js
-    - next.config.mjs
-    - next.config.ts
-    - tsconfig.json
+    validation: success
+  checks:
+    - type: change
+      target: package.json
+      on_change: proceed
+    - type: change
+      target: vite.config.js
+      on_change: proceed
+    - type: change
+      target: vite.config.ts
+      on_change: proceed
+    - type: change
+      target: webpack.config.js
+      on_change: proceed
+    - type: change
+      target: next.config.js
+      on_change: proceed
+    - type: change
+      target: next.config.mjs
+      on_change: proceed
+    - type: change
+      target: next.config.ts
+      on_change: proceed
+    - type: change
+      target: tsconfig.json
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify build artifacts"

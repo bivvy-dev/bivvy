@@ -104,11 +104,16 @@ step:
   requires:
     - rust
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d target/${profile}"
-  watches:
-    - Cargo.toml
-    - Cargo.lock
+    validation: success
+  checks:
+    - type: change
+      target: Cargo.toml
+      on_change: proceed
+    - type: change
+      target: Cargo.lock
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify build artifacts"

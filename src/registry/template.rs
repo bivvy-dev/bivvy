@@ -212,20 +212,9 @@ pub struct TemplateStep {
     /// Command to execute
     pub command: Option<String>,
 
-    /// Completed check configuration
-    pub completed_check: Option<crate::config::CompletedCheck>,
-
-    /// Precondition that must pass before the step runs.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub precondition: Option<crate::config::CompletedCheck>,
-
     /// Environment variables
     #[serde(default)]
     pub env: HashMap<String, String>,
-
-    /// Files to watch for change detection
-    #[serde(default)]
-    pub watches: Vec<String>,
 
     /// System-level prerequisites this template's step requires.
     #[serde(default)]
@@ -299,14 +288,8 @@ detectors: [yarn-lockfile.file]
 step:
   title: "Install Node dependencies"
   command: "yarn install"
-  completed_check:
-    type: command_succeeds
-    command: "yarn check --verify-tree"
   env:
     NODE_ENV: development
-  watches:
-    - yarn.lock
-    - package.json
 environment_impact:
   path_additions:
     - "./node_modules/.bin"

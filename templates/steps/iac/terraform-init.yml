@@ -12,12 +12,15 @@ step:
   command: "terraform init"
   requires:
     - terraform
-  completed_check:
-    type: file_exists
-    path: ".terraform"
-  watches:
-    - "*.tf"
-    - .terraform.lock.hcl
+  checks:
+    - type: presence
+      target: .terraform
+    - type: change
+      target: "*.tf"
+      on_change: proceed
+    - type: change
+      target: .terraform.lock.hcl
+      on_change: proceed
 
 environment_impact:
   note: "Providers and modules are downloaded to the .terraform directory"

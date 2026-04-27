@@ -58,10 +58,10 @@ steps:
   bundle-install:
     template: bundle-install
     # command: bundle install
-    # completed_check:
-    #   type: command_succeeds
+    # check:
+    #   type: execution
     #   command: "bundle check"
-    # watches: [Gemfile, Gemfile.lock]
+    #   validation: success
 ```
 
 ## Examples

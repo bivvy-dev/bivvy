@@ -48,8 +48,8 @@ steps:
     title: "Check development tools"
     command: "rustc --version && cargo --version"
     skippable: false
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   inspect-repo:
@@ -57,8 +57,8 @@ steps:
     command: "git rev-parse --git-dir && git status --short"
     skippable: false
     depends_on: [check-tools]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git rev-parse --git-dir"
 
   analyze-source:
@@ -181,14 +181,14 @@ steps:
     command: "rustc --version && cargo --version"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "rustc --version"
   guarded-fail:
     title: "Blocked step"
     command: "git --version"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "git --no-such-flag-xyz"
     depends_on: [guarded]
 workflows:
@@ -621,15 +621,15 @@ steps:
     title: "Step A"
     command: "rustc --version && cargo --version"
     skippable: false
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
   step-b:
     title: "Step B"
     command: "git --version && git rev-parse HEAD"
     skippable: false
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git --version"
     depends_on: [step-a]
 workflows:

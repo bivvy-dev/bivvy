@@ -10,9 +10,10 @@ step:
   command: "volta install node"
   requires:
     - volta
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "node --version"
+    validation: success
 
 environment_impact:
   modifies_path: true

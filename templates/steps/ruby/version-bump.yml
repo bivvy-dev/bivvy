@@ -25,7 +25,9 @@ step:
   description: "Update version using bump gem"
   requires:
     - ruby
-  precondition:
-    type: command_succeeds
-    command: "gem list -i bump"
   command: "bump \"${bump}\" --no-commit --no-tag"
+
+  precondition:
+    type: execution
+    command: "gem list -i bump"
+    validation: success

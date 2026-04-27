@@ -10,9 +10,10 @@ step:
   command: "mise install elixir"
   requires:
     - mise
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "mise where elixir"
+    validation: success
 
 environment_impact:
   modifies_path: true

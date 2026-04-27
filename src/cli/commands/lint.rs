@@ -154,7 +154,7 @@ impl Command for LintCommand {
         let mut deprecation_warnings =
             crate::lint::rules::deprecated_fields::collect_deprecation_warnings(&config);
 
-        // Scan raw YAML for alias-based deprecations (e.g., prompt_if_complete)
+        // Scan raw YAML for alias-based deprecations (e.g., old field names)
         {
             let config_file_paths: Vec<std::path::PathBuf> =
                 if let Some(ref p) = self.config_override {

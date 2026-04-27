@@ -96,11 +96,16 @@ step:
   requires:
     - swift
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d .build/${build_config}"
-  watches:
-    - Package.swift
-    - Package.resolved
+    validation: success
+  checks:
+    - type: change
+      target: Package.swift
+      on_change: proceed
+    - type: change
+      target: Package.resolved
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify build artifacts"

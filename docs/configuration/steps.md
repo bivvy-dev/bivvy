@@ -52,22 +52,23 @@ Determine if a step is already complete:
 steps:
   node_modules:
     command: npm install
-    completed_check:
-      type: file_exists
-      path: node_modules
+    check:
+      type: presence
+      target: node_modules
 
   bundle:
     command: bundle install
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: bundle check
+      validation: success
 ```
 
 ### Check Types
 
-- `file_exists`: Check if a file or directory exists
-- `command_succeeds`: Check if a command exits with code 0
-- `marker`: Use Bivvy's internal marker system
+- `presence`: Check if a file, directory, or binary exists
+- `execution`: Check if a command exits with code 0
+- `change`: Detect if a target has changed from baseline
 - `all`: All sub-checks must pass
 - `any`: At least one sub-check must pass
 
@@ -81,15 +82,16 @@ steps:
   release:
     command: "git tag v1.0.0 && git push --tags"
     precondition:
-      type: command_succeeds
+      type: execution
       command: "test $(git branch --show-current) = main"
+      validation: success
 ```
 
-Preconditions use the same check types as `completed_check`
-(`command_succeeds`, `file_exists`, `all`, `any`, etc.) but with
+Preconditions use the same check types as `check`
+(`execution`, `presence`, `all`, `any`, etc.) but with
 opposite semantics:
 
-| | `completed_check` | `precondition` |
+| | `check` | `precondition` |
 |---|---|---|
 | **When check passes** | Step is skipped (already done) | Step proceeds normally |
 | **When check fails** | Step runs | Step fails (hard stop) |
@@ -97,7 +99,7 @@ opposite semantics:
 
 ### Combining with Completed Checks
 
-When a step has both `completed_check` and `precondition`, the
+When a step has both `check` and `precondition`, the
 completed check is evaluated first. If the step is already complete,
 it is skipped and the precondition is never evaluated.
 
@@ -105,16 +107,19 @@ it is skipped and the precondition is never evaluated.
 steps:
   release:
     command: "git tag v1.0.0 && git push --tags"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git tag -l v1.0.0 | grep -q v1.0.0"
+      validation: success
     precondition:
       type: all
       checks:
-        - type: command_succeeds
+        - type: execution
           command: "test $(git branch --show-current) = main"
-        - type: command_succeeds
+          validation: success
+        - type: execution
           command: "git diff --quiet"
+          validation: success
 ```
 
 ## Dependencies

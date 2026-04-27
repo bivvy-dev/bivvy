@@ -12,12 +12,15 @@ step:
   command: "mix deps.get"
   requires:
     - elixir
-  completed_check:
-    type: file_exists
-    path: "deps"
-  watches:
-    - mix.exs
-    - mix.lock
+  checks:
+    - type: presence
+      target: deps
+    - type: change
+      target: mix.exs
+      on_change: proceed
+    - type: change
+      target: mix.lock
+      on_change: proceed
 
 environment_impact:
   note: "Dependencies are installed to the deps directory"

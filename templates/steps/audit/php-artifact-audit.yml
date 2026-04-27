@@ -99,10 +99,16 @@ step:
     fi
   requires:
     - php
-  watches:
-    - composer.json
-    - composer.lock
-    - .env.example
+  checks:
+    - type: change
+      target: composer.json
+      on_change: proceed
+    - type: change
+      target: composer.lock
+      on_change: proceed
+    - type: change
+      target: .env.example
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify deployment artifacts"

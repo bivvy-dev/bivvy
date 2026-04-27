@@ -25,9 +25,6 @@ step:
   description: "Update version string in mix.exs"
   requires:
     - elixir
-  precondition:
-    type: file_exists
-    path: "mix.exs"
   command: |
     current=$(grep -oP 'version:\s*"\K[^"]+' mix.exs)
     major=$(echo "$current" | cut -d. -f1)
@@ -41,3 +38,7 @@ step:
     esac
     new_version="${major}.${minor}.${patch}"
     sed -i.bak "s/version: \"${current}\"/version: \"${new_version}\"/" mix.exs && rm -f mix.exs.bak
+
+  precondition:
+    type: presence
+    target: mix.exs

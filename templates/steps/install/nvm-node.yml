@@ -10,9 +10,10 @@ step:
   command: "nvm install"
   requires:
     - nvm
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "node --version"
+    validation: success
 
 environment_impact:
   modifies_path: true

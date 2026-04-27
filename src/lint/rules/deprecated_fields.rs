@@ -1,16 +1,25 @@
-//! Detects deprecated configuration fields and suggests migrations.
+//! Detects deprecated configuration fields via raw YAML scanning.
 //!
-//! This rule warns about:
+//! Since old config types (`CompletedCheck`, `watches`, etc.) have been removed,
+//! this rule only scans raw YAML text for deprecated field names that would
+//! otherwise be silently ignored by serde deserialization:
 //! - `completed_check` → use `check`/`checks` instead
 //! - `type: marker` → remove the check or use a specific check type
+//! - `type: file_exists` → use `type: presence` instead
+//! - `type: command_succeeds` → use `type: execution` instead
 //! - `watches` → use `check: { type: change, target: ... }` instead
 //! - `prompt_if_complete` → use `prompt_on_rerun` instead
+//! - `log_path` → removed, JSONL logs go to ~/.bivvy/logs/
 
-use crate::config::{BivvyConfig, CompletedCheck};
+use crate::config::BivvyConfig;
 use crate::lint::{LintDiagnostic, LintRule, RuleId, Severity};
 use std::path::Path;
 
 /// Reports warnings for deprecated configuration fields.
+///
+/// Since old types have been fully removed from the schema, the `LintRule::check`
+/// implementation has no structured fields to inspect. All deprecated field
+/// detection is done via raw YAML scanning in [`collect_raw_yaml_deprecation_warnings`].
 pub struct DeprecatedFieldsRule;
 
 impl LintRule for DeprecatedFieldsRule {
@@ -30,203 +39,26 @@ impl LintRule for DeprecatedFieldsRule {
         Severity::Warning
     }
 
-    fn check(&self, config: &BivvyConfig) -> Vec<LintDiagnostic> {
-        let mut diagnostics = Vec::new();
-
-        for (name, step) in &config.steps {
-            // Check for `completed_check` usage
-            if let Some(ref check) = step.execution.completed_check {
-                match check {
-                    CompletedCheck::Marker => {
-                        diagnostics.push(
-                            LintDiagnostic::new(
-                                self.id(),
-                                self.default_severity(),
-                                format!(
-                                    "Step '{}': 'completed_check' with 'type: marker' is deprecated. \
-                                     Remove the check entirely or use a specific check type.",
-                                    name,
-                                ),
-                            )
-                            .with_suggestion(format!(
-                                "Remove `completed_check` from step '{}'. \
-                                 If you need change detection, use:\n  check:\n    type: change\n    target: <file>\n    on_change: proceed",
-                                name,
-                            )),
-                        );
-                    }
-                    CompletedCheck::FileExists { path } => {
-                        diagnostics.push(
-                            LintDiagnostic::new(
-                                self.id(),
-                                self.default_severity(),
-                                format!(
-                                    "Step '{}': 'completed_check' is deprecated, use 'check' instead.",
-                                    name,
-                                ),
-                            )
-                            .with_suggestion(format!(
-                                "Replace with:\n  check:\n    type: presence\n    target: \"{}\"",
-                                path,
-                            )),
-                        );
-                    }
-                    CompletedCheck::CommandSucceeds { command } => {
-                        diagnostics.push(
-                            LintDiagnostic::new(
-                                self.id(),
-                                self.default_severity(),
-                                format!(
-                                    "Step '{}': 'completed_check' is deprecated, use 'check' instead.",
-                                    name,
-                                ),
-                            )
-                            .with_suggestion(format!(
-                                "Replace with:\n  check:\n    type: execution\n    command: \"{}\"\n    validation: success",
-                                command,
-                            )),
-                        );
-                    }
-                    CompletedCheck::All { .. } | CompletedCheck::Any { .. } => {
-                        diagnostics.push(
-                            LintDiagnostic::new(
-                                self.id(),
-                                self.default_severity(),
-                                format!(
-                                    "Step '{}': 'completed_check' is deprecated, use 'check' or 'checks' instead.",
-                                    name,
-                                ),
-                            )
-                            .with_suggestion(
-                                "Replace `completed_check` with `check`/`checks` using the new check types (presence, execution, change).".to_string(),
-                            ),
-                        );
-                    }
-                }
-            }
-
-            // Check for legacy `precondition` using CompletedCheck type
-            if let Some(ref precond) = step.execution.precondition {
-                let suggestion = match precond {
-                    CompletedCheck::FileExists { path } => format!(
-                        "Replace with:\n  new_precondition:\n    type: presence\n    target: \"{}\"",
-                        path,
-                    ),
-                    CompletedCheck::CommandSucceeds { command } => format!(
-                        "Replace with:\n  new_precondition:\n    type: execution\n    command: \"{}\"\n    validation: success",
-                        command,
-                    ),
-                    CompletedCheck::Marker => {
-                        "Remove the precondition or replace with a specific check type.".to_string()
-                    }
-                    CompletedCheck::All { .. } | CompletedCheck::Any { .. } => {
-                        "Replace `precondition` with `new_precondition` using the new check types (presence, execution, change).".to_string()
-                    }
-                };
-                diagnostics.push(
-                    LintDiagnostic::new(
-                        self.id(),
-                        self.default_severity(),
-                        format!(
-                            "Step '{}': 'precondition' uses deprecated check types. Use 'new_precondition' with the new check system instead.",
-                            name,
-                        ),
-                    )
-                    .with_suggestion(suggestion),
-                );
-            }
-
-            // Check for `watches` usage
-            if !step.execution.watches.is_empty() {
-                let targets: Vec<&str> =
-                    step.execution.watches.iter().map(|s| s.as_str()).collect();
-                let suggestion = if targets.len() == 1 {
-                    format!(
-                        "Replace with:\n  check:\n    type: change\n    target: \"{}\"\n    on_change: proceed",
-                        targets[0],
-                    )
-                } else {
-                    let items: Vec<String> = targets
-                        .iter()
-                        .map(|t| {
-                            format!(
-                                "    - type: change\n      target: \"{}\"\n      on_change: proceed",
-                                t,
-                            )
-                        })
-                        .collect();
-                    format!("Replace with:\n  checks:\n{}", items.join("\n"))
-                };
-
-                diagnostics.push(
-                    LintDiagnostic::new(
-                        self.id(),
-                        self.default_severity(),
-                        format!(
-                            "Step '{}': 'watches' is deprecated. Use 'check: {{ type: change, target: ... }}' instead.",
-                            name,
-                        ),
-                    )
-                    .with_suggestion(suggestion),
-                );
-            }
-        }
-
-        diagnostics
+    fn check(&self, _config: &BivvyConfig) -> Vec<LintDiagnostic> {
+        // All deprecated fields have been removed from the typed schema.
+        // Detection is now done via raw YAML scanning in
+        // collect_raw_yaml_deprecation_warnings().
+        Vec::new()
     }
 }
 
 /// Collect deprecation warnings from a parsed config.
 ///
-/// Returns a list of human-readable warning strings suitable for display
-/// to the user and for inclusion in the `ConfigLoaded` event.
-pub fn collect_deprecation_warnings(config: &BivvyConfig) -> Vec<String> {
-    let mut warnings = Vec::new();
-
-    for (name, step) in &config.steps {
-        if let Some(ref check) = step.execution.completed_check {
-            match check {
-                CompletedCheck::Marker => {
-                    warnings.push(format!(
-                        "Step '{}': 'type: marker' is removed. Use a specific check type or remove the check entirely.",
-                        name,
-                    ));
-                }
-                _ => {
-                    warnings.push(format!(
-                        "Step '{}': 'completed_check' is deprecated, use 'check' instead.",
-                        name,
-                    ));
-                }
-            }
-        }
-
-        if step.execution.precondition.is_some() {
-            warnings.push(format!(
-                "Step '{}': 'precondition' uses deprecated check types. Use 'new_precondition' with the new check system instead.",
-                name,
-            ));
-        }
-
-        if !step.execution.watches.is_empty() {
-            warnings.push(format!(
-                "Step '{}': 'watches' is deprecated. Use 'check: {{ type: change, target: ... }}' instead.",
-                name,
-            ));
-        }
-    }
-
-    warnings
+/// Returns an empty list since all deprecated fields have been removed from
+/// the typed schema. Kept for API compatibility with callers.
+pub fn collect_deprecation_warnings(_config: &BivvyConfig) -> Vec<String> {
+    Vec::new()
 }
 
-/// Scan raw YAML config files for deprecated field names that are invisible
-/// after serde deserialization (because they use aliases).
+/// Scan raw YAML config files for deprecated field names.
 ///
-/// This catches fields like `prompt_if_complete` (aliased to `prompt_on_rerun`)
-/// and `OutputSettings.logging`/`log_path` (superseded by `settings.logging`
-/// for JSONL event logging).
-///
-/// Returns a list of human-readable warning strings.
+/// This catches fields that serde would silently ignore because they no longer
+/// exist in the typed config structs. Returns human-readable warning strings.
 pub fn collect_raw_yaml_deprecation_warnings(config_paths: &[&Path]) -> Vec<String> {
     let mut warnings = Vec::new();
 
@@ -239,10 +71,58 @@ pub fn collect_raw_yaml_deprecation_warnings(config_paths: &[&Path]) -> Vec<Stri
             .map(|f| f.to_string_lossy().to_string())
             .unwrap_or_else(|| path.display().to_string());
 
-        // Check for `prompt_if_complete` usage (should be `prompt_on_rerun`)
         for (line_num, line) in content.lines().enumerate() {
             let trimmed = line.trim();
 
+            // `completed_check` → use `check`/`checks`
+            if trimmed.starts_with("completed_check:") || trimmed.starts_with("completed_check :") {
+                warnings.push(format!(
+                    "{} (line {}): 'completed_check' is deprecated, use 'check' or 'checks' instead.",
+                    filename,
+                    line_num + 1,
+                ));
+            }
+
+            // `type: marker` → removed
+            if trimmed == "type: marker" || trimmed == "type:marker" {
+                warnings.push(format!(
+                    "{} (line {}): 'type: marker' is removed. Use a specific check type or remove the check entirely.",
+                    filename,
+                    line_num + 1,
+                ));
+            }
+
+            // `type: file_exists` → use `type: presence`
+            if trimmed == "type: file_exists" || trimmed == "type:file_exists" {
+                warnings.push(format!(
+                    "{} (line {}): 'type: file_exists' is deprecated, use 'type: presence' instead.",
+                    filename,
+                    line_num + 1,
+                ));
+            }
+
+            // `type: command_succeeds` → use `type: execution`
+            if trimmed == "type: command_succeeds" || trimmed == "type:command_succeeds" {
+                warnings.push(format!(
+                    "{} (line {}): 'type: command_succeeds' is deprecated, use 'type: execution' instead.",
+                    filename,
+                    line_num + 1,
+                ));
+            }
+
+            // `watches:` → use change checks
+            // Only flag if it looks like a step-level field (indented)
+            if (trimmed.starts_with("watches:") || trimmed.starts_with("watches :"))
+                && line.starts_with(' ')
+            {
+                warnings.push(format!(
+                    "{} (line {}): 'watches' is deprecated. Use 'check: {{ type: change, target: ... }}' instead.",
+                    filename,
+                    line_num + 1,
+                ));
+            }
+
+            // `prompt_if_complete` → use `prompt_on_rerun`
             if trimmed.starts_with("prompt_if_complete:")
                 || trimmed.starts_with("prompt_if_complete :")
             {
@@ -253,10 +133,8 @@ pub fn collect_raw_yaml_deprecation_warnings(config_paths: &[&Path]) -> Vec<Stri
                 ));
             }
 
-            // Check for OutputSettings.log_path (superseded by JSONL event logging)
+            // `log_path` → removed
             if trimmed.starts_with("log_path:") || trimmed.starts_with("log_path :") {
-                // Only flag if it's inside settings.output context (heuristic: check
-                // if we're inside an `output:` block by looking at recent lines)
                 warnings.push(format!(
                     "{} (line {}): 'log_path' in output settings is deprecated. \
                      JSONL event logs are written to ~/.bivvy/logs/ automatically.",
@@ -273,7 +151,7 @@ pub fn collect_raw_yaml_deprecation_warnings(config_paths: &[&Path]) -> Vec<Stri
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{ExecutionConfig, StepConfig};
+    use crate::config::StepConfig;
     use std::collections::HashMap;
 
     fn config_with_step(step: StepConfig) -> BivvyConfig {
@@ -293,219 +171,62 @@ mod tests {
     }
 
     #[test]
-    fn completed_check_file_exists_warns() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("yarn install".to_string()),
-                completed_check: Some(CompletedCheck::FileExists {
-                    path: "node_modules".to_string(),
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 1);
-        assert_eq!(diagnostics[0].severity, Severity::Warning);
-        assert!(diagnostics[0]
-            .message
-            .contains("'completed_check' is deprecated"));
-        assert!(diagnostics[0]
-            .suggestion
-            .as_ref()
-            .unwrap()
-            .contains("type: presence"));
-    }
-
-    #[test]
-    fn completed_check_command_succeeds_warns() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("bundle install".to_string()),
-                completed_check: Some(CompletedCheck::CommandSucceeds {
-                    command: "bundle check".to_string(),
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .suggestion
-            .as_ref()
-            .unwrap()
-            .contains("type: execution"));
-    }
-
-    #[test]
-    fn completed_check_marker_warns_with_removal_suggestion() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("./setup.sh".to_string()),
-                completed_check: Some(CompletedCheck::Marker),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("marker"));
-        assert!(diagnostics[0]
-            .suggestion
-            .as_ref()
-            .unwrap()
-            .contains("Remove"));
-    }
-
-    #[test]
-    fn completed_check_all_warns() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("yarn install".to_string()),
-                completed_check: Some(CompletedCheck::All {
-                    checks: vec![CompletedCheck::FileExists {
-                        path: "node_modules".to_string(),
-                    }],
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .message
-            .contains("'completed_check' is deprecated"));
-    }
-
-    #[test]
-    fn watches_field_warns() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("bundle install".to_string()),
-                watches: vec!["Gemfile.lock".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0].message.contains("'watches' is deprecated"));
-        assert!(diagnostics[0]
-            .suggestion
-            .as_ref()
-            .unwrap()
-            .contains("type: change"));
-    }
-
-    #[test]
-    fn watches_multiple_files_suggests_checks() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("bundle install".to_string()),
-                watches: vec!["Gemfile".to_string(), "Gemfile.lock".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 1);
-        assert!(diagnostics[0]
-            .suggestion
-            .as_ref()
-            .unwrap()
-            .contains("checks:"));
-    }
-
-    #[test]
-    fn both_completed_check_and_watches_produce_two_warnings() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("bundle install".to_string()),
-                completed_check: Some(CompletedCheck::Marker),
-                watches: vec!["Gemfile.lock".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let rule = DeprecatedFieldsRule;
-        let diagnostics = rule.check(&config);
-        assert_eq!(diagnostics.len(), 2);
-    }
-
-    // --- collect_deprecation_warnings tests ---
-
-    #[test]
     fn collect_warnings_empty_for_clean_config() {
         let config = config_with_step(StepConfig::default());
         assert!(collect_deprecation_warnings(&config).is_empty());
     }
 
+    // --- collect_raw_yaml_deprecation_warnings tests ---
+
     #[test]
-    fn collect_warnings_includes_completed_check() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("echo test".to_string()),
-                completed_check: Some(CompletedCheck::FileExists {
-                    path: "file.txt".to_string(),
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let warnings = collect_deprecation_warnings(&config);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("'completed_check' is deprecated"));
+    fn raw_yaml_detects_completed_check() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config_path = temp.path().join("config.yml");
+        std::fs::write(
+            &config_path,
+            "steps:\n  setup:\n    command: echo hi\n    completed_check:\n      type: file_exists\n      path: node_modules\n",
+        )
+        .unwrap();
+
+        let warnings = collect_raw_yaml_deprecation_warnings(&[config_path.as_path()]);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("'completed_check' is deprecated")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("'type: file_exists' is deprecated")));
     }
 
     #[test]
-    fn collect_warnings_includes_marker() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("echo test".to_string()),
-                completed_check: Some(CompletedCheck::Marker),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let warnings = collect_deprecation_warnings(&config);
-        assert_eq!(warnings.len(), 1);
-        assert!(warnings[0].contains("marker"));
+    fn raw_yaml_detects_marker_type() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config_path = temp.path().join("config.yml");
+        std::fs::write(
+            &config_path,
+            "steps:\n  setup:\n    command: echo hi\n    completed_check:\n      type: marker\n",
+        )
+        .unwrap();
+
+        let warnings = collect_raw_yaml_deprecation_warnings(&[config_path.as_path()]);
+        assert!(warnings
+            .iter()
+            .any(|w| w.contains("'type: marker' is removed")));
     }
 
     #[test]
-    fn collect_warnings_includes_watches() {
-        let step = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("echo test".to_string()),
-                watches: vec!["file.lock".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = config_with_step(step);
-        let warnings = collect_deprecation_warnings(&config);
+    fn raw_yaml_detects_watches() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let config_path = temp.path().join("config.yml");
+        std::fs::write(
+            &config_path,
+            "steps:\n  setup:\n    command: echo hi\n    watches:\n      - Gemfile.lock\n",
+        )
+        .unwrap();
+
+        let warnings = collect_raw_yaml_deprecation_warnings(&[config_path.as_path()]);
         assert_eq!(warnings.len(), 1);
         assert!(warnings[0].contains("'watches' is deprecated"));
     }
-
-    // --- collect_raw_yaml_deprecation_warnings tests ---
 
     #[test]
     fn raw_yaml_detects_prompt_if_complete() {

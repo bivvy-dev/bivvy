@@ -10,11 +10,12 @@ step:
   title: "Synthesize CDK stacks"
   description: "Synthesize CloudFormation templates from CDK code"
   command: "cdk synth"
-  completed_check:
-    type: file_exists
-    path: "cdk.out"
-  watches:
-    - cdk.json
+  checks:
+    - type: presence
+      target: cdk.out
+    - type: change
+      target: cdk.json
+      on_change: proceed
 
 environment_impact:
   note: "CloudFormation templates are generated in the cdk.out directory"

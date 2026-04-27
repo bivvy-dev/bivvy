@@ -225,35 +225,22 @@ pub struct ExecutionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
 
-    /// Check if step is already complete (legacy field name)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_check: Option<CompletedCheck>,
-
-    /// New check system: single check (new `Check` enum).
-    /// Mutually exclusive with `completed_check` and `checks`.
+    /// Single check (new `Check` enum).
+    /// Mutually exclusive with `checks`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check: Option<Check>,
 
-    /// New check system: multiple checks (implicit `all`).
-    /// Mutually exclusive with `completed_check` and `check`.
+    /// Multiple checks (implicit `all`).
+    /// Mutually exclusive with `check`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checks: Vec<Check>,
 
-    /// Precondition that must pass before the step runs (legacy `CompletedCheck` type).
-    /// Unlike `completed_check` (which skips when passing), a precondition
+    /// Precondition that must pass before the step runs.
+    /// Unlike `check` (which skips when passing), a precondition
     /// *fails* the step when it does not pass. `--force` does not bypass preconditions.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub precondition: Option<CompletedCheck>,
-
-    /// Precondition using the new `Check` type.
-    /// Mutually exclusive with the legacy `precondition` field above.
     /// Uses the same check types as `check`/`checks` (presence, execution, change, combinators).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub new_precondition: Option<Check>,
-
-    /// Files to watch for change detection
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub watches: Vec<String>,
+    pub precondition: Option<Check>,
 
     /// Number of retries on failure
     #[serde(default, skip_serializing_if = "is_zero")]
@@ -298,13 +285,8 @@ pub struct BehaviorConfig {
     pub required: bool,
 
     /// Ask before re-running completed steps.
-    /// Also accepts `prompt_on_rerun` in YAML.
-    #[serde(
-        default = "default_true",
-        skip_serializing_if = "is_true",
-        alias = "prompt_on_rerun"
-    )]
-    pub prompt_if_complete: bool,
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub prompt_on_rerun: bool,
 
     /// Continue workflow if this step fails
     #[serde(default, skip_serializing_if = "is_false")]
@@ -320,7 +302,7 @@ impl Default for BehaviorConfig {
         Self {
             skippable: true,
             required: false,
-            prompt_if_complete: true,
+            prompt_on_rerun: true,
             allow_failure: false,
             sensitive: false,
         }
@@ -400,7 +382,7 @@ pub struct StepConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub satisfied_when: Vec<SatisfactionCondition>,
 
-    /// Execution settings (command, checks, watches, retry, sudo)
+    /// Execution settings (command, checks, retry, sudo)
     #[serde(flatten)]
     pub execution: ExecutionConfig,
 
@@ -408,7 +390,7 @@ pub struct StepConfig {
     #[serde(flatten)]
     pub env_vars: EnvironmentVarsConfig,
 
-    /// Behavior settings (skippable, required, prompt_if_complete, allow_failure, sensitive)
+    /// Behavior settings (skippable, required, prompt_on_rerun, allow_failure, sensitive)
     #[serde(flatten)]
     pub behavior: BehaviorConfig,
 
@@ -427,41 +409,6 @@ pub struct StepConfig {
 
 fn default_true() -> bool {
     true
-}
-
-/// Check to determine if a step has already been completed.
-///
-/// This enables idempotent step execution by detecting when work
-/// has already been done.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum CompletedCheck {
-    /// Check if a file or directory exists
-    FileExists {
-        /// Path to check (relative to project root)
-        path: String,
-    },
-
-    /// Check if a command succeeds (exit code 0)
-    CommandSucceeds {
-        /// Command to run
-        command: String,
-    },
-
-    /// Use Bivvy's internal marker system
-    Marker,
-
-    /// All checks must pass
-    All {
-        /// List of checks that must all pass
-        checks: Vec<CompletedCheck>,
-    },
-
-    /// Any check passing is sufficient
-    Any {
-        /// List of checks where at least one must pass
-        checks: Vec<CompletedCheck>,
-    },
 }
 
 /// Prompt configuration for interactive input
@@ -555,10 +502,9 @@ pub struct StepOverride {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
 
-    /// Override prompt_if_complete flag.
-    /// Also accepts `prompt_on_rerun` in YAML.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "prompt_on_rerun")]
-    pub prompt_if_complete: Option<bool>,
+    /// Override prompt_on_rerun flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt_on_rerun: Option<bool>,
 }
 
 /// Workflow-level settings overrides
@@ -767,13 +713,13 @@ pub struct StepEnvironmentOverride {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, Option<String>>,
 
-    /// Override completed check
+    /// Override check
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub completed_check: Option<CompletedCheck>,
+    pub check: Option<Check>,
 
     /// Override precondition
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub precondition: Option<CompletedCheck>,
+    pub precondition: Option<Check>,
 
     /// Override skippable
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -806,10 +752,6 @@ pub struct StepEnvironmentOverride {
     /// Override requirements
     #[serde(skip_serializing_if = "Option::is_none")]
     pub requires: Option<Vec<String>>,
-
-    /// Override watches
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub watches: Option<Vec<String>>,
 
     /// Override retry count
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -947,7 +889,7 @@ steps:
         let step = &config.steps["minimal"];
         assert!(step.behavior.skippable);
         assert!(!step.behavior.required);
-        assert!(step.behavior.prompt_if_complete);
+        assert!(step.behavior.prompt_on_rerun);
         assert!(!step.behavior.allow_failure);
         assert_eq!(step.execution.retry, 0);
     }
@@ -1046,21 +988,6 @@ steps:
     }
 
     #[test]
-    fn parses_step_with_watches() {
-        let yaml = r#"
-steps:
-  deps:
-    command: "bundle install"
-    watches:
-      - Gemfile
-      - Gemfile.lock
-"#;
-        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let step = &config.steps["deps"];
-        assert_eq!(step.execution.watches, vec!["Gemfile", "Gemfile.lock"]);
-    }
-
-    #[test]
     fn parses_workflow_definition() {
         let yaml = r#"
 workflows:
@@ -1133,47 +1060,33 @@ workflows:
     }
 
     #[test]
-    fn parses_file_exists_check() {
+    fn parses_presence_check() {
         let yaml = r#"
 steps:
   deps:
     command: "yarn install"
-    completed_check:
-      type: file_exists
-      path: "node_modules"
+    check:
+      type: presence
+      target: "node_modules"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"]
-            .execution
-            .completed_check
-            .as_ref()
-            .unwrap();
-        assert!(matches!(
-            check,
-            CompletedCheck::FileExists { path } if path == "node_modules"
-        ));
+        let check = config.steps["deps"].execution.check.as_ref().unwrap();
+        assert!(matches!(check, Check::Presence { target: Some(t), .. } if t == "node_modules"));
     }
 
     #[test]
-    fn parses_command_succeeds_check() {
+    fn parses_execution_check() {
         let yaml = r#"
 steps:
   deps:
     command: "bundle install"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "bundle check"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"]
-            .execution
-            .completed_check
-            .as_ref()
-            .unwrap();
-        assert!(matches!(
-            check,
-            CompletedCheck::CommandSucceeds { command } if command == "bundle check"
-        ));
+        let check = config.steps["deps"].execution.check.as_ref().unwrap();
+        assert!(matches!(check, Check::Execution { command, .. } if command == "bundle check"));
     }
 
     #[test]
@@ -1182,21 +1095,17 @@ steps:
 steps:
   deps:
     command: "yarn install"
-    completed_check:
+    check:
       type: all
       checks:
-        - type: file_exists
-          path: "node_modules"
-        - type: command_succeeds
+        - type: presence
+          target: "node_modules"
+        - type: execution
           command: "yarn check"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["deps"]
-            .execution
-            .completed_check
-            .as_ref()
-            .unwrap();
-        if let CompletedCheck::All { checks } = check {
+        let check = config.steps["deps"].execution.check.as_ref().unwrap();
+        if let Check::All { checks, .. } = check {
             assert_eq!(checks.len(), 2);
         } else {
             panic!("Expected All check");
@@ -1209,39 +1118,17 @@ steps:
 steps:
   env:
     command: "cp .env.example .env"
-    completed_check:
+    check:
       type: any
       checks:
-        - type: file_exists
-          path: ".env"
-        - type: file_exists
-          path: ".env.local"
+        - type: presence
+          target: ".env"
+        - type: presence
+          target: ".env.local"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["env"]
-            .execution
-            .completed_check
-            .as_ref()
-            .unwrap();
-        assert!(matches!(check, CompletedCheck::Any { .. }));
-    }
-
-    #[test]
-    fn parses_marker_check() {
-        let yaml = r#"
-steps:
-  setup:
-    command: "./setup.sh"
-    completed_check:
-      type: marker
-"#;
-        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["setup"]
-            .execution
-            .completed_check
-            .as_ref()
-            .unwrap();
-        assert!(matches!(check, CompletedCheck::Marker));
+        let check = config.steps["env"].execution.check.as_ref().unwrap();
+        assert!(matches!(check, Check::Any { .. }));
     }
 
     #[test]
@@ -1301,14 +1188,13 @@ workflows:
             !yaml.contains("depends_on"),
             "empty depends_on should be omitted"
         );
-        assert!(!yaml.contains("watches"), "empty watches should be omitted");
         assert!(
             !yaml.contains("skippable"),
             "default true skippable should be omitted"
         );
         assert!(
-            !yaml.contains("prompt_if_complete"),
-            "default true prompt_if_complete should be omitted"
+            !yaml.contains("prompt_on_rerun"),
+            "default true prompt_on_rerun should be omitted"
         );
         assert!(
             !yaml.contains("required"),
@@ -1364,7 +1250,6 @@ steps:
     retry: 3
     allow_failure: true
     sensitive: true
-    watches: [Gemfile]
     depends_on: [other]
     before: ["echo pre"]
     after: ["echo post"]
@@ -1394,10 +1279,6 @@ settings:
         assert!(
             yaml.contains("sensitive"),
             "true sensitive should be present"
-        );
-        assert!(
-            yaml.contains("watches"),
-            "non-empty watches should be present"
         );
         assert!(
             yaml.contains("depends_on"),
@@ -1658,27 +1539,23 @@ steps:
 steps:
   complex:
     command: "echo complex"
-    completed_check:
+    check:
       type: all
       checks:
-        - type: file_exists
-          path: "required.txt"
+        - type: presence
+          target: "required.txt"
         - type: any
           checks:
-            - type: file_exists
-              path: "option_a.txt"
-            - type: file_exists
-              path: "option_b.txt"
+            - type: presence
+              target: "option_a.txt"
+            - type: presence
+              target: "option_b.txt"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        let check = config.steps["complex"]
-            .execution
-            .completed_check
-            .as_ref()
-            .unwrap();
-        if let CompletedCheck::All { checks } = check {
+        let check = config.steps["complex"].execution.check.as_ref().unwrap();
+        if let Check::All { checks, .. } = check {
             assert_eq!(checks.len(), 2);
-            assert!(matches!(&checks[1], CompletedCheck::Any { .. }));
+            assert!(matches!(&checks[1], Check::Any { .. }));
         } else {
             panic!("Expected All check");
         }
@@ -1693,15 +1570,6 @@ steps:
         "#;
         let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(o.depends_on, Some(vec!["a".to_string(), "b".to_string()]));
-    }
-
-    #[test]
-    fn environment_override_watches_parses() {
-        let yaml = r#"
-            watches: []
-        "#;
-        let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
-        assert_eq!(o.watches, Some(vec![]));
     }
 
     #[test]
@@ -1778,20 +1646,20 @@ vars:
     // --- Precondition parsing tests ---
 
     #[test]
-    fn parses_precondition_command_succeeds() {
+    fn parses_precondition_execution() {
         let yaml = r#"
 steps:
   release:
     command: "git tag v1"
     precondition:
-      type: command_succeeds
+      type: execution
       command: "test $(git branch --show-current) = main"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["release"];
         assert!(matches!(
             step.execution.precondition,
-            Some(CompletedCheck::CommandSucceeds { .. })
+            Some(Check::Execution { .. })
         ));
     }
 
@@ -1804,14 +1672,14 @@ steps:
     precondition:
       type: all
       checks:
-        - type: command_succeeds
+        - type: execution
           command: "test $(git branch --show-current) = main"
-        - type: command_succeeds
+        - type: execution
           command: "git diff --quiet"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         let step = &config.steps["release"];
-        if let Some(CompletedCheck::All { checks }) = &step.execution.precondition {
+        if let Some(Check::All { checks, .. }) = &step.execution.precondition {
             assert_eq!(checks.len(), 2);
         } else {
             panic!("Expected All precondition");

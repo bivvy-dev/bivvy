@@ -10,9 +10,10 @@ step:
   command: "mise install ruby"
   requires:
     - mise
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "mise where ruby"
+    validation: success
 
 environment_impact:
   modifies_path: true

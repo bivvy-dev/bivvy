@@ -11,6 +11,7 @@ step:
   description: "Install packages using the Chocolatey package manager"
   command: "choco install -y"
 
+
 environment_impact:
   modifies_path: true
   note: "Chocolatey packages may add executables to PATH"

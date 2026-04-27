@@ -97,17 +97,17 @@ pub fn blocked_by_user_skip(
         .any(|dep| user_skipped.contains(dep) && !satisfied_steps.contains(dep))
 }
 
-/// Resolve the effective `prompt_if_complete` value for a step, considering
+/// Resolve the effective `prompt_on_rerun` value for a step, considering
 /// step-level overrides from workflow environments.
-pub fn effective_prompt_if_complete(
+pub fn effective_prompt_on_rerun(
     step: &ResolvedStep,
     step_name: &str,
     step_overrides: &std::collections::HashMap<String, StepOverride>,
 ) -> bool {
     step_overrides
         .get(step_name)
-        .and_then(|o| o.prompt_if_complete)
-        .unwrap_or(step.behavior.prompt_if_complete)
+        .and_then(|o| o.prompt_on_rerun)
+        .unwrap_or(step.behavior.prompt_on_rerun)
 }
 
 #[cfg(test)]
@@ -186,7 +186,7 @@ mod tests {
     fn effective_prompt_uses_step_default() {
         let step = make_step("a", vec![]);
         let overrides = HashMap::new();
-        assert!(effective_prompt_if_complete(&step, "a", &overrides));
+        assert!(effective_prompt_on_rerun(&step, "a", &overrides));
     }
 
     #[test]
@@ -196,11 +196,11 @@ mod tests {
         overrides.insert(
             "a".to_string(),
             StepOverride {
-                prompt_if_complete: Some(false),
+                prompt_on_rerun: Some(false),
                 ..Default::default()
             },
         );
-        assert!(!effective_prompt_if_complete(&step, "a", &overrides));
+        assert!(!effective_prompt_on_rerun(&step, "a", &overrides));
     }
 
     #[test]

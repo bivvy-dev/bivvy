@@ -12,13 +12,18 @@ step:
   command: "deno install"
   requires:
     - deno
-  completed_check:
-    type: file_exists
-    path: "deno.lock"
-  watches:
-    - deno.json
-    - deno.jsonc
-    - deno.lock
+  checks:
+    - type: presence
+      target: deno.lock
+    - type: change
+      target: deno.json
+      on_change: proceed
+    - type: change
+      target: deno.jsonc
+      on_change: proceed
+    - type: change
+      target: deno.lock
+      on_change: proceed
 
 environment_impact:
   note: "Dependencies are cached in DENO_DIR (defaults to ~/.cache/deno)"

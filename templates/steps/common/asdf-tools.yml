@@ -10,11 +10,13 @@ step:
   title: "Install tool versions"
   description: "Install language runtimes and tools defined in .tool-versions"
   command: "asdf install"
-  completed_check:
-    type: command_succeeds
-    command: "asdf current"
-  watches:
-    - .tool-versions
+  checks:
+    - type: execution
+      command: "asdf current"
+      validation: success
+    - type: change
+      target: ".tool-versions"
+      on_change: proceed
 
 environment_impact:
   modifies_path: true

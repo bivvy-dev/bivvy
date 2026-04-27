@@ -20,8 +20,8 @@ steps:
   deps:
     title: "Install dependencies"
     command: "cargo --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "cargo --version"
   build:
     title: "Build project"

@@ -427,7 +427,7 @@ steps:
     command: "rustc --version > .guarded-marker.txt"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "rustc --version"
 
   verify:
@@ -475,7 +475,7 @@ steps:
     command: "rustc --version > .should-not-exist.txt"
     skippable: false
     precondition:
-      type: command_succeeds
+      type: execution
       command: "git --no-such-flag-xyz"
 
 workflows:
@@ -735,7 +735,7 @@ workflows:
 // ─────────────────────────────────────────────────────────────────────
 
 /// The `strict` workflow overrides the `optional` step to auto-run
-/// without prompting despite having a completed_check. Running the
+/// without prompting despite having a check. Running the
 /// strict workflow should not wait for input.
 #[test]
 fn workflow_overrides_apply() {
@@ -751,8 +751,8 @@ steps:
   optional:
     title: "Optional step"
     command: "rustc --version > .optional-marker.txt"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
 
   done:
@@ -770,7 +770,7 @@ workflows:
       optional:
         required: true
         skip_prompt: true
-        prompt_if_complete: false
+        prompt_on_rerun: false
 "#;
 
     let temp = setup_project_with_git(config);
@@ -796,7 +796,7 @@ workflows:
 // 12. Composite completed checks (all, any)
 // ─────────────────────────────────────────────────────────────────────
 
-/// `completed_check` with `type: all` requires every sub-check to
+/// `check` with `type: all` requires every sub-check to
 /// pass. Both checks pass here, so the step is considered complete —
 /// but `skippable: false` forces it to re-run anyway. Either way the
 /// workflow must succeed and the step must produce its side effect.
@@ -810,12 +810,12 @@ steps:
     title: "All-checked step"
     command: "rustc --version > .all-marker.txt"
     skippable: false
-    completed_check:
+    check:
       type: all
       checks:
-        - type: file_exists
-          path: "Cargo.toml"
-        - type: command_succeeds
+        - type: presence
+          target: "Cargo.toml"
+        - type: execution
           command: "rustc --version"
 
   verify:
@@ -849,7 +849,7 @@ workflows:
     );
 }
 
-/// `completed_check` with `type: any` is satisfied when at least one
+/// `check` with `type: any` is satisfied when at least one
 /// sub-check passes.
 #[test]
 fn completed_check_any_requires_one() {
@@ -861,13 +861,13 @@ steps:
     title: "Any-checked step"
     command: "rustc --version > .any-marker.txt"
     skippable: false
-    completed_check:
+    check:
       type: any
       checks:
-        - type: file_exists
-          path: "Cargo.toml"
-        - type: file_exists
-          path: "nonexistent_file_xyz.txt"
+        - type: presence
+          target: "Cargo.toml"
+        - type: presence
+          target: "nonexistent_file_xyz.txt"
 
   verify:
     title: "Verify any-checked ran"
@@ -973,87 +973,6 @@ workflows:
     );
 }
 
-// ─────────────────────────────────────────────────────────────────────
-// 14. Watches (watches)
-// ─────────────────────────────────────────────────────────────────────
-
-/// First run primes the watches state with the current file hash. On
-/// the second run the watched file is modified, so the step should
-/// re-execute. We prove re-execution by checking that the step's
-/// side-effect file was re-created after deletion.
-#[test]
-fn watches_trigger_rerun_on_change() {
-    let config = r#"
-app_name: "WatchesTest"
-
-steps:
-  watched-step:
-    title: "Watched step"
-    command: "cargo --version > .watched-marker.txt"
-    skippable: false
-    completed_check:
-      type: marker
-    watches:
-      - Cargo.toml
-
-  verify:
-    title: "Verify watched ran"
-    command: "grep -q cargo .watched-marker.txt"
-    skippable: false
-    depends_on: [watched-step]
-
-  done:
-    title: "Watches test done"
-    command: "git --version"
-    skippable: false
-    depends_on: [verify]
-
-workflows:
-  default:
-    steps: [watched-step, verify, done]
-"#;
-
-    let temp = setup_project_with_git(config);
-
-    // First run: step executes, marker is set, and the side-effect
-    // file is created.
-    let mut s = spawn_bivvy(&["run", "--non-interactive"], temp.path());
-    wait_for(&s, "WatchesTest", "First-run header");
-    wait_for(&s, "3 run", "First run completes 3 steps");
-    read_to_eof(&mut s);
-    assert_exit_code(&s, 0);
-    assert!(
-        temp.path().join(".watched-marker.txt").exists(),
-        "First run should have created .watched-marker.txt"
-    );
-
-    // Delete the side-effect file AND modify the watched file so the
-    // watches hash changes.  If the step re-runs, it recreates the
-    // marker.  If bivvy sees the watched file as unchanged and skips
-    // the step, the marker will not reappear.
-    fs::remove_file(temp.path().join(".watched-marker.txt")).unwrap();
-    let cargo_path = temp.path().join("Cargo.toml");
-    let mut content = fs::read_to_string(&cargo_path).unwrap();
-    content.push_str("\n# modified for watch test\n");
-    fs::write(&cargo_path, content).unwrap();
-
-    // Second run: watched file changed, step must re-execute and
-    // recreate the marker.  verify will then grep it.
-    let mut s2 = spawn_bivvy(&["run", "--non-interactive"], temp.path());
-    wait_for(&s2, "WatchesTest", "Second-run header");
-    wait_for(&s2, "Watched step", "Watched step title");
-    wait_for(&s2, "3 run", "Second run completes 3 steps");
-    read_to_eof(&mut s2);
-    assert_exit_code(&s2, 0);
-
-    // Marker file must have been recreated — proves re-execution.
-    assert!(
-        temp.path().join(".watched-marker.txt").exists(),
-        "Watched step should have re-executed after Cargo.toml changed, recreating .watched-marker.txt"
-    );
-    let contents = fs::read_to_string(temp.path().join(".watched-marker.txt")).unwrap();
-    assert!(
-        contents.contains("cargo"),
-        "Recreated .watched-marker.txt should contain cargo version output"
-    );
-}
+// NOTE: Watches feature has been removed. The watches_trigger_rerun_on_change
+// test that was here has been deleted since the `watches:` config field and
+// `type: marker` check type no longer exist.

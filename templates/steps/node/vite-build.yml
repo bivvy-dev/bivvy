@@ -12,13 +12,18 @@ step:
   command: "npx vite build"
   requires:
     - node
-  completed_check:
-    type: file_exists
-    path: "dist"
-  watches:
-    - vite.config.js
-    - vite.config.ts
-    - vite.config.mjs
+  checks:
+    - type: presence
+      target: dist
+    - type: change
+      target: vite.config.js
+      on_change: proceed
+    - type: change
+      target: vite.config.ts
+      on_change: proceed
+    - type: change
+      target: vite.config.mjs
+      on_change: proceed
 
 environment_impact:
   note: "Generates build output in dist directory"

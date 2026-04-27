@@ -12,11 +12,12 @@ step:
   command: "pre-commit install"
   requires:
     - pre-commit
-  completed_check:
-    type: file_exists
-    path: ".git/hooks/pre-commit"
-  watches:
-    - .pre-commit-config.yaml
+  checks:
+    - type: presence
+      target: ".git/hooks/pre-commit"
+    - type: change
+      target: ".pre-commit-config.yaml"
+      on_change: proceed
 
 environment_impact:
   note: "Installs git hooks that run checks before each commit"

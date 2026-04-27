@@ -17,9 +17,10 @@ step:
     else
       echo "Unsupported package manager. Install Redis manually." && exit 1
     fi
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "redis-cli ping"
+    validation: success
 
 environment_impact:
   note: "Redis is installed as a system service"

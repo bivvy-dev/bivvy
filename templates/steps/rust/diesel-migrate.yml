@@ -13,13 +13,15 @@ step:
   requires:
     - diesel
   precondition:
-    type: file_exists
-    path: "diesel.toml"
-  completed_check:
-    type: marker
-  watches:
-    - diesel.toml
-    - migrations
+    type: presence
+    target: diesel.toml
+  checks:
+    - type: change
+      target: diesel.toml
+      on_change: proceed
+    - type: change
+      target: migrations
+      on_change: proceed
 
 environment_impact:
   note: "Creates the database (if needed) and applies pending migrations"

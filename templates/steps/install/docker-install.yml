@@ -18,9 +18,10 @@ step:
       echo "Visit https://docs.docker.com/engine/install/ for installation instructions."
       exit 1
     fi
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "docker info"
+    validation: success
 
 environment_impact:
   note: "Docker runs as a system service"

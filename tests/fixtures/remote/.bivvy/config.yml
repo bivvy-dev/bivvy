@@ -4,8 +4,6 @@ steps:
   acceptance-tests:
     title: "Run remote acceptance tests"
     command: "./run-acceptance-tests.sh"
-    completed_check:
-      type: marker
 
 workflows:
   default:

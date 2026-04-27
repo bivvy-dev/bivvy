@@ -137,22 +137,24 @@ step:
   # Type: string (optional)
   command: "createdb ${database_name} -p ${port}"
 
-  # Completed check — detect if step is already done
-  # Same types as step config: file_exists, command_succeeds, marker, all, any
-  completed_check:
-    type: command_succeeds
-    command: "psql -p ${port} -lqt | grep -qw ${database_name}"
+  # Checks — detect if step is already done
+  # Types: presence, execution, change, all, any
+  checks:
+    - type: execution
+      command: "psql -p ${port} -lqt | grep -qw ${database_name}"
+      validation: success
+    - type: change
+      target: db/schema.rb
+      on_change: proceed
+    - type: change
+      target: "db/migrate/**"
+      kind: glob
+      on_change: proceed
 
   # Step-level environment variables
   # Type: map of string → string
   env:
     PGPORT: "${port}"
-
-  # Files to watch for change detection
-  # Type: list of glob patterns
-  watches:
-    - db/schema.rb
-    - db/migrate/**
 
 
 # --------------------------------------------------------------------------

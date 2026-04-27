@@ -16,7 +16,8 @@ inputs:
 step:
   title: "Bump version"
   description: "Update version in pom.xml using Maven versions plugin"
-  precondition:
-    type: file_exists
-    path: "pom.xml"
   command: "mvn versions:set -DnewVersion=\"${bump}\" -DgenerateBackupPoms=false"
+
+  precondition:
+    type: presence
+    target: pom.xml

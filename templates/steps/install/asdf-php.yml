@@ -10,9 +10,10 @@ step:
   command: "asdf plugin add php 2>/dev/null; asdf install php"
   requires:
     - asdf
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "asdf where php"
+    validation: success
 
 environment_impact:
   modifies_path: true

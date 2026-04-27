@@ -112,7 +112,7 @@ impl StepResult {
         }
     }
 
-    /// Create a check-passed result (completed_check passed, step didn't need to run).
+    /// Create a check-passed result (check passed, step didn't need to run).
     ///
     /// Unlike `skipped`, this records as a successful completion — dependents
     /// should proceed, and the summary shows ✓ instead of ○.
@@ -245,7 +245,7 @@ pub fn execute_step(
     // Create step-scoped context with template inputs
     let context = &context.with_step_inputs(&step.inputs);
 
-    // Note: Check evaluation (completed_check) and precondition evaluation
+    // Note: Check evaluation and precondition evaluation
     // are handled by the orchestrator BEFORE calling execute_step().
     // The executor only executes — it does not make run/skip decisions.
 
@@ -418,7 +418,7 @@ mod tests {
         assert!(result.output.unwrap().contains("hello"));
     }
 
-    // Note: Tests for completed_check-based skipping and force behavior
+    // Note: Tests for check-based skipping and force behavior
     // have been removed from the executor because check evaluation is now
     // handled by the orchestrator (Phase 5 of the system redesign).
     // See orchestrate.rs and workflow.rs tests for check evaluation coverage.

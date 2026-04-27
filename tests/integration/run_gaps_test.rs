@@ -102,8 +102,8 @@ app_name: ForceTest
 steps:
   already_done:
     command: echo forced-run
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "exit 0"
 workflows:
   default:

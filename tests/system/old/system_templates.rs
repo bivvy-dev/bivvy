@@ -28,8 +28,8 @@ steps:
   check:
     title: "Check cargo"
     command: "cargo --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "cargo --version"
 workflows:
   default:
@@ -294,8 +294,8 @@ version: "1.0.0"
 platforms: [macos, linux, windows]
 step:
   command: "cargo --version"
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "cargo --version"
 "#,
     )

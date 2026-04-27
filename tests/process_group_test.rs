@@ -384,7 +384,7 @@ workflows:
     steps: [check-toolchain, check-git, check-cargo]
 "#;
 
-/// 3-step interactive workflow with completed_checks.
+/// 3-step interactive workflow with checks.
 const COMPLETED_CHECK_CONFIG: &str = r#"
 app_name: "CompletedCheckTest"
 
@@ -395,16 +395,16 @@ steps:
   install-tools:
     title: "Install tools"
     command: "rustc --version > .tools-installed.txt"
-    completed_check:
-      type: file_exists
-      path: ".tools-installed.txt"
+    check:
+      type: presence
+      target: ".tools-installed.txt"
 
   verify-repo:
     title: "Verify repository"
     command: "git rev-parse --git-dir > .repo-verified.txt"
     depends_on: [install-tools]
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "git rev-parse --git-dir"
 
   run-analysis:

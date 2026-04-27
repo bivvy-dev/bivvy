@@ -10,11 +10,13 @@ step:
   title: "Install Node toolchain"
   description: "Install pinned Node.js version using Volta"
   command: "volta install node"
-  completed_check:
-    type: command_succeeds
-    command: "volta which node"
-  watches:
-    - package.json
+  checks:
+    - type: execution
+      command: "volta which node"
+      validation: success
+    - type: change
+      target: package.json
+      on_change: proceed
 
 environment_impact:
   modifies_path: true

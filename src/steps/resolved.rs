@@ -5,38 +5,25 @@
 
 use crate::checks::{Check, SatisfactionCondition};
 use crate::config::schema::{PromptConfig, StepEnvironmentOverride};
-use crate::config::{CompletedCheck, StepConfig};
+use crate::config::StepConfig;
 use crate::registry::template::Template;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Resolved execution fields (command, checks, watches, retry, sudo).
+/// Resolved execution fields (command, checks, retry, sudo).
 #[derive(Debug, Clone, Default)]
 pub struct ResolvedExecution {
     /// Command to execute.
     pub command: String,
 
-    /// Legacy completion check (old `CompletedCheck` enum).
-    /// Kept for backward compatibility during migration. Prefer `new_check`/`new_checks`.
-    pub completed_check: Option<CompletedCheck>,
+    /// Single check (new `Check` enum).
+    pub check: Option<Check>,
 
-    /// New check system: single check (new `Check` enum).
-    /// Populated from either `ExecutionConfig.check` or converted from `completed_check`.
-    pub new_check: Option<Check>,
+    /// Multiple checks (implicit `all`).
+    pub checks: Vec<Check>,
 
-    /// New check system: multiple checks (implicit `all`).
-    /// Populated from `ExecutionConfig.checks`.
-    pub new_checks: Vec<Check>,
-
-    /// Precondition that must pass before running (legacy `CompletedCheck` type).
-    pub precondition: Option<CompletedCheck>,
-
-    /// Precondition using the new `Check` type.
-    /// Populated from `precondition` via conversion, or from new config fields.
-    pub new_precondition: Option<Check>,
-
-    /// Files to watch.
-    pub watches: Vec<String>,
+    /// Precondition that must pass before running.
+    pub precondition: Option<Check>,
 
     /// Retry count.
     pub retry: u32,
@@ -46,34 +33,25 @@ pub struct ResolvedExecution {
 }
 
 impl ResolvedExecution {
-    /// Get the effective check to evaluate, preferring new check fields over legacy.
+    /// Get the effective check to evaluate.
     ///
     /// Returns `None` if no check is configured.
-    /// If `new_checks` has entries, they are wrapped in an `All` combinator.
-    /// If `new_check` is set, it is returned directly.
-    /// Otherwise, `completed_check` is converted to the new `Check` type.
+    /// If `checks` has entries, they are wrapped in an `All` combinator.
+    /// If `check` is set, it is returned directly.
     pub fn effective_check(&self) -> Option<Check> {
-        if !self.new_checks.is_empty() {
+        if !self.checks.is_empty() {
             Some(Check::All {
                 name: None,
-                checks: self.new_checks.clone(),
+                checks: self.checks.clone(),
             })
-        } else if let Some(ref check) = self.new_check {
-            Some(check.clone())
         } else {
-            self.completed_check
-                .as_ref()
-                .map(Check::from_completed_check)
+            self.check.clone()
         }
     }
 
-    /// Get the effective precondition, preferring the new type.
+    /// Get the effective precondition.
     pub fn effective_precondition(&self) -> Option<Check> {
-        if let Some(ref check) = self.new_precondition {
-            Some(check.clone())
-        } else {
-            self.precondition.as_ref().map(Check::from_completed_check)
-        }
+        self.precondition.clone()
     }
 }
 
@@ -100,7 +78,7 @@ pub struct ResolvedBehavior {
     pub required: bool,
 
     /// Prompt before re-running completed.
-    pub prompt_if_complete: bool,
+    pub prompt_on_rerun: bool,
 
     /// Continue on failure.
     pub allow_failure: bool,
@@ -114,7 +92,7 @@ impl Default for ResolvedBehavior {
         Self {
             skippable: true,
             required: false,
-            prompt_if_complete: true,
+            prompt_on_rerun: true,
             allow_failure: false,
             sensitive: false,
         }
@@ -222,37 +200,18 @@ impl ResolvedStep {
             requires: merge_requires(&step.requires, &config.requires),
             inputs: resolved_inputs.clone(),
             satisfied_when: config.satisfied_when.clone(),
-            execution: {
-                let completed_check = config
+            execution: ResolvedExecution {
+                command: config
                     .execution
-                    .completed_check
+                    .command
                     .clone()
-                    .or_else(|| step.completed_check.clone());
-                let precondition = config
-                    .execution
-                    .precondition
-                    .clone()
-                    .or_else(|| step.precondition.clone());
-                ResolvedExecution {
-                    command: config
-                        .execution
-                        .command
-                        .clone()
-                        .or_else(|| step.command.clone())
-                        .unwrap_or_default(),
-                    new_check: config.execution.check.clone(),
-                    new_checks: config.execution.checks.clone(),
-                    new_precondition: config.execution.new_precondition.clone(),
-                    completed_check,
-                    precondition,
-                    watches: if config.execution.watches.is_empty() {
-                        step.watches.clone()
-                    } else {
-                        config.execution.watches.clone()
-                    },
-                    retry: config.execution.retry,
-                    requires_sudo: config.execution.requires_sudo,
-                }
+                    .or_else(|| step.command.clone())
+                    .unwrap_or_default(),
+                check: config.execution.check.clone(),
+                checks: config.execution.checks.clone(),
+                precondition: config.execution.precondition.clone(),
+                retry: config.execution.retry,
+                requires_sudo: config.execution.requires_sudo,
             },
             env_vars: ResolvedEnvironmentVars {
                 env: merge_env(&step.env, &config.env_vars.env),
@@ -262,7 +221,7 @@ impl ResolvedStep {
             behavior: ResolvedBehavior {
                 skippable: config.behavior.skippable,
                 required: config.behavior.required,
-                prompt_if_complete: config.behavior.prompt_if_complete,
+                prompt_on_rerun: config.behavior.prompt_on_rerun,
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
             },
@@ -306,12 +265,9 @@ impl ResolvedStep {
             satisfied_when: config.satisfied_when.clone(),
             execution: ResolvedExecution {
                 command: config.execution.command.clone().unwrap_or_default(),
-                new_check: config.execution.check.clone(),
-                new_checks: config.execution.checks.clone(),
-                new_precondition: config.execution.new_precondition.clone(),
-                completed_check: config.execution.completed_check.clone(),
+                check: config.execution.check.clone(),
+                checks: config.execution.checks.clone(),
                 precondition: config.execution.precondition.clone(),
-                watches: config.execution.watches.clone(),
                 retry: config.execution.retry,
                 requires_sudo: config.execution.requires_sudo,
             },
@@ -323,7 +279,7 @@ impl ResolvedStep {
             behavior: ResolvedBehavior {
                 skippable: config.behavior.skippable,
                 required: config.behavior.required,
-                prompt_if_complete: config.behavior.prompt_if_complete,
+                prompt_on_rerun: config.behavior.prompt_on_rerun,
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
             },
@@ -372,8 +328,8 @@ impl ResolvedStep {
                 }
             }
         }
-        if let Some(check) = &overrides.completed_check {
-            self.execution.completed_check = Some(check.clone());
+        if let Some(check) = &overrides.check {
+            self.execution.check = Some(check.clone());
         }
         if let Some(check) = &overrides.precondition {
             self.execution.precondition = Some(check.clone());
@@ -401,9 +357,6 @@ impl ResolvedStep {
         }
         if let Some(reqs) = &overrides.requires {
             self.requires = reqs.clone();
-        }
-        if let Some(w) = &overrides.watches {
-            self.execution.watches = w.clone();
         }
         if let Some(r) = overrides.retry {
             self.execution.retry = r;
@@ -521,14 +474,11 @@ mod tests {
                 title: Some("Template Title".to_string()),
                 description: Some("Template desc".to_string()),
                 command: Some("template command".to_string()),
-                completed_check: None,
-                precondition: None,
                 env: {
                     let mut env = HashMap::new();
                     env.insert("TEMPLATE_VAR".to_string(), "from_template".to_string());
                     env
                 },
-                watches: vec!["template.lock".to_string()],
                 requires: vec![],
             },
             environment_impact: None,
@@ -633,37 +583,6 @@ mod tests {
     }
 
     #[test]
-    fn from_template_uses_template_watches_when_config_empty() {
-        let template = make_template();
-        let config = StepConfig::default();
-
-        let resolved =
-            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-
-        assert_eq!(
-            resolved.execution.watches,
-            vec!["template.lock".to_string()]
-        );
-    }
-
-    #[test]
-    fn from_template_uses_config_watches_when_provided() {
-        let template = make_template();
-        let config = StepConfig {
-            execution: ExecutionConfig {
-                watches: vec!["config.lock".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let resolved =
-            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-
-        assert_eq!(resolved.execution.watches, vec!["config.lock".to_string()]);
-    }
-
-    #[test]
     fn resolved_step_carries_requires_from_config() {
         let config = StepConfig {
             execution: ExecutionConfig {
@@ -726,8 +645,10 @@ mod tests {
         let config = StepConfig {
             execution: ExecutionConfig {
                 command: Some("echo test".to_string()),
-                precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                precondition: Some(Check::Execution {
+                    name: None,
                     command: "exit 0".to_string(),
+                    validation: crate::checks::ValidationMode::Success,
                 }),
                 ..Default::default()
             },
@@ -738,7 +659,7 @@ mod tests {
         assert!(resolved.execution.precondition.is_some());
         assert!(matches!(
             resolved.execution.precondition,
-            Some(crate::config::CompletedCheck::CommandSucceeds { .. })
+            Some(Check::Execution { .. })
         ));
     }
 
@@ -754,8 +675,10 @@ mod tests {
         let config = StepConfig {
             execution: ExecutionConfig {
                 command: Some("echo test".to_string()),
-                precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                precondition: Some(Check::Execution {
+                    name: None,
                     command: "exit 0".to_string(),
+                    validation: crate::checks::ValidationMode::Success,
                 }),
                 ..Default::default()
             },
@@ -765,8 +688,10 @@ mod tests {
                     envs.insert(
                         "ci".to_string(),
                         StepEnvironmentOverride {
-                            precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
+                            precondition: Some(Check::Execution {
+                                name: None,
                                 command: "exit 1".to_string(),
+                                validation: crate::checks::ValidationMode::Success,
                             }),
                             ..Default::default()
                         },
@@ -779,72 +704,13 @@ mod tests {
         };
 
         let resolved = ResolvedStep::from_config("test", &config, Some("ci"));
-        if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
-            &resolved.execution.precondition
-        {
+        if let Some(Check::Execution { command, .. }) = &resolved.execution.precondition {
             assert_eq!(
                 command, "exit 1",
                 "environment override should replace precondition"
             );
         } else {
-            panic!("Expected CommandSucceeds precondition");
-        }
-    }
-
-    #[test]
-    fn from_template_inherits_precondition() {
-        let mut template = make_template();
-        template.step.precondition = Some(crate::config::CompletedCheck::CommandSucceeds {
-            command: "test $(git branch --show-current) = main".to_string(),
-        });
-
-        let config = StepConfig::default();
-
-        let resolved =
-            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-
-        assert!(
-            resolved.execution.precondition.is_some(),
-            "precondition from template should be inherited"
-        );
-        if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
-            &resolved.execution.precondition
-        {
-            assert_eq!(command, "test $(git branch --show-current) = main");
-        } else {
-            panic!("Expected CommandSucceeds precondition from template");
-        }
-    }
-
-    #[test]
-    fn from_template_config_precondition_overrides_template() {
-        let mut template = make_template();
-        template.step.precondition = Some(crate::config::CompletedCheck::CommandSucceeds {
-            command: "template check".to_string(),
-        });
-
-        let config = StepConfig {
-            execution: ExecutionConfig {
-                precondition: Some(crate::config::CompletedCheck::CommandSucceeds {
-                    command: "config check".to_string(),
-                }),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        let resolved =
-            ResolvedStep::from_template("test", &template, &config, &HashMap::new(), None);
-
-        if let Some(crate::config::CompletedCheck::CommandSucceeds { command }) =
-            &resolved.execution.precondition
-        {
-            assert_eq!(
-                command, "config check",
-                "config precondition should override template"
-            );
-        } else {
-            panic!("Expected CommandSucceeds precondition");
+            panic!("Expected Execution precondition");
         }
     }
 
@@ -855,7 +721,7 @@ mod tests {
         assert!(overrides.description.is_none());
         assert!(overrides.command.is_none());
         assert!(overrides.env.is_empty());
-        assert!(overrides.completed_check.is_none());
+        assert!(overrides.check.is_none());
         assert!(overrides.precondition.is_none());
         assert!(overrides.skippable.is_none());
         assert!(overrides.allow_failure.is_none());
@@ -865,7 +731,6 @@ mod tests {
         assert!(overrides.after.is_none());
         assert!(overrides.depends_on.is_none());
         assert!(overrides.requires.is_none());
-        assert!(overrides.watches.is_none());
         assert!(overrides.retry.is_none());
     }
 
@@ -1236,12 +1101,15 @@ mod tests {
     }
 
     #[test]
-    fn resolved_step_env_overrides_completed_check() {
+    fn resolved_step_env_overrides_check() {
         let config = StepConfig {
             execution: ExecutionConfig {
                 command: Some("echo test".to_string()),
-                completed_check: Some(crate::config::CompletedCheck::FileExists {
-                    path: "base.txt".to_string(),
+                check: Some(Check::Presence {
+                    name: None,
+                    target: Some("base.txt".to_string()),
+                    kind: Some(crate::checks::PresenceKind::File),
+                    command: None,
                 }),
                 ..Default::default()
             },
@@ -1250,16 +1118,18 @@ mod tests {
         let mut resolved = ResolvedStep::from_config("test", &config, None);
 
         let overrides = StepEnvironmentOverride {
-            completed_check: Some(crate::config::CompletedCheck::CommandSucceeds {
+            check: Some(Check::Execution {
+                name: None,
                 command: "true".to_string(),
+                validation: crate::checks::ValidationMode::Success,
             }),
             ..Default::default()
         };
         resolved.apply_environment_overrides(&overrides);
 
         assert!(matches!(
-            resolved.execution.completed_check,
-            Some(crate::config::CompletedCheck::CommandSucceeds { .. })
+            resolved.execution.check,
+            Some(Check::Execution { .. })
         ));
     }
 
@@ -1282,27 +1152,6 @@ mod tests {
         resolved.apply_environment_overrides(&overrides);
 
         assert_eq!(resolved.depends_on, vec!["x"]);
-    }
-
-    #[test]
-    fn resolved_step_env_overrides_watches() {
-        let config = StepConfig {
-            execution: ExecutionConfig {
-                command: Some("echo test".to_string()),
-                watches: vec!["Gemfile".to_string(), "Gemfile.lock".to_string()],
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let mut resolved = ResolvedStep::from_config("test", &config, None);
-
-        let overrides = StepEnvironmentOverride {
-            watches: Some(vec!["package.json".to_string()]),
-            ..Default::default()
-        };
-        resolved.apply_environment_overrides(&overrides);
-
-        assert_eq!(resolved.execution.watches, vec!["package.json"]);
     }
 
     #[test]

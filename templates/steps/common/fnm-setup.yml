@@ -12,12 +12,16 @@ step:
   command: "fnm install && fnm use"
   requires:
     - fnm
-  completed_check:
-    type: command_succeeds
-    command: "fnm current 2>&1 | grep -v 'none'"
-  watches:
-    - .nvmrc
-    - .node-version
+  checks:
+    - type: execution
+      command: "fnm current 2>&1 | grep -v 'none"
+      validation: success
+    - type: change
+      target: .nvmrc
+      on_change: proceed
+    - type: change
+      target: ".node-version"
+      on_change: proceed
 
 environment_impact:
   modifies_path: true

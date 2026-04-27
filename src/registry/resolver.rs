@@ -547,11 +547,6 @@ step:
                 "Install template '{}' has no command",
                 name
             );
-            assert!(
-                template.step.completed_check.is_some(),
-                "Install template '{}' has no completed_check",
-                name
-            );
         }
     }
 

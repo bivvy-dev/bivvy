@@ -23,7 +23,7 @@ use tempfile::TempDir;
 
 /// A non-trivial config that exercises multiple features the `config`
 /// command must faithfully round-trip: multiple steps, dependencies,
-/// completed checks, multiple workflows, and settings.
+/// checks, multiple workflows, and settings.
 const CONFIG: &str = r#"app_name: "ConfigTest"
 settings:
   default_output: verbose
@@ -31,8 +31,8 @@ steps:
   deps:
     title: "Install dependencies"
     command: "rustc --version"
-    completed_check:
-      type: command_succeeds
+    check:
+      type: execution
       command: "rustc --version"
   build:
     title: "Build project"

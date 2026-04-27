@@ -12,12 +12,15 @@ step:
   command: "composer install"
   requires:
     - php
-  completed_check:
-    type: file_exists
-    path: "vendor"
-  watches:
-    - composer.json
-    - composer.lock
+  checks:
+    - type: presence
+      target: vendor
+    - type: change
+      target: composer.json
+      on_change: proceed
+    - type: change
+      target: composer.lock
+      on_change: proceed
 
 environment_impact:
   path_additions:

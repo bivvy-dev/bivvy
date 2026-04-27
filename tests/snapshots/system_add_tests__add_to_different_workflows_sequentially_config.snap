@@ -10,17 +10,9 @@ steps:
   bundle-install:
     template: bundle-install
     # command: bundle install
-    # completed_check:
-    #   type: command_succeeds
-    #   command: "bundle check"
-    # watches: [Gemfile, Gemfile.lock]
   cargo-build:
     template: cargo-build
     # command: cargo build
-    # completed_check:
-    #   type: file_exists
-    #   path: "target"
-    # watches: [Cargo.toml, Cargo.lock]
 workflows:
   default:
     steps: [existing, bundle-install]

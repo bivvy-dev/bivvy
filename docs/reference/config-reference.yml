@@ -225,22 +225,29 @@ steps:
     depends_on:
       - check_node
 
-    # --- Completion Detection ---
-    # Check if step is already done (enables idempotent re-runs)
-    # Types: file_exists, command_succeeds, marker, all, any
-    completed_check:
-      type: file_exists
-      path: node_modules
+    # --- Checks ---
+    # Satisfaction and change-detection checks (enables idempotent re-runs)
+    # Types: presence, execution, change, all, any
+    checks:
+      - type: presence
+        target: node_modules
+      - type: change
+        target: package.json
+        on_change: proceed
+      - type: change
+        target: "package-lock.json"
+        on_change: proceed
 
     # --- Precondition ---
     # Gate that must pass before the step runs.
-    # Uses the same check types as completed_check, but with opposite
+    # Uses the same check types as checks, but with opposite
     # semantics: a failing precondition fails the step (hard stop).
     # --force does NOT bypass preconditions.
-    # Type: CompletedCheck (optional)
+    # Type: Check (optional)
     # precondition:
-    #   type: command_succeeds
+    #   type: execution
     #   command: "test $(git branch --show-current) = main"
+    #   validation: success
 
     # --- Execution Control ---
     # Whether user can skip this step interactively
@@ -253,7 +260,7 @@ steps:
 
     # Ask before re-running a step that's already complete
     # Default: true
-    prompt_if_complete: true
+    prompt_on_rerun: true
 
     # Continue the workflow even if this step fails
     # Default: false
@@ -281,13 +288,6 @@ steps:
     # Type: list of variable names
     required_env:
       - NODE_AUTH_TOKEN
-
-    # --- Change Detection ---
-    # Files to watch — step re-runs when these change
-    # Type: list of glob patterns
-    watches:
-      - package.json
-      - package-lock.json
 
     # --- Interactive Prompts ---
     # Collect user input before running the step
@@ -376,41 +376,46 @@ steps:
 
 
 # --------------------------------------------------------------------------
-# Completed Check Types — detailed examples
+# Check Types — detailed examples
 # --------------------------------------------------------------------------
-# These go inside a step's `completed_check:` field.
+# These go inside a step's `checks:` list.
 #
-# --- file_exists ---
-# completed_check:
-#   type: file_exists
-#   path: node_modules          # relative to project root
+# --- presence ---
+# check:
+#   type: presence
+#   target: node_modules          # relative to project root
 #
-# --- command_succeeds ---
-# completed_check:
-#   type: command_succeeds
-#   command: "bundle check"     # exit 0 = complete
+# --- execution ---
+# check:
+#   type: execution
+#   command: "bundle check"       # exit 0 = complete
+#   validation: success
 #
-# --- marker ---
-# completed_check:
-#   type: marker                # uses bivvy's internal tracking
+# --- change ---
+# check:
+#   type: change
+#   target: package.json
+#   on_change: proceed
 #
 # --- all (every check must pass) ---
-# completed_check:
+# check:
 #   type: all
 #   checks:
-#     - type: file_exists
-#       path: node_modules
-#     - type: command_succeeds
+#     - type: presence
+#       target: node_modules
+#     - type: execution
 #       command: "node --version"
+#       validation: success
 #
 # --- any (at least one check must pass) ---
-# completed_check:
+# check:
 #   type: any
 #   checks:
-#     - type: file_exists
-#       path: .setup-complete
-#     - type: command_succeeds
+#     - type: presence
+#       target: .setup-complete
+#     - type: execution
 #       command: "psql -c 'SELECT 1'"
+#       validation: success
 
 
 # --------------------------------------------------------------------------
@@ -441,9 +446,9 @@ workflows:
         # Override the step's `required` flag
         # Type: bool (optional — omit to use step default)
         required: true
-        # Override the step's `prompt_if_complete` flag
+        # Override the step's `prompt_on_rerun` flag
         # Type: bool (optional — omit to use step default)
-        prompt_if_complete: false
+        prompt_on_rerun: false
 
     # Workflow-level settings
     settings:

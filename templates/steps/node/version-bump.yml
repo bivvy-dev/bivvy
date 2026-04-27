@@ -25,7 +25,9 @@ step:
   description: "Update version in package.json using npm version"
   requires:
     - node
-  precondition:
-    type: command_succeeds
-    command: "npm --version"
   command: "npm version \"${bump}\" --no-git-tag-version"
+
+  precondition:
+    type: execution
+    command: "npm --version"
+    validation: success

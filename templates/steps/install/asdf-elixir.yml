@@ -10,9 +10,10 @@ step:
   command: "asdf plugin add elixir 2>/dev/null; asdf install elixir"
   requires:
     - asdf
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "asdf where elixir"
+    validation: success
 
 environment_impact:
   modifies_path: true

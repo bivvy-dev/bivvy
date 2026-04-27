@@ -12,12 +12,15 @@ step:
   command: "uv sync"
   requires:
     - python
-  completed_check:
-    type: file_exists
-    path: ".venv"
-  watches:
-    - pyproject.toml
-    - uv.lock
+  checks:
+    - type: presence
+      target: .venv
+    - type: change
+      target: pyproject.toml
+      on_change: proceed
+    - type: change
+      target: uv.lock
+      on_change: proceed
 
 environment_impact:
   note: "uv creates a .venv virtual environment in the project"

@@ -12,14 +12,17 @@ step:
   command: "pnpm install"
   requires:
     - node
-  completed_check:
-    type: file_exists
-    path: "node_modules"
   env:
     NODE_ENV: development
-  watches:
-    - package.json
-    - pnpm-lock.yaml
+  checks:
+    - type: presence
+      target: node_modules
+    - type: change
+      target: package.json
+      on_change: proceed
+    - type: change
+      target: "pnpm-lock.yaml"
+      on_change: proceed
 
 environment_impact:
   path_additions:

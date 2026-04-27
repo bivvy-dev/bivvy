@@ -109,12 +109,19 @@ step:
   requires:
     - java
   precondition:
-    type: command_succeeds
+    type: execution
     command: "test -d ${build_dir}"
-  watches:
-    - pom.xml
-    - build.gradle
-    - build.gradle.kts
+    validation: success
+  checks:
+    - type: change
+      target: pom.xml
+      on_change: proceed
+    - type: change
+      target: build.gradle
+      on_change: proceed
+    - type: change
+      target: build.gradle.kts
+      on_change: proceed
 
 environment_impact:
   note: "Read-only audit — does not modify build artifacts"

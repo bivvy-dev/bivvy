@@ -12,13 +12,18 @@ step:
   command: "npx remix build"
   requires:
     - node
-  completed_check:
-    type: file_exists
-    path: "build"
-  watches:
-    - remix.config.js
-    - remix.config.ts
-    - app/root.tsx
+  checks:
+    - type: presence
+      target: build
+    - type: change
+      target: remix.config.js
+      on_change: proceed
+    - type: change
+      target: remix.config.ts
+      on_change: proceed
+    - type: change
+      target: app/root.tsx
+      on_change: proceed
 
 environment_impact:
   note: "Generates server and client build output"

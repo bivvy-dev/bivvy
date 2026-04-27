@@ -8,9 +8,10 @@ step:
   title: "Install mise"
   description: "Install the mise version manager for managing language runtimes"
   command: "curl https://mise.run | sh"
-  completed_check:
-    type: command_succeeds
+  check:
+    type: execution
     command: "mise --version"
+    validation: success
 
 environment_impact:
   modifies_path: true
