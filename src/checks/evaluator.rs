@@ -409,7 +409,7 @@ mod tests {
 
         let result = eval.evaluate(&check);
         assert!(result.passed_check());
-        assert_eq!(result.description, "node_modules exists");
+        assert_eq!(result.description, "\u{2713} node_modules exists");
     }
 
     #[test]

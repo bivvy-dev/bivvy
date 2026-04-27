@@ -23,6 +23,7 @@ pub mod mock;
 pub mod non_interactive;
 pub mod output;
 pub mod preflight;
+pub mod presenter;
 pub mod progress;
 pub mod prompts;
 pub mod spinner;
@@ -38,6 +39,7 @@ pub use output::{
     VerboseStreamSink,
 };
 pub use preflight::PreflightCollector;
+pub use presenter::EventPresenter;
 pub use progress::{format_duration, format_relative_time, StepProgress};
 pub use prompts::prompt_user;
 pub use spinner::{step_spinner, ProgressSpinner};

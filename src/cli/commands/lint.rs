@@ -256,6 +256,31 @@ impl Command for LintCommand {
             }
         }
 
+        // Evaluate checks defined in config and emit CheckEvaluated events
+        {
+            let ctx = crate::config::interpolation::InterpolationContext::default();
+            let mut snapshot_store = crate::snapshots::SnapshotStore::empty();
+            for (step_name, step_config) in &config.steps {
+                if let Some(ref check) = step_config.execution.check {
+                    let mut evaluator = crate::checks::evaluator::CheckEvaluator::new(
+                        &self.project_root,
+                        &ctx,
+                        &mut snapshot_store,
+                    );
+                    let result = evaluator.evaluate(check);
+                    event_bus.emit(&crate::logging::BivvyEvent::CheckEvaluated {
+                        step: step_name.clone(),
+                        check_name: check.name().map(|s| s.to_string()),
+                        check_type: check.type_name().to_string(),
+                        outcome: result.outcome.as_str().to_string(),
+                        description: result.description.clone(),
+                        details: result.details.clone(),
+                        duration_ms: None,
+                    });
+                }
+            }
+        }
+
         // Check for errors based on strict mode
         let has_errors = diagnostics.iter().any(|d| d.severity == Severity::Error);
         let has_warnings = diagnostics.iter().any(|d| d.severity == Severity::Warning);

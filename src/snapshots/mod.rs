@@ -11,6 +11,20 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Describes what happened when a baseline was recorded.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum BaselineChange {
+    /// A new baseline was established (no previous value existed).
+    Established,
+    /// The baseline was updated (previous hash differed).
+    Updated {
+        /// The previous hash value.
+        old_hash: String,
+    },
+    /// The baseline hash was unchanged.
+    Unchanged,
+}
+
 /// Key for looking up baselines in the snapshot store.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct SnapshotKey {
@@ -98,6 +112,21 @@ pub struct SnapshotInfo {
     pub captured_at: String,
 }
 
+/// A recorded baseline change, for event emission.
+#[derive(Debug, Clone)]
+pub struct BaselineEvent {
+    /// Step name.
+    pub step: String,
+    /// What was hashed (file path, glob, command).
+    pub target: String,
+    /// New hash value.
+    pub hash: String,
+    /// Scope ("project" or "workflow:<name>").
+    pub scope: String,
+    /// What kind of change occurred.
+    pub change: BaselineChange,
+}
+
 /// Manages baseline hashes for change check comparisons.
 ///
 /// The store reads/writes YAML files in a snapshots directory.
@@ -107,6 +136,8 @@ pub struct SnapshotStore {
     dir: PathBuf,
     /// In-memory cache of loaded snapshot data.
     cache: HashMap<String, SnapshotData>,
+    /// Pending baseline changes for event emission.
+    pending_events: Vec<BaselineEvent>,
 }
 
 impl SnapshotStore {
@@ -115,6 +146,7 @@ impl SnapshotStore {
         Self {
             dir: dir.into(),
             cache: HashMap::new(),
+            pending_events: Vec::new(),
         }
     }
 
@@ -128,6 +160,7 @@ impl SnapshotStore {
         Self {
             dir: PathBuf::new(),
             cache: HashMap::new(),
+            pending_events: Vec::new(),
         }
     }
 
@@ -161,13 +194,16 @@ impl SnapshotStore {
     }
 
     /// Record a new baseline after successful step execution.
+    ///
+    /// Returns [`BaselineChange`] indicating whether this was a new baseline
+    /// or an update to an existing one (with the old hash).
     pub fn record_baseline(
         &mut self,
         key: &SnapshotKey,
         baseline_name: &str,
         hash: String,
         target: String,
-    ) {
+    ) -> BaselineChange {
         self.ensure_loaded(key);
         let filename = key.filename();
         let data = self.cache.entry(filename).or_insert_with(|| SnapshotData {
@@ -175,6 +211,24 @@ impl SnapshotStore {
             scope: key.scope.clone(),
             baselines: HashMap::new(),
         });
+
+        let change = match data.baselines.get(baseline_name) {
+            None => BaselineChange::Established,
+            Some(existing) if existing.hash == hash => BaselineChange::Unchanged,
+            Some(existing) => BaselineChange::Updated {
+                old_hash: existing.hash.clone(),
+            },
+        };
+
+        if !matches!(change, BaselineChange::Unchanged) {
+            self.pending_events.push(BaselineEvent {
+                step: key.step_name.clone(),
+                target: target.clone(),
+                hash: hash.clone(),
+                scope: key.scope.clone(),
+                change: change.clone(),
+            });
+        }
 
         data.baselines.insert(
             baseline_name.to_string(),
@@ -184,6 +238,17 @@ impl SnapshotStore {
                 target,
             },
         );
+
+        change
+    }
+
+    /// Drain pending baseline change events.
+    ///
+    /// Returns all baseline changes that occurred since the last drain.
+    /// The orchestrator calls this after check evaluation to emit
+    /// `BaselineEstablished` / `BaselineUpdated` events.
+    pub fn drain_events(&mut self) -> Vec<BaselineEvent> {
+        std::mem::take(&mut self.pending_events)
     }
 
     /// Capture a named snapshot.

@@ -53,6 +53,24 @@ pub struct StepState {
 
     /// Duration of the last run in milliseconds.
     pub duration_ms: Option<u64>,
+
+    /// Legacy v1 watches hash. Present only in v1 state files that had
+    /// change-detection watches configured. Consumed during migration to
+    /// populate SnapshotStore baselines, then cleared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub watches_hash: Option<String>,
+}
+
+/// A baseline migration entry extracted from v1 state.
+///
+/// Each entry represents a `watches_hash` from a v1 `StepState` that
+/// should be recorded in the `SnapshotStore` as a `_last_run` baseline.
+#[derive(Debug, Clone)]
+pub struct BaselineMigration {
+    /// Step name.
+    pub step_name: String,
+    /// The v1 watches hash to use as the initial baseline.
+    pub hash: String,
 }
 
 /// Status of a step execution.
@@ -126,11 +144,14 @@ impl StateStore {
     }
 
     /// Load state from disk, applying migrations if needed.
-    pub fn load(project_id: &ProjectId) -> crate::error::Result<Self> {
+    ///
+    /// Returns the state store and any baseline migrations that need to be
+    /// applied to the `SnapshotStore` (from v1 `watches_hash` fields).
+    pub fn load(project_id: &ProjectId) -> crate::error::Result<(Self, Vec<BaselineMigration>)> {
         let path = Self::state_file(project_id);
 
         if !path.exists() {
-            return Ok(Self::new(project_id));
+            return Ok((Self::new(project_id), Vec::new()));
         }
 
         let content = fs::read_to_string(&path)?;
@@ -142,17 +163,36 @@ impl StateStore {
         })?;
 
         // Apply migrations
-        if state.version < Self::CURRENT_VERSION {
-            state.migrate();
-        }
+        let baselines = if state.version < Self::CURRENT_VERSION {
+            state.migrate()
+        } else {
+            Vec::new()
+        };
 
-        Ok(state)
+        Ok((state, baselines))
     }
 
     /// Apply any pending migrations to bring state to the current version.
-    fn migrate(&mut self) {
-        // Future migrations would go here: if self.version < 3 { ... }
+    ///
+    /// Returns baseline migrations extracted from v1 `watches_hash` fields.
+    /// The caller should apply these to the `SnapshotStore`.
+    fn migrate(&mut self) -> Vec<BaselineMigration> {
+        let mut baselines = Vec::new();
+
+        // v1 → v2: Extract watches_hash from steps into baseline migrations
+        if self.version < 2 {
+            for (step_name, step_state) in &mut self.steps {
+                if let Some(hash) = step_state.watches_hash.take() {
+                    baselines.push(BaselineMigration {
+                        step_name: step_name.clone(),
+                        hash,
+                    });
+                }
+            }
+        }
+
         self.version = Self::CURRENT_VERSION;
+        baselines
     }
 
     /// Save state to disk using atomic write.
@@ -203,6 +243,7 @@ impl StateStore {
             last_run: Some(Utc::now()),
             status,
             duration_ms: Some(duration.as_millis() as u64),
+            watches_hash: None,
         };
         self.steps.insert(step.to_string(), state);
     }
@@ -333,6 +374,7 @@ impl Default for StepState {
             last_run: None,
             status: StepStatus::NeverRun,
             duration_ms: None,
+            watches_hash: None,
         }
     }
 }
@@ -366,12 +408,13 @@ mod tests {
                 status: StepStatus::Success,
                 last_run: Some(Utc::now()),
                 duration_ms: Some(1000),
+                watches_hash: None,
             },
         );
 
         state.save(&project).unwrap();
 
-        let loaded = StateStore::load(&project).unwrap();
+        let (loaded, _) = StateStore::load(&project).unwrap();
         assert!(loaded.get_step("test_step").is_some());
         assert_eq!(
             loaded.get_step("test_step").unwrap().status,
@@ -384,7 +427,7 @@ mod tests {
         let temp = TempDir::new().unwrap();
         let project = ProjectId::from_path(temp.path()).unwrap();
 
-        let state = StateStore::load(&project).unwrap();
+        let (state, _) = StateStore::load(&project).unwrap();
         assert!(state.steps.is_empty());
     }
 
@@ -424,7 +467,7 @@ mod tests {
         );
 
         // Verify actual state file exists and is valid
-        let loaded = StateStore::load(&project).unwrap();
+        let (loaded, _) = StateStore::load(&project).unwrap();
         assert_eq!(
             loaded.get_step("test_step").unwrap().status,
             StepStatus::Success
@@ -774,11 +817,72 @@ mod migration_tests {
         );
         state.save(&project).unwrap();
 
-        let loaded = StateStore::load(&project).unwrap();
+        let (loaded, _) = StateStore::load(&project).unwrap();
         assert_eq!(loaded.version, 2);
         assert_eq!(
             loaded.get_step("step1").unwrap().status,
             StepStatus::Success,
         );
+    }
+
+    #[test]
+    fn migrate_v1_extracts_watches_hash_as_baseline() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+
+        // Write a v1 state file with watches_hash
+        let state_dir = StateStore::state_dir(&project);
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let state_file = state_dir.join("state.yml");
+        std::fs::write(
+            &state_file,
+            r#"version: 1
+project:
+  path: /tmp/test
+  name: test
+last_run: null
+last_workflow: null
+steps:
+  build:
+    last_run: null
+    status: Success
+    duration_ms: 100
+    watches_hash: "abc123def456"
+  test:
+    last_run: null
+    status: NeverRun
+    duration_ms: null
+runs: []
+"#,
+        )
+        .unwrap();
+
+        let (loaded, baselines) = StateStore::load(&project).unwrap();
+        assert_eq!(loaded.version, 2);
+        assert_eq!(baselines.len(), 1);
+        assert_eq!(baselines[0].step_name, "build");
+        assert_eq!(baselines[0].hash, "abc123def456");
+
+        // watches_hash should be cleared after migration
+        assert!(loaded.get_step("build").unwrap().watches_hash.is_none());
+    }
+
+    #[test]
+    fn migrate_v2_returns_no_baselines() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+
+        let mut state = StateStore::new(&project);
+        state.update_step(
+            "step1",
+            StepState {
+                status: StepStatus::Success,
+                ..Default::default()
+            },
+        );
+        state.save(&project).unwrap();
+
+        let (_, baselines) = StateStore::load(&project).unwrap();
+        assert!(baselines.is_empty());
     }
 }

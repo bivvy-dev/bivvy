@@ -589,3 +589,13 @@ fn subcommand_help_update() {
     assert!(text.contains("Usage"), "update --help should include 'Usage'");
     insta::assert_snapshot!("subcommand_help_update", text);
 }
+
+#[test]
+fn subcommand_help_snapshot() {
+    let text = run_help("snapshot");
+    assert!(
+        text.contains("Usage"),
+        "snapshot --help should include 'Usage'"
+    );
+    insta::assert_snapshot!("subcommand_help_snapshot", text);
+}

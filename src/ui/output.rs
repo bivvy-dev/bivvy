@@ -145,17 +145,17 @@ impl OutputSink for FixOutputSink {
 
 /// Format a label for a step whose `satisfied_when` conditions all passed.
 pub fn satisfaction_label(description: &str) -> String {
-    format!("Satisfied ({})", description)
+    format!("\u{2713} Satisfied ({})", description)
 }
 
 /// Format a label for a step whose check passed (work already done).
 pub fn check_passed_label(description: &str) -> String {
-    format!("Check passed ({})", description)
+    format!("\u{2713} Check passed ({})", description)
 }
 
 /// Format a prompt asking the user whether to re-run a check-passed step.
 pub fn rerun_prompt_label(description: &str) -> String {
-    format!("Check passed ({}). Run anyway?", description)
+    format!("\u{2713} Check passed ({}). Run anyway?", description)
 }
 
 #[cfg(test)]
@@ -253,7 +253,7 @@ mod tests {
     fn satisfaction_label_formats() {
         assert_eq!(
             satisfaction_label("node_modules exists"),
-            "Satisfied (node_modules exists)"
+            "\u{2713} Satisfied (node_modules exists)"
         );
     }
 
@@ -261,7 +261,7 @@ mod tests {
     fn check_passed_label_formats() {
         assert_eq!(
             check_passed_label("yarn.lock exists"),
-            "Check passed (yarn.lock exists)"
+            "\u{2713} Check passed (yarn.lock exists)"
         );
     }
 
@@ -269,7 +269,7 @@ mod tests {
     fn rerun_prompt_label_formats() {
         assert_eq!(
             rerun_prompt_label("deps installed"),
-            "Check passed (deps installed). Run anyway?"
+            "\u{2713} Check passed (deps installed). Run anyway?"
         );
     }
 }

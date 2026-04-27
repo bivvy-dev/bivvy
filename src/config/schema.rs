@@ -48,31 +48,85 @@ pub struct BivvyConfig {
     pub vars: HashMap<String, VarDefinition>,
 }
 
-/// Output-related settings (verbosity, logging).
+/// Output-related settings (verbosity).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OutputSettings {
     /// Default output mode: verbose, quiet, silent
     #[serde(default = "default_output")]
     pub default_output: OutputMode,
-
-    /// Enable logging to file
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub logging: bool,
-
-    /// Log file path (relative to project root)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub log_path: Option<PathBuf>,
 }
 
 impl Default for OutputSettings {
     fn default() -> Self {
         Self {
             default_output: default_output(),
-            logging: false,
-            log_path: None,
         }
     }
+}
+
+/// JSONL event logging settings.
+///
+/// Controls whether structured event logs are written to `~/.bivvy/logs/`
+/// and how long they are retained.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct LoggingSettings {
+    /// Enable JSONL event logging. When false, no log files are written.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub logging: bool,
+
+    /// Maximum age of log files in days. Files older than this are deleted
+    /// during cleanup. Default: 30.
+    #[serde(
+        default = "default_log_retention_days",
+        skip_serializing_if = "is_default_log_retention_days"
+    )]
+    pub log_retention_days: u32,
+
+    /// Maximum total size of log files in megabytes. When exceeded, oldest
+    /// files are deleted first. Default: 500.
+    #[serde(
+        default = "default_log_retention_mb",
+        skip_serializing_if = "is_default_log_retention_mb"
+    )]
+    pub log_retention_mb: u64,
+}
+
+impl Default for LoggingSettings {
+    fn default() -> Self {
+        Self {
+            logging: true,
+            log_retention_days: default_log_retention_days(),
+            log_retention_mb: default_log_retention_mb(),
+        }
+    }
+}
+
+impl LoggingSettings {
+    /// Convert to a [`RetentionPolicy`](crate::logging::RetentionPolicy).
+    pub fn to_retention_policy(&self) -> crate::logging::RetentionPolicy {
+        crate::logging::RetentionPolicy {
+            max_age_days: self.log_retention_days,
+            max_size_mb: self.log_retention_mb,
+        }
+    }
+}
+
+fn default_log_retention_days() -> u32 {
+    30
+}
+
+fn is_default_log_retention_days(v: &u32) -> bool {
+    *v == default_log_retention_days()
+}
+
+fn default_log_retention_mb() -> u64 {
+    500
+}
+
+fn is_default_log_retention_mb(v: &u64) -> bool {
+    *v == default_log_retention_mb()
 }
 
 /// Execution-related settings (parallelism, history, updates).
@@ -154,9 +208,13 @@ pub struct EnvironmentProfileSettings {
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    /// Output-related settings (verbosity, logging)
+    /// Output-related settings (verbosity)
     #[serde(flatten)]
     pub output: OutputSettings,
+
+    /// JSONL event logging settings (enable/disable, retention)
+    #[serde(flatten)]
+    pub logging: LoggingSettings,
 
     /// Execution-related settings (parallelism, history, updates)
     #[serde(flatten)]
@@ -227,7 +285,9 @@ pub struct ExecutionConfig {
 
     /// Single check (new `Check` enum).
     /// Mutually exclusive with `checks`.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    ///
+    /// Also accepts the deprecated `completed_check` field name via serde alias.
+    #[serde(skip_serializing_if = "Option::is_none", alias = "completed_check")]
     pub check: Option<Check>,
 
     /// Multiple checks (implicit `all`).
@@ -285,7 +345,13 @@ pub struct BehaviorConfig {
     pub required: bool,
 
     /// Ask before re-running completed steps.
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    ///
+    /// Also accepts the deprecated `prompt_if_complete` field name via serde alias.
+    #[serde(
+        default = "default_true",
+        skip_serializing_if = "is_true",
+        alias = "prompt_if_complete"
+    )]
     pub prompt_on_rerun: bool,
 
     /// Continue workflow if this step fails
@@ -405,6 +471,12 @@ pub struct StepConfig {
     /// Environment scoping and overrides
     #[serde(flatten)]
     pub scoping: EnvironmentScopingConfig,
+
+    /// Deprecated `watches` field. Accepted for backward compatibility and
+    /// converted to change checks during config loading. Users should migrate
+    /// to `check: { type: change, target: ... }`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub watches: Vec<String>,
 }
 
 fn default_true() -> bool {
@@ -456,9 +528,6 @@ pub struct PromptOption {
 pub struct StepOutputConfig {
     /// Output mode for this step
     pub default: Option<OutputMode>,
-
-    /// Enable logging for this step
-    pub logging: Option<bool>,
 }
 
 /// Configuration for a named workflow
@@ -758,6 +827,51 @@ pub struct StepEnvironmentOverride {
     pub retry: Option<u32>,
 }
 
+impl BivvyConfig {
+    /// Migrate deprecated fields to their modern equivalents.
+    ///
+    /// Converts:
+    /// - `watches: [path, ...]` → change checks on the step
+    ///
+    /// Returns deprecation warning messages for any fields that were migrated.
+    /// Should be called after deserialization to ensure backward compatibility.
+    pub fn migrate_deprecated_fields(&mut self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        for (step_name, step) in &mut self.steps {
+            if !step.watches.is_empty() {
+                warnings.push(format!(
+                    "Step '{}': 'watches' is deprecated. Use 'check: {{ type: change, target: ... }}' instead.",
+                    step_name
+                ));
+
+                // Convert each watch path into a change check
+                let change_checks: Vec<Check> = step
+                    .watches
+                    .drain(..)
+                    .map(|target| Check::Change {
+                        name: None,
+                        target,
+                        kind: crate::checks::ChangeKind::default(),
+                        on_change: crate::checks::OnChange::default(),
+                        require_step: None,
+                        baseline: crate::checks::BaselineConfig::default(),
+                        baseline_snapshot: None,
+                        baseline_git: None,
+                        size_limit: crate::checks::SizeLimit::default(),
+                        scope: crate::checks::SnapshotScope::default(),
+                    })
+                    .collect();
+
+                // Merge into existing checks
+                step.execution.checks.extend(change_checks);
+            }
+        }
+
+        warnings
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -768,6 +882,9 @@ mod tests {
         assert_eq!(config.settings.output.default_output, OutputMode::Verbose);
         assert_eq!(config.settings.execution.max_parallel, 4);
         assert_eq!(config.settings.execution.history_retention, 50);
+        assert!(config.settings.logging.logging);
+        assert_eq!(config.settings.logging.log_retention_days, 30);
+        assert_eq!(config.settings.logging.log_retention_mb, 500);
         assert!(config.steps.is_empty());
         assert!(config.workflows.is_empty());
     }
@@ -782,6 +899,32 @@ settings:
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.app_name, Some("MyApp".to_string()));
         assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
+    }
+
+    #[test]
+    fn logging_settings_parse_from_yaml() {
+        let yaml = r#"
+settings:
+  logging: false
+  log_retention_days: 7
+  log_retention_mb: 100
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!config.settings.logging.logging);
+        assert_eq!(config.settings.logging.log_retention_days, 7);
+        assert_eq!(config.settings.logging.log_retention_mb, 100);
+    }
+
+    #[test]
+    fn logging_settings_to_retention_policy() {
+        let settings = LoggingSettings {
+            logging: true,
+            log_retention_days: 14,
+            log_retention_mb: 250,
+        };
+        let policy = settings.to_retention_policy();
+        assert_eq!(policy.max_age_days, 14);
+        assert_eq!(policy.max_size_mb, 250);
     }
 
     #[test]
@@ -802,8 +945,6 @@ template_sources:
     fn parses_settings_with_env() {
         let yaml = r#"
 settings:
-  logging: true
-  log_path: "logs/bivvy.log"
   env:
     RAILS_ENV: development
     DEBUG: "true"
@@ -811,17 +952,25 @@ settings:
   max_parallel: 8
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(config.settings.output.logging);
-        assert_eq!(
-            config.settings.output.log_path,
-            Some(PathBuf::from("logs/bivvy.log"))
-        );
         assert_eq!(
             config.settings.env_vars.env.get("RAILS_ENV"),
             Some(&"development".to_string())
         );
         assert!(config.settings.execution.parallel);
         assert_eq!(config.settings.execution.max_parallel, 8);
+    }
+
+    #[test]
+    fn ignores_removed_logging_and_log_path_fields() {
+        let yaml = r#"
+settings:
+  logging: true
+  log_path: "logs/bivvy.log"
+  default_output: verbose
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        // logging and log_path are silently ignored; default_output still works
+        assert_eq!(config.settings.output.default_output, OutputMode::Verbose);
     }
 
     #[test]
@@ -1254,7 +1403,6 @@ steps:
     before: ["echo pre"]
     after: ["echo post"]
 settings:
-  logging: true
   parallel: true
   max_parallel: 8
 "#,
@@ -1289,7 +1437,6 @@ settings:
             "non-empty before should be present"
         );
         assert!(yaml.contains("after"), "non-empty after should be present");
-        assert!(yaml.contains("logging"), "true logging should be present");
         assert!(yaml.contains("parallel"), "true parallel should be present");
         assert!(
             yaml.contains("max_parallel"),
@@ -1724,5 +1871,105 @@ steps:
         let yaml = r#"command: """#;
         let o: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(o.command, Some("".to_string()));
+    }
+
+    // --- Backward compatibility tests ---
+
+    #[test]
+    fn completed_check_alias_parses_as_check() {
+        let yaml = r#"
+steps:
+  install:
+    command: "cargo install"
+    completed_check:
+      type: presence
+      target: "target/release/bivvy"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let step = &config.steps["install"];
+        assert!(step.execution.check.is_some());
+        assert!(matches!(step.execution.check, Some(Check::Presence { .. })));
+    }
+
+    #[test]
+    fn file_exists_alias_parses_as_presence() {
+        let yaml = r#"
+type: file_exists
+target: "Gemfile.lock"
+"#;
+        let check: Check = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(check, Check::Presence { .. }));
+        assert_eq!(check.type_name(), "presence");
+    }
+
+    #[test]
+    fn command_succeeds_alias_parses_as_execution() {
+        let yaml = r#"
+type: command_succeeds
+command: "ruby --version"
+"#;
+        let check: Check = serde_yaml::from_str(yaml).unwrap();
+        assert!(matches!(check, Check::Execution { .. }));
+        assert_eq!(check.type_name(), "execution");
+    }
+
+    #[test]
+    fn prompt_if_complete_alias_parses_as_prompt_on_rerun() {
+        let yaml = r#"
+command: "cargo build"
+prompt_if_complete: false
+"#;
+        let step: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!step.behavior.prompt_on_rerun);
+    }
+
+    #[test]
+    fn watches_field_parses_and_migrates_to_change_checks() {
+        let yaml = r#"
+steps:
+  build:
+    command: "cargo build"
+    watches:
+      - Cargo.toml
+      - Cargo.lock
+"#;
+        let mut config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let warnings = config.migrate_deprecated_fields();
+
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("'watches' is deprecated"));
+
+        let step = &config.steps["build"];
+        assert_eq!(step.execution.checks.len(), 2);
+        assert!(step.watches.is_empty());
+
+        // Verify the checks are change-type with the right targets
+        for (i, expected_target) in ["Cargo.toml", "Cargo.lock"].iter().enumerate() {
+            match &step.execution.checks[i] {
+                Check::Change { target, .. } => assert_eq!(target, expected_target),
+                other => panic!("Expected Change check, got {:?}", other),
+            }
+        }
+    }
+
+    #[test]
+    fn watches_migration_merges_with_existing_checks() {
+        let yaml = r#"
+steps:
+  build:
+    command: "cargo build"
+    checks:
+      - type: presence
+        target: "target/debug/bivvy"
+    watches:
+      - Cargo.toml
+"#;
+        let mut config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        config.migrate_deprecated_fields();
+
+        let step = &config.steps["build"];
+        assert_eq!(step.execution.checks.len(), 2);
+        assert!(matches!(step.execution.checks[0], Check::Presence { .. }));
+        assert!(matches!(step.execution.checks[1], Check::Change { .. }));
     }
 }

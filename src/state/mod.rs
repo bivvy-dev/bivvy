@@ -7,10 +7,15 @@ pub mod history;
 pub mod index;
 pub mod preferences;
 pub mod project;
+pub mod recorder;
 pub mod store;
 
 pub use history::{RunHistoryBuilder, RunRecord, RunStatus};
 pub use index::{ProjectEntry, ProjectIndex};
 pub use preferences::Preferences;
 pub use project::ProjectId;
-pub use store::{StateSize, StateStore, StatusSummary, StepHistoryEntry, StepState, StepStatus};
+pub use recorder::StateRecorder;
+pub use store::{
+    BaselineMigration, StateSize, StateStore, StatusSummary, StepHistoryEntry, StepState,
+    StepStatus,
+};

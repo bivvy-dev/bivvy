@@ -249,8 +249,8 @@ impl Command for StatusCommand {
         // Get project identity
         let project_id = ProjectId::from_path(&self.project_root)?;
 
-        // Load state
-        let state = StateStore::load(&project_id)?;
+        // Load state (baseline migrations not needed for status)
+        let (state, _) = StateStore::load(&project_id)?;
 
         // Resolve environment
         let resolved_env = self.resolve_environment(&config);

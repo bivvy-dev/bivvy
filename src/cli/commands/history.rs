@@ -105,7 +105,7 @@ impl HistoryCommand {
 impl Command for HistoryCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         let project_id = ProjectId::from_path(&self.project_root)?;
-        let state = StateStore::load(&project_id)?;
+        let (state, _) = StateStore::load(&project_id)?;
 
         let limit = self.args.limit.unwrap_or(10);
         let runs = state.run_history(limit);
@@ -254,7 +254,7 @@ mod tests {
     fn history_detail_shows_steps() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -284,7 +284,7 @@ mod tests {
     fn history_since_filters_runs() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         // Add a recent run
         let mut history = RunHistoryBuilder::start("default");

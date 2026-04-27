@@ -173,7 +173,7 @@ impl LastCommand {
 impl Command for LastCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         let project_id = ProjectId::from_path(&self.project_root)?;
-        let state = StateStore::load(&project_id)?;
+        let (state, _) = StateStore::load(&project_id)?;
 
         // --all: show all runs instead of just the last one
         if self.args.all {
@@ -279,7 +279,7 @@ mod tests {
     fn last_shows_header() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -301,7 +301,7 @@ mod tests {
     fn last_shows_workflow_and_status() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -328,7 +328,7 @@ mod tests {
     fn last_shows_steps_for_recorded_run() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -351,7 +351,7 @@ mod tests {
     fn last_shows_skipped_steps() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("build");
@@ -376,7 +376,7 @@ mod tests {
     fn last_shows_when_and_duration() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -398,7 +398,7 @@ mod tests {
     fn last_untracked_step_shows_pending_icon() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         // Record a run with a step name that won't have state tracking
         let mut history = RunHistoryBuilder::start("default");
@@ -433,7 +433,7 @@ mod tests {
     fn last_shows_error_for_failed_run() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("build");
@@ -461,7 +461,7 @@ mod tests {
     fn last_json_output() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -492,7 +492,7 @@ mod tests {
     fn last_step_filter_shows_matching_step() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -526,7 +526,7 @@ mod tests {
     fn last_step_filter_error_for_unknown_step() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -554,7 +554,7 @@ mod tests {
     fn last_all_shows_multiple_runs() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         // Record two runs
         let mut history1 = RunHistoryBuilder::start("default");
@@ -604,7 +604,7 @@ mod tests {
     fn last_all_json() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -634,7 +634,7 @@ mod tests {
     fn last_output_flag_shows_note() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("setup");
@@ -662,7 +662,7 @@ mod tests {
     fn last_step_filter_with_skipped_step() {
         let temp = TempDir::new().unwrap();
         let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::load(&project_id).unwrap();
+        let (mut state, _) = StateStore::load(&project_id).unwrap();
 
         let mut history = RunHistoryBuilder::start("default");
         history.step_run("build");

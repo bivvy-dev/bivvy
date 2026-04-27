@@ -33,6 +33,9 @@ use serde::{Deserialize, Serialize};
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Check {
     /// Confirms the existence of a file, binary, or other resource.
+    ///
+    /// Also accepts the deprecated `type: file_exists` via serde alias.
+    #[serde(alias = "file_exists")]
     Presence {
         /// Optional name for referencing this check from `satisfied_when`.
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,6 +56,9 @@ pub enum Check {
     },
 
     /// Runs a command and validates the result.
+    ///
+    /// Also accepts the deprecated `type: command_succeeds` via serde alias.
+    #[serde(alias = "command_succeeds")]
     Execution {
         /// Optional name for referencing this check.
         #[serde(skip_serializing_if = "Option::is_none")]

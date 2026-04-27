@@ -102,10 +102,10 @@ fn check_file(target: &str, project_root: &Path) -> CheckResult {
     };
 
     if full_path.exists() {
-        CheckResult::passed(format!("{} exists", target))
+        CheckResult::passed(format!("\u{2713} {} exists", target))
     } else {
         CheckResult::failed(
-            format!("{} not found", target),
+            format!("\u{2717} {} not found", target),
             format!("Expected at: {}", full_path.display()),
         )
     }
@@ -119,10 +119,10 @@ fn check_binary(name: &str) -> CheckResult {
     };
 
     if execute_check(&check_cmd, None) {
-        CheckResult::passed(format!("{} found", name))
+        CheckResult::passed(format!("\u{2713} {} found", name))
     } else {
         CheckResult::failed(
-            format!("{} not found on PATH", name),
+            format!("\u{2717} {} not found on PATH", name),
             "Binary not available",
         )
     }
@@ -130,10 +130,13 @@ fn check_binary(name: &str) -> CheckResult {
 
 fn check_custom(command: &str, project_root: &Path) -> CheckResult {
     if execute_check(command, Some(project_root)) {
-        CheckResult::passed(format!("{} succeeded", truncate_display(command, 50)))
+        CheckResult::passed(format!(
+            "\u{2713} {} succeeded",
+            truncate_display(command, 50)
+        ))
     } else {
         CheckResult::failed(
-            format!("{} failed", truncate_display(command, 50)),
+            format!("\u{2717} {} failed", truncate_display(command, 50)),
             "Command exited with non-zero status",
         )
     }
@@ -174,7 +177,7 @@ mod tests {
             temp.path(),
         );
         assert!(result.passed_check());
-        assert_eq!(result.description, "test.txt exists");
+        assert_eq!(result.description, "\u{2713} test.txt exists");
     }
 
     #[test]
@@ -188,7 +191,7 @@ mod tests {
             temp.path(),
         );
         assert!(!result.passed_check());
-        assert_eq!(result.description, "missing.txt not found");
+        assert_eq!(result.description, "\u{2717} missing.txt not found");
     }
 
     #[test]
@@ -232,7 +235,7 @@ mod tests {
             let result =
                 evaluate_presence(Some("sh"), Some(PresenceKind::Binary), None, Path::new("."));
             assert!(result.passed_check());
-            assert_eq!(result.description, "sh found");
+            assert_eq!(result.description, "\u{2713} sh found");
         }
     }
 

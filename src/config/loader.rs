@@ -238,6 +238,10 @@ pub fn load_merged_config_with_resolver(
             message: format!("Failed to parse merged config: {}", e),
         })?;
 
+    // Migrate deprecated fields (watches → change checks, etc.)
+    let mut config = config;
+    config.migrate_deprecated_fields();
+
     // Resolve extends if present
     if config.extends.is_some() {
         let resolved = resolver.resolve(&config)?;
@@ -280,11 +284,14 @@ pub fn load_merged_config_with_trust(
 
     let merged = merge_configs(&configs);
 
-    let config: BivvyConfig =
+    let mut config: BivvyConfig =
         serde_yaml::from_value(merged).map_err(|e| BivvyError::ConfigParseError {
             path: project_root.join(".bivvy").join("config.yml"),
             message: format!("Failed to parse merged config: {}", e),
         })?;
+
+    // Migrate deprecated fields (watches → change checks, etc.)
+    config.migrate_deprecated_fields();
 
     if config.extends.is_some() {
         let mut trust_store = TrustStore::load(trust_store_path).map_err(BivvyError::Other)?;

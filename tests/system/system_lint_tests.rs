@@ -2593,3 +2593,106 @@ workflows:
         "Known template config should exit with code 0"
     );
 }
+
+// ─────────────────────────────────────────────────────────────────────
+// Deprecation Warnings
+// ─────────────────────────────────────────────────────────────────────
+
+const DEPRECATED_COMPLETED_CHECK_CONFIG: &str = r#"
+app_name: deprecated-test
+steps:
+  install:
+    command: "cargo --version"
+    completed_check:
+      type: presence
+      target: "/usr/bin/cargo"
+workflows:
+  default:
+    steps: [install]
+"#;
+
+const DEPRECATED_FILE_EXISTS_CONFIG: &str = r#"
+app_name: deprecated-types
+steps:
+  check_cargo:
+    command: "cargo --version"
+    check:
+      type: file_exists
+      target: "/usr/bin/cargo"
+workflows:
+  default:
+    steps: [check_cargo]
+"#;
+
+const DEPRECATED_WATCHES_CONFIG: &str = r#"
+app_name: deprecated-watches
+steps:
+  build:
+    command: "cargo --version"
+    watches:
+      - Cargo.toml
+      - Cargo.lock
+workflows:
+  default:
+    steps: [build]
+"#;
+
+#[test]
+fn lint_shows_completed_check_deprecation_warning() {
+    let temp = setup_project(DEPRECATED_COMPLETED_CHECK_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = std::process::Command::new(bin)
+        .args(["lint"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
+    assert!(
+        combined.contains("completed_check") && combined.contains("deprecated"),
+        "Should show deprecation warning for completed_check, got: {combined}"
+    );
+}
+
+#[test]
+fn lint_shows_file_exists_deprecation_warning() {
+    let temp = setup_project(DEPRECATED_FILE_EXISTS_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = std::process::Command::new(bin)
+        .args(["lint"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
+    assert!(
+        combined.contains("file_exists") && combined.contains("deprecated"),
+        "Should show deprecation warning for file_exists, got: {combined}"
+    );
+}
+
+#[test]
+fn lint_shows_watches_deprecation_warning() {
+    let temp = setup_project(DEPRECATED_WATCHES_CONFIG);
+    let bin = assert_cmd::cargo::cargo_bin("bivvy");
+    let output = std::process::Command::new(bin)
+        .args(["lint"])
+        .current_dir(temp.path())
+        .stdin(std::process::Stdio::null())
+        .output()
+        .expect("Failed to run bivvy");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let combined = format!("{stdout}{stderr}");
+
+    assert!(
+        combined.contains("watches") && combined.contains("deprecated"),
+        "Should show deprecation warning for watches, got: {combined}"
+    );
+}

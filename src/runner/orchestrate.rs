@@ -1,55 +1,101 @@
 //! Interactive workflow orchestration.
 //!
-//! This module contains the interactive execution loop (`run_with_ui`) and its
-//! supporting functions: step execution with recovery, state recording, and
-//! config-to-UI prompt conversion.
+//! This module contains the interactive execution loop (`run_with_ui`) — the
+//! coordination layer between check evaluation, step execution, state recording,
+//! and the presenter.
 //!
-//! The orchestrator coordinates the check evaluator, step executor, state recorder,
-//! and presenter — but does not contain their logic. It is the only place where
-//! multiple concerns converge.
+//! Step execution with recovery is in [`super::execution`]. Prompt conversion
+//! is in [`super::execution::config_prompt_to_ui_prompt`].
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::time::Instant;
-
-use tracing::warn;
 
 use crate::checks::evaluator::CheckEvaluator;
 use crate::checks::CheckResult;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
-use crate::logging::{BivvyEvent, EventBus};
+use crate::logging::{BehaviorFlags, BivvyEvent, DecisionTrace, EventBus, NamedCheckResult};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
 use crate::state::StateStore;
-use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
-use crate::ui::spinner::live_output_callback;
+use crate::steps::{ResolvedStep, StepResult, StepStatus};
 use crate::ui::theme::BivvyTheme;
-use crate::ui::{
-    format_duration, OutputMode, Prompt, PromptOption, PromptType, StatusKind, UserInterface,
-};
+use crate::ui::{Prompt, PromptOption, PromptType, StatusKind, UserInterface};
 
 use super::decision;
-use super::patterns::{self, StepContext};
+use super::execution::{config_prompt_to_ui_prompt, execute_step_with_recovery};
+use super::patterns::StepContext;
 use super::plan::build_execution_plan;
-use super::recovery::{self, RecoveryAction};
 use super::satisfaction;
-use super::workflow::{record_step_state, RunOptions, WorkflowResult, WorkflowRunner};
+use super::workflow::{RunOptions, WorkflowResult, WorkflowRunner};
 
-/// Maximum total execution attempts per step (auto-retries + manual retries).
-/// Prevents infinite loops when the recovery prompt always returns "retry"
-/// (e.g., in test environments with MockUI).
-const MAX_STEP_ATTEMPTS: u32 = 100;
+/// Format a `chrono::Duration` as a human-readable "time since" string.
+fn format_time_since(elapsed: chrono::Duration) -> String {
+    let secs = elapsed.num_seconds();
+    if secs < 60 {
+        "seconds ago".to_string()
+    } else if secs < 3600 {
+        let mins = secs / 60;
+        if mins == 1 {
+            "1 minute ago".to_string()
+        } else {
+            format!("{} minutes ago", mins)
+        }
+    } else if secs < 86400 {
+        let hours = secs / 3600;
+        if hours == 1 {
+            "1 hour ago".to_string()
+        } else {
+            format!("{} hours ago", hours)
+        }
+    } else {
+        let days = secs / 86400;
+        if days == 1 {
+            "1 day ago".to_string()
+        } else {
+            format!("{} days ago", days)
+        }
+    }
+}
 
-/// Result of executing a step with the retry/recovery loop.
-pub(super) struct StepExecutionResult {
-    /// The final step result.
-    pub result: StepResult,
-    /// Whether the user chose to skip in the recovery menu.
-    pub skipped_by_user: bool,
-    /// Whether the user chose to abort in the recovery menu.
-    pub aborted: bool,
+/// Drain pending baseline events from the snapshot store and emit them on the event bus.
+fn emit_baseline_events(
+    snapshot_store: &mut crate::snapshots::SnapshotStore,
+    event_bus: &mut EventBus,
+) {
+    for evt in snapshot_store.drain_events() {
+        match evt.change {
+            crate::snapshots::BaselineChange::Established => {
+                event_bus.emit(&BivvyEvent::BaselineEstablished {
+                    step: evt.step,
+                    target: evt.target,
+                    hash: evt.hash,
+                    scope: evt.scope,
+                });
+            }
+            crate::snapshots::BaselineChange::Updated { old_hash } => {
+                event_bus.emit(&BivvyEvent::BaselineUpdated {
+                    step: evt.step,
+                    target: evt.target,
+                    old_hash,
+                    new_hash: evt.hash,
+                });
+            }
+            crate::snapshots::BaselineChange::Unchanged => {}
+        }
+    }
+}
+
+/// Build behavior flags from a resolved step and force status.
+fn make_behavior_flags(step: &ResolvedStep, forced: bool) -> BehaviorFlags {
+    BehaviorFlags {
+        skippable: step.behavior.skippable,
+        required: step.behavior.required,
+        forced,
+        prompt_on_rerun: step.behavior.prompt_on_rerun,
+    }
 }
 
 impl<'a> WorkflowRunner<'a> {
@@ -70,7 +116,7 @@ impl<'a> WorkflowRunner<'a> {
         workflow_non_interactive: bool,
         step_overrides: &HashMap<String, StepOverride>,
         mut gap_checker: Option<&mut GapChecker<'_>>,
-        mut state: Option<&mut StateStore>,
+        state: Option<&mut StateStore>,
         ui: &mut dyn UserInterface,
         event_bus: &mut EventBus,
     ) -> Result<WorkflowResult> {
@@ -187,6 +233,7 @@ impl<'a> WorkflowRunner<'a> {
                     name: step_name.clone(),
                     decision: "block".to_string(),
                     reason: Some("dependency_failed".to_string()),
+                    trace: None,
                 });
                 ui.message(&step_display);
                 ui.message(&format!(
@@ -207,6 +254,7 @@ impl<'a> WorkflowRunner<'a> {
                     name: step_name.clone(),
                     decision: "skip".to_string(),
                     reason: Some("dependency_skipped".to_string()),
+                    trace: None,
                 });
                 event_bus.emit(&BivvyEvent::StepSkipped {
                     name: step_name.clone(),
@@ -250,6 +298,7 @@ impl<'a> WorkflowRunner<'a> {
                             name: step_name.clone(),
                             decision: "skip".to_string(),
                             reason: Some("requirement_not_met".to_string()),
+                            trace: None,
                         });
                         event_bus.emit(&BivvyEvent::StepSkipped {
                             name: step_name.clone(),
@@ -292,6 +341,15 @@ impl<'a> WorkflowRunner<'a> {
                             name: step_name.clone(),
                             decision: "block".to_string(),
                             reason: Some("precondition_failed".to_string()),
+                            trace: Some(DecisionTrace {
+                                precondition_result: Some(crate::logging::TraceCheckResult {
+                                    check_type: precondition.type_name().to_string(),
+                                    outcome: precond_result.outcome.as_str().to_string(),
+                                    description: precond_result.description.clone(),
+                                }),
+                                behavior_flags: make_behavior_flags(step, needs_force),
+                                ..Default::default()
+                            }),
                         });
                         ui.message(&step_display);
                         ui.message(&format!(
@@ -364,6 +422,15 @@ impl<'a> WorkflowRunner<'a> {
                             name: step_name.clone(),
                             decision: "skip".to_string(),
                             reason: Some("satisfied".to_string()),
+                            trace: Some(DecisionTrace {
+                                satisfaction: Some(crate::logging::SatisfactionResult {
+                                    satisfied: result.satisfied,
+                                    condition_count: result.condition_count,
+                                    passed_count: result.passed_count,
+                                }),
+                                behavior_flags: make_behavior_flags(step, needs_force),
+                                ..Default::default()
+                            }),
                         });
                         event_bus.emit(&BivvyEvent::StepSkipped {
                             name: step_name.clone(),
@@ -386,6 +453,25 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
+            // Detect rerun from execution history (independent of check evaluation)
+            let rerun_info = if !needs_force && effective_prompt_on_rerun {
+                state
+                    .as_ref()
+                    .and_then(|s| s.step_last_run(step_name))
+                    .map(|last_run| {
+                        let elapsed = chrono::Utc::now().signed_duration_since(last_run);
+                        let time_since = format_time_since(elapsed);
+                        event_bus.emit(&BivvyEvent::RerunDetected {
+                            name: step_name.clone(),
+                            last_run: last_run.to_rfc3339(),
+                            time_since: time_since.clone(),
+                        });
+                        (last_run.to_rfc3339(), time_since)
+                    })
+            } else {
+                None
+            };
+
             // Check if already complete (unless forced) using the new CheckEvaluator
             if !needs_force && !options.dry_run {
                 if let Some(check) = step.execution.effective_check() {
@@ -399,8 +485,8 @@ impl<'a> WorkflowRunner<'a> {
                     let check_result = evaluator.evaluate(&check);
                     event_bus.emit(&BivvyEvent::CheckEvaluated {
                         step: step_name.clone(),
-                        check_name,
-                        check_type: check_type_name,
+                        check_name: check_name.clone(),
+                        check_type: check_type_name.clone(),
                         outcome: check_result.outcome.as_str().to_string(),
                         description: check_result.description.clone(),
                         details: check_result.details.clone(),
@@ -411,8 +497,11 @@ impl<'a> WorkflowRunner<'a> {
                             if step.behavior.skippable {
                                 // Show step header, then ask if they want to re-run
                                 ui.message(&step_header);
-                                let prompt_label =
-                                    crate::ui::rerun_prompt_label(&check_result.description);
+                                let prompt_label = if let Some((_, ref time_since)) = rerun_info {
+                                    format!("This step ran {}. Run again?", time_since)
+                                } else {
+                                    crate::ui::rerun_prompt_label(&check_result.description)
+                                };
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
                                     question: format!("{}{}", step_pad, prompt_label),
@@ -458,6 +547,16 @@ impl<'a> WorkflowRunner<'a> {
                                         name: step_name.clone(),
                                         decision: "skip".to_string(),
                                         reason: Some("check_passed".to_string()),
+                                        trace: Some(DecisionTrace {
+                                            check_results: vec![NamedCheckResult {
+                                                name: check_name.clone(),
+                                                check_type: check_type_name.clone(),
+                                                outcome: check_result.outcome.as_str().to_string(),
+                                                description: check_result.description.clone(),
+                                            }],
+                                            behavior_flags: make_behavior_flags(step, needs_force),
+                                            ..Default::default()
+                                        }),
                                     });
                                     satisfied_steps.insert(step_name.clone());
                                     results
@@ -481,6 +580,16 @@ impl<'a> WorkflowRunner<'a> {
                                 name: step_name.clone(),
                                 decision: "skip".to_string(),
                                 reason: Some("check_passed".to_string()),
+                                trace: Some(DecisionTrace {
+                                    check_results: vec![NamedCheckResult {
+                                        name: check_name.clone(),
+                                        check_type: check_type_name.clone(),
+                                        outcome: check_result.outcome.as_str().to_string(),
+                                        description: check_result.description.clone(),
+                                    }],
+                                    behavior_flags: make_behavior_flags(step, needs_force),
+                                    ..Default::default()
+                                }),
                             });
                             ui.message(&step_display);
                             let skip_label =
@@ -497,6 +606,9 @@ impl<'a> WorkflowRunner<'a> {
                     }
                 }
             }
+
+            // Emit any baseline events from check evaluation
+            emit_baseline_events(&mut self.snapshot_store, event_bus);
 
             // In interactive mode, prompt before running skippable steps
             // (skip if already prompted by completed check)
@@ -540,6 +652,7 @@ impl<'a> WorkflowRunner<'a> {
                         name: step_name.clone(),
                         decision: "skip".to_string(),
                         reason: Some("user_declined".to_string()),
+                        trace: None,
                     });
                     event_bus.emit(&BivvyEvent::StepSkipped {
                         name: step_name.clone(),
@@ -682,6 +795,10 @@ impl<'a> WorkflowRunner<'a> {
                 name: step_name.clone(),
                 decision: "run".to_string(),
                 reason: None,
+                trace: Some(DecisionTrace {
+                    behavior_flags: make_behavior_flags(step, needs_force),
+                    ..Default::default()
+                }),
             });
             event_bus.emit(&BivvyEvent::StepStarting {
                 name: step_name.clone(),
@@ -742,16 +859,8 @@ impl<'a> WorkflowRunner<'a> {
                 _ => {}
             }
 
-            // Record step state if state tracking is available
-            if let Some(ref mut state_store) = state {
-                record_step_state(
-                    step,
-                    step_name,
-                    &exec_result.result,
-                    state_store,
-                    project_root,
-                );
-            }
+            // State recording is now handled by the StateRecorder EventConsumer
+            // which consumes StepCompleted/StepSkipped events emitted above.
 
             let status = exec_result.result.status();
 
@@ -809,348 +918,49 @@ impl<'a> WorkflowRunner<'a> {
     }
 }
 
-/// Execute a step with retry and interactive recovery.
-///
-/// This handles the full execution lifecycle: spinner display, output capture,
-/// auto-retries, and the interactive recovery menu (retry/fix/shell/skip/abort).
-#[allow(clippy::too_many_arguments)]
-fn execute_step_with_recovery(
-    step: &ResolvedStep,
-    step_name: &str,
-    step_number: &str,
-    step_indent: usize,
-    project_root: &Path,
-    context: &InterpolationContext,
-    global_env: &HashMap<String, String>,
-    needs_force: bool,
-    dry_run: bool,
-    interactive: bool,
-    step_ctx: &StepContext<'_>,
-    ui: &mut dyn UserInterface,
-    event_bus: &mut EventBus,
-) -> Result<StepExecutionResult> {
-    let theme = BivvyTheme::new();
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-    let mut retry_count: u32 = 0;
-    let mut fix_history: HashSet<String> = HashSet::new();
-    let mut skipped_by_user = false;
-    #[allow(unused_assignments)]
-    let mut final_result: Option<StepResult> = None;
-
-    // Outer loop: step execution (retry/fix re-enter here)
-    'step_execution: loop {
-        // Fresh spinner per attempt — hide command text for sensitive steps
-        let display_command = if step.behavior.sensitive {
-            "[SENSITIVE]".to_string()
-        } else {
-            step.execution.command.clone()
-        };
-        let attempt_label = if retry_count > 0 {
-            format!(
-                "Running `{}`... (attempt {}/{})",
-                display_command,
-                retry_count + 1,
-                step.execution.retry + 1
-            )
-        } else {
-            format!("Running `{}`...", display_command)
-        };
-        let mut spinner = ui.start_spinner_indented(&attempt_label, step_indent);
-
-        // Create live output callback:
-        // - Interactive mode: spinner-based ring buffer (3 lines verbose, 2 normal)
-        // - Non-interactive verbose: print all output directly to stdout
-        let output_mode = ui.output_mode();
-        let output_callback = spinner
-            .progress_bar()
-            .and_then(|bar| {
-                let max_lines = match output_mode {
-                    OutputMode::Verbose => 3,
-                    OutputMode::Normal => 2,
-                    _ => return None,
-                };
-                Some(live_output_callback(
-                    bar,
-                    attempt_label.clone(),
-                    6,
-                    max_lines,
-                ))
-            })
-            .or_else(|| {
-                // Non-interactive verbose: stream output through VerboseStreamSink
-                if output_mode == OutputMode::Verbose {
-                    let cb: crate::shell::OutputCallback =
-                        Box::new(crate::ui::VerboseStreamSink::new(6));
-                    Some(cb)
-                } else {
-                    None
-                }
-            });
-
-        let exec_options = ExecutionOptions {
-            force: needs_force,
-            dry_run,
-            capture_output: output_callback.is_none(),
-            ..Default::default()
-        };
-
-        let step_start = Instant::now();
-        let result = match execute_step(
-            step,
-            project_root,
-            context,
-            global_env,
-            &exec_options,
-            output_callback,
-        ) {
-            Ok(result) => result,
-            Err(e) => {
-                warn!("Step '{}' errored: {}", step_name, e);
-                StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
-            }
-        };
-
-        let duration_str = format_duration(result.duration);
-
-        match result.status() {
-            StepStatus::Completed => {
-                let detail = if retry_count > 0 {
-                    Some(format!("succeeded on retry (attempt {})", retry_count + 1))
-                } else {
-                    None
-                };
-                // Clear spinner, then collapse step header → single result line
-                spinner.finish_and_clear();
-                ui.clear_lines(1);
-                ui.message(&format!(
-                    "{} {}",
-                    theme.step_number.apply_to(step_number),
-                    theme.format_success(&format!("{} ({})", step_name, duration_str))
-                ));
-                let mut r = result;
-                r.recovery_detail = detail;
-                final_result = Some(r);
-                break 'step_execution;
-            }
-            StepStatus::Skipped => {
-                spinner.finish_skipped("Skipped");
-                final_result = Some(result);
-                break 'step_execution;
-            }
-            StepStatus::Failed => {
-                spinner.finish_error(&format!("Failed ({})", duration_str));
-
-                // Build combined error output for pattern matching and display
-                let mut output_parts = Vec::new();
-                if let Some(ref err) = result.error {
-                    output_parts.push(err.as_str());
-                }
-                if let Some(ref output) = result.output {
-                    let trimmed = output.trim();
-                    if !trimmed.is_empty() {
-                        output_parts.push(trimmed);
-                    }
-                }
-                let combined_output = output_parts.join("\n");
-
-                // Match against pattern registry
-                let fix = patterns::find_fix(&combined_output, step_ctx);
-                let hint = patterns::find_hint(&combined_output, step_ctx);
-
-                // Show error block — skip in non-interactive verbose
-                // where output was already streamed to stdout
-                let output_was_streamed =
-                    !ui.is_interactive() && output_mode == OutputMode::Verbose;
-                if !output_was_streamed {
-                    ui.show_error_block(&step.execution.command, &combined_output, hint.as_deref());
-                }
-
-                // allow_failure: record and move on, no recovery menu
-                if step.behavior.allow_failure {
-                    final_result = Some(result);
-                    break 'step_execution;
-                }
-
-                // Auto-retry before showing recovery menu
-                if retry_count < step.execution.retry {
-                    retry_count += 1;
-                    ui.message(&format!(
-                        "    Retrying... (attempt {}/{})",
-                        retry_count + 1,
-                        step.execution.retry + 1
-                    ));
-                    continue 'step_execution;
-                }
-
-                // Non-interactive: no recovery menu
-                if !interactive {
-                    final_result = Some(result);
-                    break 'step_execution;
-                }
-
-                // Safety: cap total attempts to prevent infinite loops
-                // (e.g., in tests where MockUI defaults to "retry")
-                if retry_count >= MAX_STEP_ATTEMPTS {
-                    warn!(
-                        "Step '{}' exceeded max recovery attempts ({})",
-                        step_name, MAX_STEP_ATTEMPTS
-                    );
-                    final_result = Some(result);
-                    break 'step_execution;
-                }
-
-                // Interactive recovery menu
-                event_bus.emit(&BivvyEvent::RecoveryStarted {
-                    step: step_name.to_string(),
-                    error: combined_output.clone(),
-                });
-                let has_hint = hint.is_some();
-                'recovery_menu: loop {
-                    let action = recovery::prompt_recovery(
-                        ui,
-                        step_name,
-                        fix.as_ref(),
-                        has_hint,
-                        &fix_history,
-                    )?;
-
-                    match action {
-                        RecoveryAction::Retry => {
-                            event_bus.emit(&BivvyEvent::RecoveryActionTaken {
-                                step: step_name.to_string(),
-                                action: "retry".to_string(),
-                                command: None,
-                            });
-                            retry_count += 1;
-                            continue 'step_execution;
-                        }
-                        RecoveryAction::Fix(ref cmd) | RecoveryAction::CustomFix(ref cmd) => {
-                            let is_custom = matches!(action, RecoveryAction::CustomFix(_));
-                            let cmd = cmd.clone();
-                            if recovery::confirm_fix(ui, step_name, &cmd)? {
-                                event_bus.emit(&BivvyEvent::RecoveryActionTaken {
-                                    step: step_name.to_string(),
-                                    action: if is_custom {
-                                        "custom_fix".to_string()
-                                    } else {
-                                        "fix".to_string()
-                                    },
-                                    command: Some(cmd.clone()),
-                                });
-                                let fix_ok =
-                                    recovery::run_fix(&cmd, project_root, &step.env_vars.env)?;
-                                fix_history.insert(cmd.clone());
-                                if fix_ok {
-                                    ui.message("    Fix command succeeded.");
-                                } else {
-                                    ui.message("    Fix command failed.");
-                                }
-                                retry_count += 1;
-                                continue 'step_execution;
-                            } else {
-                                // User declined the fix — re-show recovery menu
-                                continue 'recovery_menu;
-                            }
-                        }
-                        RecoveryAction::Shell => {
-                            event_bus.emit(&BivvyEvent::RecoveryActionTaken {
-                                step: step_name.to_string(),
-                                action: "shell".to_string(),
-                                command: None,
-                            });
-                            ui.message("    Dropping to debug shell (exit to return)...");
-                            crate::shell::debug::spawn_debug_shell(
-                                step_name,
-                                project_root,
-                                &step.env_vars.env,
-                                global_env,
-                            )?;
-                            // After shell exit, re-show recovery menu
-                            continue 'recovery_menu;
-                        }
-                        RecoveryAction::Skip => {
-                            event_bus.emit(&BivvyEvent::RecoveryActionTaken {
-                                step: step_name.to_string(),
-                                action: "skip".to_string(),
-                                command: None,
-                            });
-                            skipped_by_user = true;
-                            let mut r = result;
-                            r.recovery_detail = Some("skipped by user after failure".to_string());
-                            final_result = Some(r);
-                            break 'step_execution;
-                        }
-                        RecoveryAction::Abort => {
-                            event_bus.emit(&BivvyEvent::RecoveryActionTaken {
-                                step: step_name.to_string(),
-                                action: "abort".to_string(),
-                                command: None,
-                            });
-                            let mut r = result;
-                            r.recovery_detail = Some("aborted by user".to_string());
-                            return Ok(StepExecutionResult {
-                                result: r,
-                                skipped_by_user: false,
-                                aborted: true,
-                            });
-                        }
-                    }
-                }
-            }
-            _ => {
-                final_result = Some(result);
-                break 'step_execution;
-            }
-        }
+    #[test]
+    fn format_time_since_seconds() {
+        let d = chrono::Duration::seconds(30);
+        assert_eq!(format_time_since(d), "seconds ago");
     }
 
-    Ok(StepExecutionResult {
-        result: final_result.expect("step execution loop must produce a result"),
-        skipped_by_user,
-        aborted: false,
-    })
-}
+    #[test]
+    fn format_time_since_one_minute() {
+        let d = chrono::Duration::seconds(90);
+        assert_eq!(format_time_since(d), "1 minute ago");
+    }
 
-/// Convert a config-level PromptConfig into a UI Prompt.
-pub(super) fn config_prompt_to_ui_prompt(config: &crate::config::schema::PromptConfig) -> Prompt {
-    use crate::config::schema::PromptType as ConfigPromptType;
+    #[test]
+    fn format_time_since_minutes() {
+        let d = chrono::Duration::minutes(15);
+        assert_eq!(format_time_since(d), "15 minutes ago");
+    }
 
-    let default = config.default.as_ref().and_then(|v| match v {
-        serde_yaml::Value::String(s) => Some(s.clone()),
-        serde_yaml::Value::Bool(b) => Some(b.to_string()),
-        serde_yaml::Value::Number(n) => Some(n.to_string()),
-        _ => None,
-    });
+    #[test]
+    fn format_time_since_one_hour() {
+        let d = chrono::Duration::hours(1);
+        assert_eq!(format_time_since(d), "1 hour ago");
+    }
 
-    let prompt_type = match &config.prompt_type {
-        ConfigPromptType::Select => PromptType::Select {
-            options: config
-                .options
-                .iter()
-                .map(|o| PromptOption {
-                    label: o.label.clone(),
-                    value: o.value.clone(),
-                })
-                .collect(),
-        },
-        ConfigPromptType::Multiselect => PromptType::MultiSelect {
-            options: config
-                .options
-                .iter()
-                .map(|o| PromptOption {
-                    label: o.label.clone(),
-                    value: o.value.clone(),
-                })
-                .collect(),
-        },
-        ConfigPromptType::Confirm => PromptType::Confirm,
-        ConfigPromptType::Input => PromptType::Input,
-    };
+    #[test]
+    fn format_time_since_hours() {
+        let d = chrono::Duration::hours(5);
+        assert_eq!(format_time_since(d), "5 hours ago");
+    }
 
-    Prompt {
-        key: config.key.clone(),
-        question: config.question.clone(),
-        prompt_type,
-        default,
+    #[test]
+    fn format_time_since_one_day() {
+        let d = chrono::Duration::days(1);
+        assert_eq!(format_time_since(d), "1 day ago");
+    }
+
+    #[test]
+    fn format_time_since_days() {
+        let d = chrono::Duration::days(3);
+        assert_eq!(format_time_since(d), "3 days ago");
     }
 }

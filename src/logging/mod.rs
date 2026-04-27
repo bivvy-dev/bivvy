@@ -32,7 +32,11 @@ pub mod bus;
 pub mod events;
 
 pub use bus::EventBus;
-pub use events::{BivvyEvent, EventConsumer, InputMethod};
+pub use events::{
+    BehaviorFlags, BivvyEvent, DecisionTrace, DependencyStatus, EventConsumer, FilterResult,
+    InputMethod, NamedCheckResult, RequirementGapInfo, RerunInfo, SatisfactionResult,
+    TraceCheckResult,
+};
 
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
@@ -94,6 +98,9 @@ impl Default for RetentionPolicy {
 /// (the overhead of one JSON line per event is negligible). The file
 /// is flushed when [`EventLogger::flush`] is called or on drop.
 ///
+/// Steps marked `sensitive: true` have their command and output lines
+/// redacted in the log (replaced with `"[SENSITIVE]"` and `"[REDACTED]"`).
+///
 /// # Usage
 ///
 /// ```no_run
@@ -109,6 +116,9 @@ pub struct EventLogger {
     writer: BufWriter<File>,
     session_id: String,
     log_path: PathBuf,
+    /// Step names that are marked `sensitive: true` in the config.
+    /// Events for these steps have their content redacted.
+    sensitive_steps: std::collections::HashSet<String>,
 }
 
 impl EventLogger {
@@ -152,6 +162,7 @@ impl EventLogger {
             writer,
             session_id: session_id.to_string(),
             log_path,
+            sensitive_steps: std::collections::HashSet::new(),
         })
     }
 
@@ -160,9 +171,64 @@ impl EventLogger {
         &self.log_path
     }
 
+    /// Register step names that should have their content redacted in logs.
+    ///
+    /// Call this after loading the config, before any events are emitted.
+    pub fn set_sensitive_steps(&mut self, steps: impl IntoIterator<Item = String>) {
+        self.sensitive_steps = steps.into_iter().collect();
+    }
+
     /// Flush the log buffer to disk.
     pub fn flush(&mut self) -> std::io::Result<()> {
         self.writer.flush()
+    }
+
+    /// Returns true if the given step name is marked sensitive.
+    fn is_sensitive(&self, step_name: &str) -> bool {
+        self.sensitive_steps.contains(step_name)
+    }
+
+    /// Redact sensitive content in an event, returning a new event if
+    /// redaction was needed or None if the event can be logged as-is.
+    fn redact_event(&self, event: &BivvyEvent) -> Option<BivvyEvent> {
+        match event {
+            BivvyEvent::StepOutput { name, stream, .. } if self.is_sensitive(name) => {
+                Some(BivvyEvent::StepOutput {
+                    name: name.clone(),
+                    stream: stream.clone(),
+                    line: "[REDACTED]".to_string(),
+                })
+            }
+            BivvyEvent::StepCompleted {
+                name,
+                success,
+                exit_code,
+                duration_ms,
+                error,
+            } if self.is_sensitive(name) => Some(BivvyEvent::StepCompleted {
+                name: name.clone(),
+                success: *success,
+                exit_code: *exit_code,
+                duration_ms: *duration_ms,
+                error: error.as_ref().map(|_| "[REDACTED]".to_string()),
+            }),
+            BivvyEvent::RecoveryStarted { step, .. } if self.is_sensitive(step) => {
+                Some(BivvyEvent::RecoveryStarted {
+                    step: step.clone(),
+                    error: "[REDACTED]".to_string(),
+                })
+            }
+            BivvyEvent::RecoveryActionTaken {
+                step,
+                action,
+                command,
+            } if self.is_sensitive(step) => Some(BivvyEvent::RecoveryActionTaken {
+                step: step.clone(),
+                action: action.clone(),
+                command: command.as_ref().map(|_| "[SENSITIVE]".to_string()),
+            }),
+            _ => None,
+        }
     }
 
     /// Write a single event as a JSONL line.
@@ -187,7 +253,11 @@ impl EventLogger {
 
 impl EventConsumer for EventLogger {
     fn on_event(&mut self, event: &BivvyEvent) {
-        self.write_event(event);
+        if let Some(redacted) = self.redact_event(event) {
+            self.write_event(&redacted);
+        } else {
+            self.write_event(event);
+        }
     }
 }
 
@@ -579,5 +649,69 @@ mod tests {
         assert_eq!(value["steps_run"], 3);
         assert_eq!(value["steps_skipped"], 2);
         assert_eq!(value["duration_ms"], 45678);
+    }
+
+    #[test]
+    fn sensitive_step_output_redacted() {
+        let dir = TempDir::new().unwrap();
+        let mut logger =
+            EventLogger::new(dir.path(), "sess_100_sensitive", RetentionPolicy::default()).unwrap();
+        logger.set_sensitive_steps(vec!["secret_step".to_string()]);
+
+        logger.on_event(&BivvyEvent::StepOutput {
+            name: "secret_step".to_string(),
+            stream: "stdout".to_string(),
+            line: "password=hunter2".to_string(),
+        });
+        logger.flush().unwrap();
+
+        let content = fs::read_to_string(logger.log_path()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+        assert_eq!(value["line"], "[REDACTED]");
+        assert!(!content.contains("hunter2"));
+    }
+
+    #[test]
+    fn sensitive_step_completed_error_redacted() {
+        let dir = TempDir::new().unwrap();
+        let mut logger = EventLogger::new(
+            dir.path(),
+            "sess_100_sensitive2",
+            RetentionPolicy::default(),
+        )
+        .unwrap();
+        logger.set_sensitive_steps(vec!["secret_step".to_string()]);
+
+        logger.on_event(&BivvyEvent::StepCompleted {
+            name: "secret_step".to_string(),
+            success: false,
+            exit_code: Some(1),
+            duration_ms: 500,
+            error: Some("secret token expired".to_string()),
+        });
+        logger.flush().unwrap();
+
+        let content = fs::read_to_string(logger.log_path()).unwrap();
+        let value: serde_json::Value = serde_json::from_str(content.trim()).unwrap();
+        assert_eq!(value["error"], "[REDACTED]");
+        assert!(!content.contains("secret token"));
+    }
+
+    #[test]
+    fn non_sensitive_step_not_redacted() {
+        let dir = TempDir::new().unwrap();
+        let mut logger =
+            EventLogger::new(dir.path(), "sess_100_nonsens", RetentionPolicy::default()).unwrap();
+        logger.set_sensitive_steps(vec!["secret_step".to_string()]);
+
+        logger.on_event(&BivvyEvent::StepOutput {
+            name: "public_step".to_string(),
+            stream: "stdout".to_string(),
+            line: "hello world".to_string(),
+        });
+        logger.flush().unwrap();
+
+        let content = fs::read_to_string(logger.log_path()).unwrap();
+        assert!(content.contains("hello world"));
     }
 }

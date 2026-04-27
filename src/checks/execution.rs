@@ -28,7 +28,10 @@ pub fn evaluate_execution(
         Ok(o) => o,
         Err(e) => {
             return CheckResult::failed(
-                format!("{} failed to execute", truncate_display(command, 50)),
+                format!(
+                    "\u{2717} {} failed to execute",
+                    truncate_display(command, 50)
+                ),
                 format!("Error: {}", e),
             );
         }
@@ -41,12 +44,15 @@ pub fn evaluate_execution(
     match validation {
         ValidationMode::Success => {
             if exit_success {
-                CheckResult::passed(format!("{} succeeded", truncate_display(command, 50)))
+                CheckResult::passed(format!(
+                    "\u{2713} {} succeeded",
+                    truncate_display(command, 50)
+                ))
             } else {
                 let code = output.status.code().unwrap_or(-1);
                 CheckResult::failed(
                     format!(
-                        "{} failed (exit code {})",
+                        "\u{2717} {} failed (exit code {})",
                         truncate_display(command, 50),
                         code
                     ),
@@ -57,14 +63,14 @@ pub fn evaluate_execution(
         ValidationMode::Truthy => {
             if exit_success && !stdout_trimmed.is_empty() {
                 CheckResult::passed(format!(
-                    "{} returned truthy output",
+                    "\u{2713} {} returned truthy output",
                     truncate_display(command, 50)
                 ))
             } else if !exit_success {
                 let code = output.status.code().unwrap_or(-1);
                 CheckResult::failed(
                     format!(
-                        "{} failed (exit code {})",
+                        "\u{2717} {} failed (exit code {})",
                         truncate_display(command, 50),
                         code
                     ),
@@ -72,7 +78,10 @@ pub fn evaluate_execution(
                 )
             } else {
                 CheckResult::failed(
-                    format!("{} returned empty output", truncate_display(command, 50)),
+                    format!(
+                        "\u{2717} {} returned empty output",
+                        truncate_display(command, 50)
+                    ),
                     "Command succeeded but produced no stdout",
                 )
             }
@@ -80,10 +89,16 @@ pub fn evaluate_execution(
         ValidationMode::Falsy => {
             // Passes when: exits 0 with empty stdout, OR exits non-zero
             if !exit_success || stdout_trimmed.is_empty() {
-                CheckResult::passed(format!("{} returned falsy", truncate_display(command, 50)))
+                CheckResult::passed(format!(
+                    "\u{2713} {} returned falsy",
+                    truncate_display(command, 50)
+                ))
             } else {
                 CheckResult::failed(
-                    format!("{} returned truthy output", truncate_display(command, 50)),
+                    format!(
+                        "\u{2717} {} returned truthy output",
+                        truncate_display(command, 50)
+                    ),
                     format!(
                         "Expected empty output, got: {}",
                         truncate_display(stdout_trimmed, 100)

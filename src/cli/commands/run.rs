@@ -275,8 +275,8 @@ impl Command for RunCommand {
         // Get project identity
         let project_id = ProjectId::from_path(&self.project_root)?;
 
-        // Load state
-        let mut state = StateStore::load(&project_id)?;
+        // Load state (with any v1→v2 baseline migrations)
+        let (mut state, baseline_migrations) = StateStore::load(&project_id)?;
 
         // Resolve steps with environment
         let steps = self.resolve_steps(&config, Some(&env_name))?;
@@ -308,7 +308,22 @@ impl Command for RunCommand {
         options.active_environment = Some(env_name.clone());
 
         // Create runner with project-backed snapshot store for change check baselines
-        let snapshot_store = crate::snapshots::SnapshotStore::load_for_project(&project_id);
+        let mut snapshot_store = crate::snapshots::SnapshotStore::load_for_project(&project_id);
+
+        // Apply v1 baseline migrations into snapshot store
+        for migration in &baseline_migrations {
+            use crate::snapshots::SnapshotKey;
+            let key = SnapshotKey::project(&migration.step_name, "v1_migrated");
+            snapshot_store.record_baseline(
+                &key,
+                "_last_run",
+                migration.hash.clone(),
+                format!(
+                    "migrated from v1 watches_hash for step '{}'",
+                    migration.step_name
+                ),
+            );
+        }
 
         let mut runner = WorkflowRunner::with_snapshot_store(&config, steps, snapshot_store);
 
@@ -329,16 +344,26 @@ impl Command for RunCommand {
 
         // Create event bus with logger for structured event logging
         let mut event_bus = crate::logging::EventBus::new();
-        if let Ok(logger) = crate::logging::EventLogger::new(
-            crate::logging::default_log_dir(),
-            &format!(
-                "sess_{}_{}",
-                chrono::Utc::now().format("%Y%m%d%H%M%S"),
-                &project_id.hash()[..8]
-            ),
-            crate::logging::RetentionPolicy::default(),
-        ) {
-            event_bus.add_consumer(Box::new(logger));
+        if config.settings.logging.logging {
+            if let Ok(mut logger) = crate::logging::EventLogger::new(
+                crate::logging::default_log_dir(),
+                &format!(
+                    "sess_{}_{}",
+                    chrono::Utc::now().format("%Y%m%d%H%M%S"),
+                    &project_id.hash()[..8]
+                ),
+                config.settings.logging.to_retention_policy(),
+            ) {
+                // Register sensitive steps for redaction
+                let sensitive: Vec<String> = config
+                    .steps
+                    .iter()
+                    .filter(|(_, s)| s.behavior.sensitive)
+                    .map(|(name, _)| name.clone())
+                    .collect();
+                logger.set_sensitive_steps(sensitive);
+                event_bus.add_consumer(Box::new(logger));
+            }
         }
 
         // Emit session started
@@ -392,6 +417,17 @@ impl Command for RunCommand {
 
         // Update state and snapshots (unless dry-run)
         if !self.args.dry_run {
+            // Record step results into state store (event-driven recording)
+            for step_result in &result.steps {
+                let status = match step_result.status() {
+                    crate::steps::StepStatus::Completed => crate::state::StepStatus::Success,
+                    crate::steps::StepStatus::Failed => crate::state::StepStatus::Failed,
+                    crate::steps::StepStatus::Skipped => crate::state::StepStatus::Skipped,
+                    _ => crate::state::StepStatus::NeverRun,
+                };
+                state.record_step_result(&step_result.name, status, step_result.duration);
+            }
+
             let record = if result.success {
                 history.finish_success()
             } else {

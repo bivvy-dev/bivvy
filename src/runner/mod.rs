@@ -2,6 +2,7 @@
 
 pub mod decision;
 pub mod dependency;
+mod execution;
 mod orchestrate;
 pub mod patterns;
 pub mod plan;

@@ -201,7 +201,10 @@ pub fn evaluate_change_result(
         None => {
             // No baseline exists — indeterminate
             CheckResult::indeterminate(
-                format!("No baseline for {}", target),
+                format!(
+                    "\u{25C7} No baseline for {} \u{2014} this run will establish it",
+                    target
+                ),
                 format!(
                     "No baseline exists for {}. This run will establish the baseline.",
                     target
@@ -211,28 +214,38 @@ pub fn evaluate_change_result(
         Some(baseline) => {
             let changed = current_hash != baseline;
             match (changed, on_change) {
-                (true, OnChange::Proceed) => CheckResult::passed(format!("{} changed", target)),
+                (true, OnChange::Proceed) => CheckResult::passed(format!(
+                    "\u{25B3} {} changed \u{2014} step will run",
+                    target
+                )),
                 (false, OnChange::Proceed) => CheckResult::failed(
-                    format!("{} unchanged", target),
+                    format!("\u{2713} {} unchanged", target),
                     "No changes detected since last run",
                 ),
                 (true, OnChange::Fail) => CheckResult::failed(
-                    format!("{} changed unexpectedly", target),
+                    format!("\u{2717} {} changed unexpectedly", target),
                     "File was expected to remain stable",
                 ),
-                (false, OnChange::Fail) => CheckResult::passed(format!("{} unchanged", target)),
+                (false, OnChange::Fail) => {
+                    CheckResult::passed(format!("\u{2713} {} unchanged", target))
+                }
                 (true, OnChange::Require) => {
                     let step_name = require_step.unwrap_or("<missing require_step>");
                     CheckResult {
                         outcome: CheckOutcome::Passed,
-                        description: format!("{} changed — {} is now required", target, step_name),
+                        description: format!(
+                            "\u{25B3} {} changed \u{2014} {} is now required",
+                            target, step_name
+                        ),
                         details: Some(format!(
                             "Step {} must run due to change in {}",
                             step_name, target
                         )),
                     }
                 }
-                (false, OnChange::Require) => CheckResult::passed(format!("{} unchanged", target)),
+                (false, OnChange::Require) => {
+                    CheckResult::passed(format!("\u{2713} {} unchanged", target))
+                }
             }
         }
     }

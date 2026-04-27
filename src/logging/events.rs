@@ -139,6 +139,9 @@ pub enum BivvyEvent {
         /// Reason for the decision.
         #[serde(skip_serializing_if = "Option::is_none")]
         reason: Option<String>,
+        /// Full decision trace with all contributing signals.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        trace: Option<DecisionTrace>,
     },
 
     /// A step is about to start executing.
@@ -351,6 +354,130 @@ impl BivvyEvent {
     }
 }
 
+/// Every signal that contributed to a [`BivvyEvent::StepDecided`] decision.
+///
+/// Logged so the full reasoning is reconstructable from the event log.
+/// A `CheckResult` is ONE signal among many — this struct captures them all.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct DecisionTrace {
+    /// Results of evaluating the step's check/checks (if any).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub check_results: Vec<NamedCheckResult>,
+
+    /// Result of evaluating preconditions (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub precondition_result: Option<TraceCheckResult>,
+
+    /// Whether satisfied_when conditions passed (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub satisfaction: Option<SatisfactionResult>,
+
+    /// Status of each dependency (satisfied, ran, failed, not run).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub dependency_statuses: Vec<DependencyStatus>,
+
+    /// Whether this is a rerun (and how recently the step last ran).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_status: Option<RerunInfo>,
+
+    /// Whether the step is skippable, required, force-flagged.
+    pub behavior_flags: BehaviorFlags,
+
+    /// Requirement gap check results (missing binaries, etc.).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub requirement_gaps: Vec<RequirementGapInfo>,
+
+    /// Environment filter result (included or excluded by environment).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub environment_filter: Option<FilterResult>,
+}
+
+/// A named check result within a decision trace.
+#[derive(Debug, Clone, Serialize)]
+pub struct NamedCheckResult {
+    /// Optional check name.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    /// Check type (e.g., "presence", "execution", "change").
+    pub check_type: String,
+    /// Outcome: "passed", "failed", or "indeterminate".
+    pub outcome: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
+/// A check result within a decision trace (for preconditions).
+#[derive(Debug, Clone, Serialize)]
+pub struct TraceCheckResult {
+    /// Check type.
+    pub check_type: String,
+    /// Outcome: "passed", "failed", or "indeterminate".
+    pub outcome: String,
+    /// Human-readable description.
+    pub description: String,
+}
+
+/// Satisfaction evaluation result within a decision trace.
+#[derive(Debug, Clone, Serialize)]
+pub struct SatisfactionResult {
+    /// Whether all conditions were satisfied.
+    pub satisfied: bool,
+    /// Number of conditions evaluated.
+    pub condition_count: usize,
+    /// Number of conditions that passed.
+    pub passed_count: usize,
+}
+
+/// Status of a dependency within a decision trace.
+#[derive(Debug, Clone, Serialize)]
+pub struct DependencyStatus {
+    /// Dependency step name.
+    pub step: String,
+    /// Status: "satisfied", "completed", "failed", "skipped", "not_run".
+    pub status: String,
+}
+
+/// Rerun information within a decision trace.
+#[derive(Debug, Clone, Serialize)]
+pub struct RerunInfo {
+    /// When the step last ran (ISO 8601).
+    pub last_run: String,
+    /// Time since last run, human-readable.
+    pub time_since: String,
+}
+
+/// Behavior flags within a decision trace.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct BehaviorFlags {
+    /// Whether the step is skippable.
+    pub skippable: bool,
+    /// Whether the step is required.
+    pub required: bool,
+    /// Whether --force was applied to this step.
+    pub forced: bool,
+    /// Whether prompt_on_rerun is active.
+    pub prompt_on_rerun: bool,
+}
+
+/// Requirement gap info within a decision trace.
+#[derive(Debug, Clone, Serialize)]
+pub struct RequirementGapInfo {
+    /// The requirement that is missing.
+    pub requirement: String,
+    /// Status of the requirement.
+    pub status: String,
+}
+
+/// Environment filter result within a decision trace.
+#[derive(Debug, Clone, Serialize)]
+pub struct FilterResult {
+    /// Whether the step was included.
+    pub included: bool,
+    /// The active environment (if any).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_environment: Option<String>,
+}
+
 /// How the user provided input in response to a prompt.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -517,6 +644,7 @@ mod tests {
             name: "db_migrate".to_string(),
             decision: "block".to_string(),
             reason: Some("dependency_unsatisfied".to_string()),
+            trace: None,
         };
         let json = serde_json::to_string(&event).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -531,10 +659,51 @@ mod tests {
             name: "build".to_string(),
             decision: "run".to_string(),
             reason: None,
+            trace: None,
         };
         let json = serde_json::to_string(&event).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert!(value.get("reason").is_none());
+        assert!(value.get("trace").is_none());
+    }
+
+    #[test]
+    fn step_decided_serializes_with_trace() {
+        let trace = DecisionTrace {
+            check_results: vec![NamedCheckResult {
+                name: Some("deps_installed".to_string()),
+                check_type: "presence".to_string(),
+                outcome: "passed".to_string(),
+                description: "\u{2713} node_modules exists".to_string(),
+            }],
+            behavior_flags: BehaviorFlags {
+                skippable: true,
+                required: false,
+                forced: false,
+                prompt_on_rerun: true,
+            },
+            satisfaction: Some(SatisfactionResult {
+                satisfied: true,
+                condition_count: 1,
+                passed_count: 1,
+            }),
+            ..Default::default()
+        };
+        let event = BivvyEvent::StepDecided {
+            name: "install_deps".to_string(),
+            decision: "skip".to_string(),
+            reason: Some("check_passed".to_string()),
+            trace: Some(trace),
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["trace"]["check_results"][0]["outcome"], "passed");
+        assert!(value["trace"]["behavior_flags"]["skippable"]
+            .as_bool()
+            .unwrap());
+        assert!(value["trace"]["satisfaction"]["satisfied"]
+            .as_bool()
+            .unwrap());
     }
 
     #[test]
