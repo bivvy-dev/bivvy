@@ -90,11 +90,49 @@ impl LintCommand {
 
 impl Command for LintCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        // Create event bus for structured logging
+        let mut event_bus = crate::logging::EventBus::new();
+        if let Ok(logger) = crate::logging::EventLogger::new(
+            crate::logging::default_log_dir(),
+            &format!("sess_{}_lint", chrono::Utc::now().format("%Y%m%d%H%M%S"),),
+            crate::logging::RetentionPolicy::default(),
+        ) {
+            event_bus.add_consumer(Box::new(logger));
+        }
+        let start = std::time::Instant::now();
+
+        event_bus.emit(&crate::logging::BivvyEvent::SessionStarted {
+            command: "lint".to_string(),
+            args: vec![
+                format!("--format={}", self.args.format),
+                if self.args.strict {
+                    "--strict".to_string()
+                } else {
+                    String::new()
+                },
+                if self.args.fix {
+                    "--fix".to_string()
+                } else {
+                    String::new()
+                },
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect(),
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            os: Some(std::env::consts::OS.to_string()),
+            working_directory: Some(self.project_root.display().to_string()),
+        });
+
         // Check if config exists (skip check when override is provided)
         if self.config_override.is_none() {
             let paths = ConfigPaths::discover(&self.project_root);
             if !paths.has_project_config() {
                 ui.error("No configuration found. Run 'bivvy init' first.");
+                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                    exit_code: 2,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                });
                 return Ok(CommandResult::failure(2));
             }
         }
@@ -104,10 +142,24 @@ impl Command for LintCommand {
             Ok(c) => c,
             Err(BivvyError::ConfigParseError { path, message }) => {
                 ui.error(&format!("Parse error in {}: {}", path.display(), message));
+                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                    exit_code: 1,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                });
                 return Ok(CommandResult::failure(1));
             }
             Err(e) => return Err(e),
         };
+
+        event_bus.emit(&crate::logging::BivvyEvent::ConfigLoaded {
+            config_path: self
+                .config_override
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| ".bivvy/config.yml".to_string()),
+            parse_duration_ms: None,
+            deprecation_warnings: vec![],
+        });
 
         // Apply config default_output when no CLI flag was explicitly set
         if ui.output_mode() == OutputMode::Normal {
@@ -189,6 +241,10 @@ impl Command for LintCommand {
                 let output = self.format_output(&diagnostics);
                 ui.message(&output);
             }
+            event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                exit_code: 0,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
             return Ok(CommandResult::success());
         }
 
@@ -211,11 +267,16 @@ impl Command for LintCommand {
             ui.message(&output);
         }
 
-        if should_fail {
-            Ok(CommandResult::failure(1))
+        let (exit_code, result) = if should_fail {
+            (1, CommandResult::failure(1))
         } else {
-            Ok(CommandResult::success())
-        }
+            (0, CommandResult::success())
+        };
+        event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+            exit_code,
+            duration_ms: start.elapsed().as_millis() as u64,
+        });
+        Ok(result)
     }
 }
 

@@ -10,6 +10,7 @@ use crate::checks::evaluator::CheckEvaluator;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::BivvyConfig;
 use crate::error::{BivvyError, Result};
+use crate::logging::EventBus;
 use crate::requirements::checker::GapChecker;
 use crate::snapshots::SnapshotStore;
 use crate::state::StateStore;
@@ -118,6 +119,7 @@ impl<'a> WorkflowRunner<'a> {
         global_env: &HashMap<String, String>,
         project_root: &Path,
     ) -> Result<WorkflowResult> {
+        let mut event_bus = EventBus::new();
         self.run_with_progress(
             options,
             context,
@@ -126,6 +128,7 @@ impl<'a> WorkflowRunner<'a> {
             None,
             None,
             |_| {},
+            &mut event_bus,
         )
     }
 
@@ -140,6 +143,7 @@ impl<'a> WorkflowRunner<'a> {
         mut gap_checker: Option<&mut GapChecker<'_>>,
         mut state: Option<&mut StateStore>,
         mut on_progress: impl FnMut(RunProgress<'_>),
+        _event_bus: &mut EventBus,
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
         let workflow_name = options.workflow.as_deref().unwrap_or("default");
@@ -563,6 +567,7 @@ mod tests {
                         events.push(format!("skip:{}", name));
                     }
                 },
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -619,6 +624,7 @@ mod tests {
                         skipped_names.push(name.to_string());
                     }
                 },
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -709,6 +715,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -759,6 +766,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -813,6 +821,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -874,6 +883,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -932,6 +942,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -986,6 +997,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1042,6 +1054,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1092,6 +1105,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1140,6 +1154,7 @@ mod tests {
             None,
             None,
             &mut ui,
+            &mut EventBus::new(),
         );
 
         assert!(result.is_err());
@@ -1190,6 +1205,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1253,6 +1269,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1504,6 +1521,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1553,6 +1571,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1767,6 +1786,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1815,6 +1835,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1861,6 +1882,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1906,6 +1928,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -1959,6 +1982,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2009,6 +2033,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2072,6 +2097,7 @@ mod tests {
                 Some(&mut checker),
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2127,6 +2153,7 @@ mod tests {
                 Some(&mut checker),
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2178,6 +2205,7 @@ mod tests {
             Some(&mut checker),
             None,
             &mut ui,
+            &mut EventBus::new(),
         );
 
         assert!(result.is_err());
@@ -2235,6 +2263,7 @@ mod tests {
             Some(&mut checker),
             None,
             &mut ui,
+            &mut EventBus::new(),
         );
 
         assert!(result.is_err());
@@ -2290,6 +2319,7 @@ mod tests {
                 Some(&mut checker),
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2337,6 +2367,7 @@ mod tests {
                 Some(&mut checker),
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2539,6 +2570,7 @@ mod tests {
                         skipped_names.push(name.to_string());
                     }
                 },
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2636,6 +2668,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2697,6 +2730,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2757,6 +2791,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2815,6 +2850,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2867,6 +2903,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2923,6 +2960,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -2981,6 +3019,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3029,6 +3068,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3082,6 +3122,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3130,6 +3171,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3182,6 +3224,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3234,6 +3277,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3310,6 +3354,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 
@@ -3358,6 +3403,7 @@ mod tests {
                 None,
                 None,
                 &mut ui,
+                &mut EventBus::new(),
             )
             .unwrap();
 

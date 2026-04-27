@@ -134,6 +134,17 @@ pub enum Check {
 }
 
 impl Check {
+    /// Returns the check type as a string (for event logging).
+    pub fn type_name(&self) -> &'static str {
+        match self {
+            Check::Presence { .. } => "presence",
+            Check::Execution { .. } => "execution",
+            Check::Change { .. } => "change",
+            Check::All { .. } => "all",
+            Check::Any { .. } => "any",
+        }
+    }
+
     /// Returns the optional name of this check.
     pub fn name(&self) -> Option<&str> {
         match self {
@@ -428,6 +439,17 @@ pub enum CheckOutcome {
     Failed,
     /// The check could not be evaluated (e.g., no baseline for change detection).
     Indeterminate(String),
+}
+
+impl CheckOutcome {
+    /// Returns the outcome as a string (for event logging).
+    pub fn as_str(&self) -> &str {
+        match self {
+            CheckOutcome::Passed => "passed",
+            CheckOutcome::Failed => "failed",
+            CheckOutcome::Indeterminate(_) => "indeterminate",
+        }
+    }
 }
 
 /// Truncate a string to a maximum length, appending "..." if truncated.

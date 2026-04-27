@@ -208,11 +208,34 @@ impl StatusCommand {
 
 impl Command for StatusCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        // Create event bus for structured logging
+        let mut event_bus = crate::logging::EventBus::new();
+        if let Ok(logger) = crate::logging::EventLogger::new(
+            crate::logging::default_log_dir(),
+            &format!("sess_{}_status", chrono::Utc::now().format("%Y%m%d%H%M%S"),),
+            crate::logging::RetentionPolicy::default(),
+        ) {
+            event_bus.add_consumer(Box::new(logger));
+        }
+        let start = std::time::Instant::now();
+
+        event_bus.emit(&crate::logging::BivvyEvent::SessionStarted {
+            command: "status".to_string(),
+            args: vec![],
+            version: env!("CARGO_PKG_VERSION").to_string(),
+            os: Some(std::env::consts::OS.to_string()),
+            working_directory: Some(self.project_root.display().to_string()),
+        });
+
         // Load configuration
         let config = match load_config(&self.project_root, self.config_override.as_deref()) {
             Ok(c) => c,
             Err(BivvyError::ConfigNotFound { .. }) => {
                 ui.error("No configuration found. Run 'bivvy init' first.");
+                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                    exit_code: 2,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                });
                 return Ok(CommandResult::failure(2));
             }
             Err(e) => return Err(e),
@@ -234,7 +257,12 @@ impl Command for StatusCommand {
 
         // JSON output mode
         if self.args.json {
-            return self.execute_json(ui, &config, &state, &resolved_env);
+            let result = self.execute_json(ui, &config, &state, &resolved_env)?;
+            event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                exit_code: result.exit_code,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+            return Ok(result);
         }
 
         let theme = BivvyTheme::new();
@@ -280,6 +308,10 @@ impl Command for StatusCommand {
                 vec![step_name]
             } else {
                 ui.error(&format!("Unknown step: {}", step_name));
+                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                    exit_code: 1,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                });
                 return Ok(CommandResult::failure(1));
             }
         } else {
@@ -408,6 +440,10 @@ impl Command for StatusCommand {
             }
         }
 
+        event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+            exit_code: 0,
+            duration_ms: start.elapsed().as_millis() as u64,
+        });
         Ok(CommandResult::success())
     }
 }

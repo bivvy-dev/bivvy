@@ -28,8 +28,10 @@
 //! Logs expire automatically. Default: 30 days or 500 MB total, whichever
 //! comes first. Cleanup runs at the start of each session.
 
+pub mod bus;
 pub mod events;
 
+pub use bus::EventBus;
 pub use events::{BivvyEvent, EventConsumer, InputMethod};
 
 use std::fs::{self, File};

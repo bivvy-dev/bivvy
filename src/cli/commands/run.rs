@@ -298,6 +298,47 @@ impl Command for RunCommand {
         // Start history recording
         let mut history = RunHistoryBuilder::start(&workflow_name);
 
+        // Create event bus with logger for structured event logging
+        let mut event_bus = crate::logging::EventBus::new();
+        if let Ok(logger) = crate::logging::EventLogger::new(
+            crate::logging::default_log_dir(),
+            &format!(
+                "sess_{}_{}",
+                chrono::Utc::now().format("%Y%m%d%H%M%S"),
+                &project_id.hash()[..8]
+            ),
+            crate::logging::RetentionPolicy::default(),
+        ) {
+            event_bus.add_consumer(Box::new(logger));
+        }
+
+        // Emit session started
+        event_bus.emit(&crate::logging::BivvyEvent::SessionStarted {
+            command: "run".to_string(),
+            args: vec![workflow_name.clone()],
+            version: crate::updates::version::VERSION.to_string(),
+            os: Some(std::env::consts::OS.to_string()),
+            working_directory: Some(self.project_root.display().to_string()),
+        });
+
+        // Emit config loaded
+        {
+            let config_path = if let Some(ref override_path) = self.config_override {
+                override_path.display().to_string()
+            } else {
+                let paths = ConfigPaths::discover(&self.project_root);
+                paths
+                    .project
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|| ".bivvy/config.yml".to_string())
+            };
+            event_bus.emit(&crate::logging::BivvyEvent::ConfigLoaded {
+                config_path,
+                parse_duration_ms: None,
+                deprecation_warnings: vec![],
+            });
+        }
+
         // Run the workflow with UI-driven interactive prompts
         let result = runner.run_with_ui(
             &options,
@@ -309,6 +350,7 @@ impl Command for RunCommand {
             Some(&mut gap_checker),
             Some(&mut state),
             ui,
+            &mut event_bus,
         )?;
 
         // Record step results to history
@@ -392,17 +434,24 @@ impl Command for RunCommand {
 
         ui.show_run_summary(&summary);
 
-        // Show contextual hint
-        if result.success {
+        // Show contextual hint and emit session ended
+        let (exit_code, cmd_result) = if result.success {
             ui.show_hint(hints::after_successful_run());
-            Ok(CommandResult::success())
+            (0, CommandResult::success())
         } else if result.aborted {
             ui.show_hint("Workflow aborted by user. Re-run to resume.");
-            Ok(CommandResult::failure(1))
+            (1, CommandResult::failure(1))
         } else {
             ui.show_hint(&hints::after_failed_run(&failed_steps));
-            Ok(CommandResult::failure(1))
-        }
+            (1, CommandResult::failure(1))
+        };
+
+        event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+            exit_code,
+            duration_ms: result.duration.as_millis() as u64,
+        });
+
+        Ok(cmd_result)
     }
 }
 
