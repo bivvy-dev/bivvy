@@ -1,9 +1,9 @@
 //! Integration tests for the steps public API.
 
-use bivvy::config::{CompletedCheck, ExecutionConfig, EnvironmentVarsConfig, InterpolationContext, StepConfig};
-use bivvy::steps::{
-    execute_step, run_check, CheckResult, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
-};
+use bivvy::checks::{evaluator::CheckEvaluator, Check, CheckResult, PresenceKind, ValidationMode};
+use bivvy::config::{ExecutionConfig, EnvironmentVarsConfig, InterpolationContext, StepConfig};
+use bivvy::snapshots::SnapshotStore;
+use bivvy::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
@@ -12,7 +12,7 @@ use tempfile::TempDir;
 fn public_api_accessible() {
     // Verify all public types are accessible
     let _status: StepStatus = StepStatus::Pending;
-    let _check_result = CheckResult::complete("test");
+    let _check_result = CheckResult::passed("test");
     let _options = ExecutionOptions::default();
 }
 
@@ -50,57 +50,50 @@ fn full_step_execution_workflow() {
 }
 
 #[test]
-fn completed_check_workflow() {
+fn check_evaluation_workflow() {
     let temp = TempDir::new().unwrap();
 
     // Create the marker file
     fs::write(temp.path().join("deps.lock"), "").unwrap();
 
-    // Run the check
-    let check = CompletedCheck::FileExists {
-        path: "deps.lock".to_string(),
+    // Run the check using CheckEvaluator
+    let check = Check::Presence {
+        name: None,
+        target: Some("deps.lock".to_string()),
+        kind: Some(PresenceKind::File),
+        command: None,
     };
-    let result = run_check(&check, temp.path());
+    let ctx = InterpolationContext::new();
+    let mut store = SnapshotStore::empty();
+    let mut evaluator = CheckEvaluator::new(temp.path(), &ctx, &mut store);
+    let result = evaluator.evaluate(&check);
 
-    assert!(result.complete);
+    assert!(result.passed_check());
     assert!(result.description.contains("deps.lock"));
 }
 
 #[test]
-fn step_skipping_with_completed_check() {
+fn check_evaluation_skips_completed_step() {
     let temp = TempDir::new().unwrap();
 
     // Create marker file that indicates completion
     fs::write(temp.path().join("installed.marker"), "done").unwrap();
 
-    // Create step with completed check
-    let config = StepConfig {
-        execution: ExecutionConfig {
-            command: Some("echo 'should not run'".to_string()),
-            completed_check: Some(CompletedCheck::FileExists {
-                path: "installed.marker".to_string(),
-            }),
-            ..Default::default()
-        },
-        ..Default::default()
+    // Evaluate check directly — in the new architecture the orchestrator
+    // does this before calling execute_step
+    let check = Check::Presence {
+        name: None,
+        target: Some("installed.marker".to_string()),
+        kind: Some(PresenceKind::File),
+        command: None,
     };
-
-    let step = ResolvedStep::from_config("install", &config, None);
-
-    // Execute - should skip
     let ctx = InterpolationContext::new();
-    let result = execute_step(
-        &step,
-        temp.path(),
-        &ctx,
-        &HashMap::new(),
-        &Default::default(),
-        None,
-    )
-    .unwrap();
+    let mut store = SnapshotStore::empty();
+    let mut evaluator = CheckEvaluator::new(temp.path(), &ctx, &mut store);
+    let result = evaluator.evaluate(&check);
 
-    assert!(result.skipped);
-    assert_eq!(result.status(), StepStatus::Skipped);
+    // Check passes — orchestrator would skip execution
+    assert!(result.passed_check());
 }
 
 #[test]

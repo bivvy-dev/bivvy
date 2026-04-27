@@ -6,14 +6,14 @@ use std::time::{Duration, Instant};
 
 use tracing::warn;
 
+use crate::checks::evaluator::CheckEvaluator;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::BivvyConfig;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
+use crate::snapshots::SnapshotStore;
 use crate::state::StateStore;
-use crate::steps::{
-    execute_step, run_check_with_state, ExecutionOptions, ResolvedStep, StepResult, StepStatus,
-};
+use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
 
 use super::decision;
 use super::dependency::{DependencyGraph, SkipBehavior};
@@ -181,31 +181,35 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
-            // State-aware completed check for Marker type
+            // Evaluate precondition using the new CheckEvaluator (never bypassed by --force)
+            if let Some(precondition) = step.execution.effective_precondition() {
+                let mut snapshot_store = SnapshotStore::empty();
+                let mut evaluator = CheckEvaluator::new(project_root, context, &mut snapshot_store);
+                let precond_result = evaluator.evaluate(&precondition);
+                if !precond_result.passed_check() {
+                    return Err(BivvyError::StepExecutionError {
+                        step: step_name.clone(),
+                        message: format!("Precondition failed: {}", precond_result.description),
+                    });
+                }
+            }
+
+            // Evaluate completed check using the new CheckEvaluator
             if !options.force.contains(step_name) {
-                if let Some(crate::config::CompletedCheck::Marker) = &step.execution.completed_check
-                {
-                    if let Some(ref state_store) = state {
-                        let state_ctx = crate::steps::StateCheckContext {
-                            step_name,
-                            watches: &step.execution.watches,
-                            state: state_store,
-                            project_root,
-                        };
-                        let check_result = run_check_with_state(
-                            step.execution.completed_check.as_ref().unwrap(),
-                            project_root,
-                            Some(&state_ctx),
-                        );
-                        if check_result.complete {
-                            let skip_result = StepResult::skipped(step_name, check_result);
-                            on_progress(RunProgress::StepFinished {
-                                name: step_name,
-                                result: &skip_result,
-                            });
-                            results.push(skip_result);
-                            continue;
-                        }
+                if let Some(check) = step.execution.effective_check() {
+                    let mut snapshot_store = SnapshotStore::empty();
+                    let mut evaluator =
+                        CheckEvaluator::new(project_root, context, &mut snapshot_store)
+                            .with_step(step_name, "default");
+                    let check_result = evaluator.evaluate(&check);
+                    if check_result.passed_check() {
+                        let skip_result = StepResult::skipped(step_name, check_result);
+                        on_progress(RunProgress::StepFinished {
+                            name: step_name,
+                            result: &skip_result,
+                        });
+                        results.push(skip_result);
+                        continue;
                     }
                 }
             }

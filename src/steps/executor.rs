@@ -3,10 +3,10 @@
 //! Executes resolved steps with proper environment handling,
 //! interpolation, and hook execution.
 
+use crate::checks::CheckResult;
 use crate::config::interpolation::{resolve_string, InterpolationContext};
 use crate::error::{BivvyError, Result};
 use crate::shell::{execute, execute_streaming, CommandOptions, OutputCallback};
-use crate::steps::completed_check::{run_check, run_check_interpolated, CheckResult};
 use crate::steps::resolved::ResolvedStep;
 use std::collections::HashMap;
 use std::path::Path;
@@ -189,7 +189,7 @@ impl StepResult {
                 let reason = self
                     .check_result
                     .as_ref()
-                    .map(|c| c.short_description())
+                    .map(|c| c.description.as_str())
                     .unwrap_or("already complete");
                 format!("{} {} ({})", status.display_char(), self.name, reason)
             }
@@ -245,28 +245,9 @@ pub fn execute_step(
     // Create step-scoped context with template inputs
     let context = &context.with_step_inputs(&step.inputs);
 
-    // Check if already complete (unless forced)
-    if !options.force {
-        if let Some(ref check) = step.execution.completed_check {
-            let check_result = run_check(check, project_root);
-            if check_result.complete {
-                return Ok(StepResult::skipped(&step.name, check_result));
-            }
-        }
-    }
-
-    // Check preconditions (never bypassed by --force)
-    if let Some(ref precondition) = step.execution.precondition {
-        let check_result = run_check_interpolated(precondition, project_root, context)?;
-        if !check_result.complete {
-            return Ok(StepResult::failure(
-                &step.name,
-                Duration::ZERO,
-                format!("Precondition failed: {}", check_result.short_description()),
-                check_result.details,
-            ));
-        }
-    }
+    // Note: Check evaluation (completed_check) and precondition evaluation
+    // are handled by the orchestrator BEFORE calling execute_step().
+    // The executor only executes — it does not make run/skip decisions.
 
     // Dry run mode
     if options.dry_run {
@@ -391,7 +372,6 @@ fn execute_hook(command: &str, cwd: &Path, env: &HashMap<String, String>) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::CompletedCheck;
     use crate::steps::resolved::{
         ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks,
         ResolvedOutput, ResolvedScoping,
@@ -409,11 +389,7 @@ mod tests {
             inputs: HashMap::new(),
             execution: ResolvedExecution {
                 command: command.to_string(),
-                completed_check: None,
-                precondition: None,
-                watches: vec![],
-                retry: 0,
-                requires_sudo: false,
+                ..Default::default()
             },
             env_vars: ResolvedEnvironmentVars::default(),
             behavior: ResolvedBehavior::default(),
@@ -441,50 +417,10 @@ mod tests {
         assert!(result.output.unwrap().contains("hello"));
     }
 
-    #[test]
-    fn execute_step_skips_when_complete() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("done.txt"), "").unwrap();
-
-        let mut step = make_step("echo should not run");
-        step.execution.completed_check = Some(CompletedCheck::FileExists {
-            path: "done.txt".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions::default();
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        assert!(result.success);
-        assert!(result.skipped);
-    }
-
-    #[test]
-    fn execute_step_runs_when_forced() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("done.txt"), "").unwrap();
-
-        let mut step = make_step("echo forced");
-        step.execution.completed_check = Some(CompletedCheck::FileExists {
-            path: "done.txt".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions {
-            force: true,
-            capture_output: true,
-            ..Default::default()
-        };
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        assert!(result.success);
-        assert!(!result.skipped);
-        assert!(result.output.unwrap().contains("forced"));
-    }
+    // Note: Tests for completed_check-based skipping and force behavior
+    // have been removed from the executor because check evaluation is now
+    // handled by the orchestrator (Phase 5 of the system redesign).
+    // See orchestrate.rs and workflow.rs tests for check evaluation coverage.
 
     #[test]
     fn execute_step_dry_run() {
@@ -702,7 +638,7 @@ mod tests {
         let result = StepResult::failure("test", Duration::from_secs(1), "error".to_string(), None);
         assert_eq!(result.status(), StepStatus::Failed);
 
-        let check_result = crate::steps::CheckResult::complete("already done");
+        let check_result = crate::checks::CheckResult::passed("already done");
         let result = StepResult::skipped("test", check_result);
         assert_eq!(result.status(), StepStatus::Skipped);
     }
@@ -717,8 +653,7 @@ mod tests {
 
     #[test]
     fn step_result_summary_line_skipped_shows_check_description() {
-        let check_result =
-            crate::steps::CheckResult::complete("Command succeeded: rustc --version");
+        let check_result = crate::checks::CheckResult::passed("rustc --version succeeded");
         let result = StepResult::skipped("rust", check_result);
         let line = result.summary_line();
         assert!(line.contains("rustc --version"), "got: {}", line);
@@ -728,7 +663,7 @@ mod tests {
     #[test]
     fn step_result_summary_line_skipped_without_check_result() {
         let mut result =
-            StepResult::skipped("test", crate::steps::CheckResult::complete("User declined"));
+            StepResult::skipped("test", crate::checks::CheckResult::passed("User declined"));
         result.check_result = None;
         let line = result.summary_line();
         assert!(line.contains("already complete"), "got: {}", line);
@@ -743,125 +678,14 @@ mod tests {
             StepResult::failure("test", Duration::from_secs(1), "error".to_string(), None);
         assert!(failure.recovery_detail.is_none());
 
-        let check_result = crate::steps::CheckResult::complete("done");
+        let check_result = crate::checks::CheckResult::passed("done");
         let skipped = StepResult::skipped("test", check_result);
         assert!(skipped.recovery_detail.is_none());
     }
 
-    // --- Precondition tests ---
-
-    #[test]
-    fn precondition_passes_allows_execution() {
-        let temp = TempDir::new().unwrap();
-        let mut step = make_step("echo hello");
-        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
-            command: "exit 0".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions {
-            capture_output: true,
-            ..Default::default()
-        };
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        assert!(result.success);
-        assert!(!result.skipped);
-    }
-
-    #[test]
-    fn precondition_fails_returns_failure() {
-        let temp = TempDir::new().unwrap();
-        let mut step = make_step("echo should not run");
-        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
-            command: "exit 1".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions::default();
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        assert!(!result.success);
-        assert!(result
-            .error
-            .as_ref()
-            .unwrap()
-            .contains("Precondition failed"));
-    }
-
-    #[test]
-    fn precondition_not_bypassed_by_force() {
-        let temp = TempDir::new().unwrap();
-        let mut step = make_step("echo should not run");
-        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
-            command: "exit 1".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions {
-            force: true,
-            ..Default::default()
-        };
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        assert!(
-            !result.success,
-            "precondition should not be bypassed by force"
-        );
-    }
-
-    #[test]
-    fn precondition_evaluated_after_completed_check() {
-        let temp = TempDir::new().unwrap();
-        fs::write(temp.path().join("done.txt"), "").unwrap();
-
-        let mut step = make_step("echo should not run");
-        // completed_check passes → should skip; precondition would fail
-        step.execution.completed_check = Some(CompletedCheck::FileExists {
-            path: "done.txt".to_string(),
-        });
-        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
-            command: "exit 1".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions::default();
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        // completed_check causes skip, precondition never evaluated
-        assert!(result.success);
-        assert!(result.skipped);
-    }
-
-    #[test]
-    fn precondition_failure_message_includes_description() {
-        let temp = TempDir::new().unwrap();
-        let mut step = make_step("echo test");
-        step.execution.precondition = Some(CompletedCheck::CommandSucceeds {
-            command: "exit 1".to_string(),
-        });
-
-        let ctx = InterpolationContext::new();
-        let options = ExecutionOptions::default();
-
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
-
-        let error = result.error.as_ref().unwrap();
-        assert!(
-            error.contains("Precondition failed"),
-            "error should mention precondition: {}",
-            error
-        );
-    }
+    // Note: Precondition tests have been removed from the executor because
+    // precondition evaluation is now handled by the orchestrator (Phase 5).
+    // See orchestrate.rs and workflow.rs tests for precondition coverage.
 
     #[test]
     fn format_duration_formats_correctly() {

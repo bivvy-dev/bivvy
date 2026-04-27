@@ -3,6 +3,7 @@
 //! A ResolvedStep combines template defaults with config overrides,
 //! producing a fully-specified step that can be executed.
 
+use crate::checks::Check;
 use crate::config::schema::{PromptConfig, StepEnvironmentOverride};
 use crate::config::{CompletedCheck, StepConfig};
 use crate::registry::template::Template;
@@ -15,11 +16,24 @@ pub struct ResolvedExecution {
     /// Command to execute.
     pub command: String,
 
-    /// Completion check.
+    /// Legacy completion check (old `CompletedCheck` enum).
+    /// Kept for backward compatibility during migration. Prefer `new_check`/`new_checks`.
     pub completed_check: Option<CompletedCheck>,
 
-    /// Precondition that must pass before running.
+    /// New check system: single check (new `Check` enum).
+    /// Populated from either `ExecutionConfig.check` or converted from `completed_check`.
+    pub new_check: Option<Check>,
+
+    /// New check system: multiple checks (implicit `all`).
+    /// Populated from `ExecutionConfig.checks`.
+    pub new_checks: Vec<Check>,
+
+    /// Precondition that must pass before running (legacy `CompletedCheck` type).
     pub precondition: Option<CompletedCheck>,
+
+    /// Precondition using the new `Check` type.
+    /// Populated from `precondition` via conversion, or from new config fields.
+    pub new_precondition: Option<Check>,
 
     /// Files to watch.
     pub watches: Vec<String>,
@@ -29,6 +43,38 @@ pub struct ResolvedExecution {
 
     /// Requires sudo.
     pub requires_sudo: bool,
+}
+
+impl ResolvedExecution {
+    /// Get the effective check to evaluate, preferring new check fields over legacy.
+    ///
+    /// Returns `None` if no check is configured.
+    /// If `new_checks` has entries, they are wrapped in an `All` combinator.
+    /// If `new_check` is set, it is returned directly.
+    /// Otherwise, `completed_check` is converted to the new `Check` type.
+    pub fn effective_check(&self) -> Option<Check> {
+        if !self.new_checks.is_empty() {
+            Some(Check::All {
+                name: None,
+                checks: self.new_checks.clone(),
+            })
+        } else if let Some(ref check) = self.new_check {
+            Some(check.clone())
+        } else {
+            self.completed_check
+                .as_ref()
+                .map(Check::from_completed_check)
+        }
+    }
+
+    /// Get the effective precondition, preferring the new type.
+    pub fn effective_precondition(&self) -> Option<Check> {
+        if let Some(ref check) = self.new_precondition {
+            Some(check.clone())
+        } else {
+            self.precondition.as_ref().map(Check::from_completed_check)
+        }
+    }
 }
 
 /// Resolved environment variable fields.
@@ -171,30 +217,37 @@ impl ResolvedStep {
             depends_on: config.depends_on.clone(),
             requires: merge_requires(&step.requires, &config.requires),
             inputs: resolved_inputs.clone(),
-            execution: ResolvedExecution {
-                command: config
-                    .execution
-                    .command
-                    .clone()
-                    .or_else(|| step.command.clone())
-                    .unwrap_or_default(),
-                completed_check: config
+            execution: {
+                let completed_check = config
                     .execution
                     .completed_check
                     .clone()
-                    .or_else(|| step.completed_check.clone()),
-                precondition: config
+                    .or_else(|| step.completed_check.clone());
+                let precondition = config
                     .execution
                     .precondition
                     .clone()
-                    .or_else(|| step.precondition.clone()),
-                watches: if config.execution.watches.is_empty() {
-                    step.watches.clone()
-                } else {
-                    config.execution.watches.clone()
-                },
-                retry: config.execution.retry,
-                requires_sudo: config.execution.requires_sudo,
+                    .or_else(|| step.precondition.clone());
+                ResolvedExecution {
+                    command: config
+                        .execution
+                        .command
+                        .clone()
+                        .or_else(|| step.command.clone())
+                        .unwrap_or_default(),
+                    new_check: config.execution.check.clone(),
+                    new_checks: config.execution.checks.clone(),
+                    new_precondition: None,
+                    completed_check,
+                    precondition,
+                    watches: if config.execution.watches.is_empty() {
+                        step.watches.clone()
+                    } else {
+                        config.execution.watches.clone()
+                    },
+                    retry: config.execution.retry,
+                    requires_sudo: config.execution.requires_sudo,
+                }
             },
             env_vars: ResolvedEnvironmentVars {
                 env: merge_env(&step.env, &config.env_vars.env),
@@ -247,6 +300,9 @@ impl ResolvedStep {
             inputs: HashMap::new(),
             execution: ResolvedExecution {
                 command: config.execution.command.clone().unwrap_or_default(),
+                new_check: config.execution.check.clone(),
+                new_checks: config.execution.checks.clone(),
+                new_precondition: None,
                 completed_check: config.execution.completed_check.clone(),
                 precondition: config.execution.precondition.clone(),
                 watches: config.execution.watches.clone(),

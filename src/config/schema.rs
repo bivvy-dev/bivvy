@@ -458,37 +458,6 @@ pub enum CompletedCheck {
     },
 }
 
-impl CompletedCheck {
-    /// Returns the prompt label shown when a check passes in interactive mode.
-    ///
-    /// - Marker checks: "Already complete" (step was actually run before)
-    /// - Other checks: describes what passed (e.g., "Check passed (rustc --version)")
-    pub fn prompt_label(&self, short_desc: &str) -> String {
-        match self {
-            CompletedCheck::Marker => "Already complete. Re-run?".to_string(),
-            CompletedCheck::CommandSucceeds { .. } => {
-                format!("Check passed ({}). Run anyway?", short_desc)
-            }
-            CompletedCheck::FileExists { .. } => {
-                format!("Check passed ({} exists). Run anyway?", short_desc)
-            }
-            CompletedCheck::All { .. } | CompletedCheck::Any { .. } => {
-                format!("Check passed ({}). Run anyway?", short_desc)
-            }
-        }
-    }
-
-    /// Returns the inline status message when a check passes and the step won't run.
-    ///
-    /// - Marker checks: "Already complete"
-    /// - Other checks: "Check passed (rustc --version)"
-    pub fn skip_label(&self, short_desc: &str) -> String {
-        match self {
-            CompletedCheck::Marker => "Already complete".to_string(),
-            _ => format!("Check passed ({})", short_desc),
-        }
-    }
-}
 
 /// Prompt configuration for interactive input
 #[derive(Debug, Clone, Serialize, Deserialize)]

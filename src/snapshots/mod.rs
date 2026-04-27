@@ -118,6 +118,19 @@ impl SnapshotStore {
         }
     }
 
+    /// Create an empty in-memory store not backed by any directory.
+    ///
+    /// Useful when check evaluation doesn't need snapshot storage
+    /// (e.g., evaluating presence or execution checks only).
+    /// Change checks evaluated against this store will always get
+    /// `None` baselines (indeterminate results).
+    pub fn empty() -> Self {
+        Self {
+            dir: PathBuf::new(),
+            cache: HashMap::new(),
+        }
+    }
+
     /// Get the baseline hash for a change check.
     ///
     /// The `baseline_name` parameter selects which baseline to compare against:

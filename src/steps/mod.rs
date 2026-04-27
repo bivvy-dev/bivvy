@@ -4,7 +4,6 @@
 //!
 //! - [`ResolvedStep`] - A fully resolved step ready for execution
 //! - [`execute_step`] - Execute a step with environment and hooks
-//! - [`run_check`] - Run completed checks for idempotency
 //! - [`StepStatus`] - Track step execution state
 //! - [`StepResult`] - Capture execution results
 //!
@@ -45,14 +44,10 @@
 //! }
 //! ```
 
-pub mod completed_check;
 pub mod executor;
 pub mod resolved;
 pub mod sensitive;
 
-pub use completed_check::{
-    run_check, run_check_interpolated, run_check_with_state, CheckResult, StateCheckContext,
-};
 pub use executor::{execute_step, ExecutionOptions, StepResult, StepStatus};
 pub use resolved::{
     ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,

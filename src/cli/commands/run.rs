@@ -356,7 +356,7 @@ impl Command for RunCommand {
                     Some(
                         s.check_result
                             .as_ref()
-                            .map(|c| c.short_description().to_string())
+                            .map(|c| c.description.clone())
                             .unwrap_or_else(|| "already complete".to_string()),
                     )
                 } else if s.success && s.check_result.is_some() && s.duration.as_millis() == 0 {
@@ -364,7 +364,7 @@ impl Command for RunCommand {
                     Some(
                         s.check_result
                             .as_ref()
-                            .map(|c| format!("Check passed ({})", c.short_description()))
+                            .map(|c| format!("Check passed ({})", c.description))
                             .unwrap_or_else(|| "Check passed".to_string()),
                     )
                 } else if !s.success && !s.skipped {

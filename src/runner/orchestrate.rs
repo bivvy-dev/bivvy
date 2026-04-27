@@ -14,17 +14,17 @@ use std::time::Instant;
 
 use tracing::warn;
 
+use crate::checks::evaluator::CheckEvaluator;
+use crate::checks::CheckResult;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
 use crate::shell::OutputLine;
+use crate::snapshots::SnapshotStore;
 use crate::state::StateStore;
-use crate::steps::{
-    execute_step, run_check, run_check_with_state, ExecutionOptions, ResolvedStep, StepResult,
-    StepStatus,
-};
+use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
 use crate::ui::spinner::live_output_callback;
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{
@@ -174,7 +174,7 @@ impl<'a> WorkflowRunner<'a> {
                 user_skipped_steps.insert(step_name.clone());
                 results.push(StepResult::skipped(
                     &step.name,
-                    crate::steps::CheckResult::complete("Dependency skipped"),
+                    CheckResult::passed("Dependency skipped"),
                 ));
                 continue;
             }
@@ -211,32 +211,51 @@ impl<'a> WorkflowRunner<'a> {
             let mut already_prompted = false;
             let mut had_prompt = false;
 
-            // Check if already complete (unless forced)
+            // Evaluate precondition using the new CheckEvaluator (never bypassed by --force)
+            if !options.dry_run {
+                if let Some(precondition) = step.execution.effective_precondition() {
+                    let mut snapshot_store = SnapshotStore::empty();
+                    let mut evaluator =
+                        CheckEvaluator::new(project_root, &context, &mut snapshot_store);
+                    let precond_result = evaluator.evaluate(&precondition);
+                    if !precond_result.passed_check() {
+                        ui.message(&step_display);
+                        ui.message(&format!(
+                            "{}{}",
+                            step_pad,
+                            StatusKind::Blocked.format(
+                                &theme,
+                                &format!("Precondition failed: {}", precond_result.description)
+                            )
+                        ));
+                        ui.show_workflow_progress(index + 1, total, start.elapsed());
+                        all_success = false;
+                        failed_steps.insert(step_name.clone());
+                        continue;
+                    }
+                }
+            }
+
+            // Check if already complete (unless forced) using the new CheckEvaluator
             if !needs_force && !options.dry_run {
-                if let Some(ref check) = step.execution.completed_check {
-                    let check_result = if let Some(ref state_store) = state {
-                        let state_ctx = crate::steps::StateCheckContext {
-                            step_name,
-                            watches: &step.execution.watches,
-                            state: state_store,
-                            project_root,
-                        };
-                        run_check_with_state(check, project_root, Some(&state_ctx))
-                    } else {
-                        run_check(check, project_root)
-                    };
-                    if check_result.complete {
+                if let Some(check) = step.execution.effective_check() {
+                    let mut snapshot_store = SnapshotStore::empty();
+                    let mut evaluator =
+                        CheckEvaluator::new(project_root, &context, &mut snapshot_store)
+                            .with_step(step_name, "default");
+                    let check_result = evaluator.evaluate(&check);
+                    if check_result.passed_check() {
                         if interactive && effective_prompt_if_complete {
                             if step.behavior.skippable {
                                 // Show step header, then ask if they want to re-run
                                 ui.message(&step_header);
+                                let prompt_label = format!(
+                                    "Check passed ({}). Run anyway?",
+                                    &check_result.description
+                                );
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
-                                    question: format!(
-                                        "{}{}",
-                                        step_pad,
-                                        check.prompt_label(check_result.short_description())
-                                    ),
+                                    question: format!("{}{}", step_pad, prompt_label),
                                     prompt_type: PromptType::Select {
                                         options: vec![
                                             PromptOption {
@@ -256,11 +275,12 @@ impl<'a> WorkflowRunner<'a> {
                                 if answer.as_string() != "yes" {
                                     // Clear prompt output (question + answer = 2 lines)
                                     ui.clear_lines(2);
-                                    let label = check.skip_label(check_result.short_description());
+                                    let skip_label =
+                                        format!("Check passed ({})", &check_result.description);
                                     ui.message(&format!(
                                         "{}{}",
                                         step_pad,
-                                        StatusKind::Success.format(&theme, &label)
+                                        StatusKind::Success.format(&theme, &skip_label)
                                     ));
                                     // Record as check-passed (not skipped) — dependents proceed.
                                     results
@@ -281,11 +301,12 @@ impl<'a> WorkflowRunner<'a> {
                         } else {
                             // Not interactive or prompt_if_complete is false: check passed
                             ui.message(&step_display);
-                            let label = check.skip_label(check_result.short_description());
+                            let skip_label =
+                                format!("Check passed ({})", &check_result.description);
                             ui.message(&format!(
                                 "{}{}",
                                 step_pad,
-                                StatusKind::Success.format(&theme, &label)
+                                StatusKind::Success.format(&theme, &skip_label)
                             ));
                             results.push(StepResult::check_passed(&step.name, check_result));
                             continue;
@@ -324,7 +345,7 @@ impl<'a> WorkflowRunner<'a> {
                     user_skipped_steps.insert(step_name.clone());
                     results.push(StepResult::skipped(
                         &step.name,
-                        crate::steps::CheckResult::complete("User declined"),
+                        CheckResult::passed("User declined"),
                     ));
                     continue;
                 }
@@ -369,7 +390,7 @@ impl<'a> WorkflowRunner<'a> {
                         ));
                         results.push(StepResult::skipped(
                             &step.name,
-                            crate::steps::CheckResult::complete("User declined sensitive step"),
+                            CheckResult::passed("User declined sensitive step"),
                         ));
                         continue;
                     } else {
