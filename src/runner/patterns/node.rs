@@ -15,6 +15,10 @@ lazy_regex!(
     RE_NODE_ENGINE_MISMATCH,
     r#"engine "node" is incompatible|The engines\.node"#
 );
+lazy_regex!(
+    RE_NODE_COREPACK_NOT_ENABLED,
+    r#"defines "packageManager".*Corepack"#
+);
 
 pub fn patterns() -> Vec<ErrorPattern> {
     vec![
@@ -80,6 +84,17 @@ pub fn patterns() -> Vec<ErrorPattern> {
             fix: FixTemplate::Hint {
                 label: "check .node-version or .nvmrc",
                 explanation: "Node.js version doesn't match package requirement",
+            },
+        },
+        ErrorPattern {
+            name: "node_corepack_not_enabled",
+            regex: RE_NODE_COREPACK_NOT_ENABLED.as_str(),
+            context: PatternContext::CommandContains("npm|yarn|npx"),
+            confidence: Confidence::High,
+            fix: FixTemplate::Static {
+                label: "corepack enable",
+                command: "corepack enable",
+                explanation: "Project requires Corepack to manage its package manager version",
             },
         },
     ]
@@ -188,5 +203,39 @@ mod tests {
         let ctx = test_helpers::default_context();
         let error = r#"error The engine "node" is incompatible with this module"#;
         assert!(find_hint(error, &ctx).is_none());
+    }
+
+    #[test]
+    fn node_corepack_not_enabled_matches_yarn() {
+        let ctx = StepContext {
+            name: "yarn_install",
+            command: "yarn install",
+            requires: &[],
+            template: None,
+        };
+        let error = r#"This project's package.json defines "packageManager": "yarn@4.9.2". However the current global version of Yarn is 1.22.22. Corepack must currently be enabled"#;
+        let fix = find_fix(error, &ctx).unwrap();
+        assert_eq!(fix.command, "corepack enable");
+        assert_eq!(fix.confidence, Confidence::High);
+    }
+
+    #[test]
+    fn node_corepack_not_enabled_matches_npm() {
+        let ctx = StepContext {
+            name: "npm_install",
+            command: "npm install",
+            requires: &[],
+            template: None,
+        };
+        let error = r#"package.json defines "packageManager": "pnpm@9.0.0". Corepack is required"#;
+        let fix = find_fix(error, &ctx).unwrap();
+        assert_eq!(fix.command, "corepack enable");
+    }
+
+    #[test]
+    fn node_corepack_not_enabled_excludes_unrelated() {
+        let ctx = test_helpers::default_context();
+        let error = r#"defines "packageManager": "yarn@4.9.2". Corepack"#;
+        assert!(find_fix(error, &ctx).is_none());
     }
 }

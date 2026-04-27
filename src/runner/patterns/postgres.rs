@@ -12,6 +12,10 @@ lazy_regex!(
     RE_POSTGRES_ROLE_NOT_EXIST,
     r#"FATAL:.*role "([^"]+)" does not exist"#
 );
+lazy_regex!(
+    RE_POSTGRES_PGDUMP_VERSION_MISMATCH,
+    r"pg_dump: error:.*aborting because of server version mismatch"
+);
 
 pub fn patterns() -> Vec<ErrorPattern> {
     vec![
@@ -50,6 +54,16 @@ pub fn patterns() -> Vec<ErrorPattern> {
                 explanation: "PostgreSQL role '{1}' does not exist",
             },
         },
+        ErrorPattern {
+            name: "postgres_pgdump_version_mismatch",
+            regex: RE_POSTGRES_PGDUMP_VERSION_MISMATCH.as_str(),
+            context: PatternContext::Always,
+            confidence: Confidence::Low,
+            fix: FixTemplate::Hint {
+                label: "update pg_dump to match your server version (e.g., brew install postgresql@16 and add its bin/ to PATH)",
+                explanation: "pg_dump version does not match PostgreSQL server version",
+            },
+        },
     ]
 }
 
@@ -83,5 +97,27 @@ mod tests {
         let error = "FATAL:  database \"myapp_dev\" does not exist";
         let fix = find_fix(error, &ctx).unwrap();
         assert_eq!(fix.command, "createdb myapp_dev");
+    }
+
+    #[test]
+    fn postgres_pgdump_version_mismatch_returns_hint() {
+        let ctx = StepContext {
+            name: "db_setup",
+            command: "rails db:prepare",
+            requires: &[],
+            template: None,
+        };
+        let error = "pg_dump: error: server version: 16.13 (Homebrew); pg_dump version: 14.21 (Homebrew)\npg_dump: error: aborting because of server version mismatch";
+        let hint = find_hint(error, &ctx).unwrap();
+        assert!(hint.contains("pg_dump"));
+        assert!(hint.contains("server version"));
+    }
+
+    #[test]
+    fn postgres_pgdump_version_mismatch_fires_without_requires() {
+        let ctx = test_helpers::default_context();
+        let error = "pg_dump: error: aborting because of server version mismatch";
+        let hint = find_hint(error, &ctx).unwrap();
+        assert!(hint.contains("pg_dump"));
     }
 }
