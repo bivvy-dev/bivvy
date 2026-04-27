@@ -458,7 +458,6 @@ pub enum CompletedCheck {
     },
 }
 
-
 /// Prompt configuration for interactive input
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PromptConfig {

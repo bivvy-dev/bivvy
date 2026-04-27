@@ -41,6 +41,7 @@ pub enum RunProgress<'a> {
 pub struct WorkflowRunner<'a> {
     pub(super) config: &'a BivvyConfig,
     pub(super) steps: HashMap<String, ResolvedStep>,
+    pub(super) snapshot_store: SnapshotStore,
 }
 
 /// Result of running a workflow.
@@ -82,14 +83,36 @@ pub struct RunOptions {
 }
 
 impl<'a> WorkflowRunner<'a> {
-    /// Create a new workflow runner.
+    /// Create a new workflow runner with an in-memory snapshot store.
     pub fn new(config: &'a BivvyConfig, steps: HashMap<String, ResolvedStep>) -> Self {
-        Self { config, steps }
+        Self {
+            config,
+            steps,
+            snapshot_store: SnapshotStore::empty(),
+        }
+    }
+
+    /// Create a new workflow runner with a specific snapshot store.
+    pub fn with_snapshot_store(
+        config: &'a BivvyConfig,
+        steps: HashMap<String, ResolvedStep>,
+        snapshot_store: SnapshotStore,
+    ) -> Self {
+        Self {
+            config,
+            steps,
+            snapshot_store,
+        }
+    }
+
+    /// Get a mutable reference to the snapshot store (for saving after run).
+    pub fn snapshot_store_mut(&mut self) -> &mut SnapshotStore {
+        &mut self.snapshot_store
     }
 
     /// Run the specified workflow.
     pub fn run(
-        &self,
+        &mut self,
         options: &RunOptions,
         context: &InterpolationContext,
         global_env: &HashMap<String, String>,
@@ -109,7 +132,7 @@ impl<'a> WorkflowRunner<'a> {
     /// Run the specified workflow with a progress callback.
     #[allow(clippy::too_many_arguments)]
     pub fn run_with_progress(
-        &self,
+        &mut self,
         options: &RunOptions,
         context: &InterpolationContext,
         global_env: &HashMap<String, String>,
@@ -183,8 +206,8 @@ impl<'a> WorkflowRunner<'a> {
 
             // Evaluate precondition using the new CheckEvaluator (never bypassed by --force)
             if let Some(precondition) = step.execution.effective_precondition() {
-                let mut snapshot_store = SnapshotStore::empty();
-                let mut evaluator = CheckEvaluator::new(project_root, context, &mut snapshot_store);
+                let mut evaluator =
+                    CheckEvaluator::new(project_root, context, &mut self.snapshot_store);
                 let precond_result = evaluator.evaluate(&precondition);
                 if !precond_result.passed_check() {
                     return Err(BivvyError::StepExecutionError {
@@ -197,10 +220,11 @@ impl<'a> WorkflowRunner<'a> {
             // Evaluate completed check using the new CheckEvaluator
             if !options.force.contains(step_name) {
                 if let Some(check) = step.execution.effective_check() {
-                    let mut snapshot_store = SnapshotStore::empty();
+                    let config_hash = check.config_hash();
                     let mut evaluator =
-                        CheckEvaluator::new(project_root, context, &mut snapshot_store)
-                            .with_step(step_name, "default");
+                        CheckEvaluator::new(project_root, context, &mut self.snapshot_store)
+                            .with_step(step_name, &config_hash)
+                            .with_workflow(workflow_name);
                     let check_result = evaluator.evaluate(&check);
                     if check_result.passed_check() {
                         let skip_result = StepResult::skipped(step_name, check_result);
@@ -400,7 +424,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -438,7 +462,7 @@ mod tests {
             make_step("second", "echo second", vec!["first".to_string()]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
 
         let options = RunOptions {
             skip: {
@@ -479,7 +503,7 @@ mod tests {
             make_step("test", &format!("touch {}", marker.display()), vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
 
         let options = RunOptions {
             dry_run: true,
@@ -514,7 +538,7 @@ mod tests {
             make_step("step_a", "echo hello", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -568,7 +592,7 @@ mod tests {
             make_step("second", "echo second", vec!["first".to_string()]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions {
             skip: {
                 let mut s = HashSet::new();
@@ -664,7 +688,7 @@ mod tests {
             make_step("hello", &format!("touch {}", marker.display()), vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -715,7 +739,7 @@ mod tests {
             make_step("hello", "echo hello", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -768,7 +792,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -828,7 +852,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -886,7 +910,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -942,7 +966,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -998,7 +1022,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("install".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1045,7 +1069,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("deploy".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1095,7 +1119,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("deploy".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1145,7 +1169,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1199,7 +1223,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1265,7 +1289,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1310,7 +1334,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1365,7 +1389,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1416,7 +1440,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1461,7 +1485,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1510,7 +1534,7 @@ mod tests {
             make_step("broken", "echo 'something went wrong' >&2; exit 1", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1575,7 +1599,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1626,7 +1650,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1683,7 +1707,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1722,7 +1746,7 @@ mod tests {
             make_step("second", "echo second", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1770,7 +1794,7 @@ mod tests {
             make_step("optional", &format!("touch {}", marker.display()), vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1817,7 +1841,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("required".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1862,7 +1886,7 @@ mod tests {
             make_step("hello", "echo hello", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1913,7 +1937,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -1966,7 +1990,7 @@ mod tests {
             make_step("dependent", "echo dep", vec!["failing".to_string()]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2024,7 +2048,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("hello".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2072,7 +2096,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("hello".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2129,7 +2153,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("hello".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2182,7 +2206,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("hello".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2235,7 +2259,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("hello".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2291,7 +2315,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("hello".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2339,7 +2363,7 @@ mod tests {
         ci_step.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("ci_only".to_string(), ci_step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions {
             active_environment: Some("development".to_string()),
             ..Default::default()
@@ -2377,7 +2401,7 @@ mod tests {
         ci_step.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("ci_only".to_string(), ci_step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions {
             active_environment: Some("ci".to_string()),
             ..Default::default()
@@ -2412,7 +2436,7 @@ mod tests {
         assert!(step.scoping.only_environments.is_empty());
         steps.insert("always".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions {
             active_environment: Some("any_env".to_string()),
             ..Default::default()
@@ -2451,7 +2475,7 @@ mod tests {
         c.scoping.only_environments = vec!["staging".to_string()];
         steps.insert("c".to_string(), c);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions {
             active_environment: Some("development".to_string()),
             ..Default::default()
@@ -2490,7 +2514,7 @@ mod tests {
         ci_step.scoping.only_environments = vec!["ci".to_string()];
         steps.insert("ci_only".to_string(), ci_step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions {
             active_environment: Some("development".to_string()),
             ..Default::default()
@@ -2590,7 +2614,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), make_step("flaky", &cmd, vec![]));
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2651,7 +2675,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2711,7 +2735,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2769,7 +2793,7 @@ mod tests {
             make_step("third", "echo third", vec!["bad".to_string()]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2821,7 +2845,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2878,7 +2902,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2936,7 +2960,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -2985,7 +3009,7 @@ mod tests {
             make_step("failing", "exit 1", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -3038,7 +3062,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -3084,7 +3108,7 @@ mod tests {
             make_step("failing", "exit 1", vec![]),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -3136,7 +3160,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("flaky".to_string(), make_step("flaky", &cmd, vec![]));
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -3191,7 +3215,7 @@ mod tests {
             ),
         );
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -3259,7 +3283,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("bundler".to_string(), step);
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 
@@ -3308,7 +3332,7 @@ mod tests {
         let mut steps = HashMap::new();
         steps.insert("broken".to_string(), make_step("broken", "exit 1", vec![]));
 
-        let runner = WorkflowRunner::new(&config, steps);
+        let mut runner = WorkflowRunner::new(&config, steps);
         let options = RunOptions::default();
         let ctx = InterpolationContext::new();
 

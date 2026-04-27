@@ -22,7 +22,6 @@ use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
 use crate::shell::OutputLine;
-use crate::snapshots::SnapshotStore;
 use crate::state::StateStore;
 use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
 use crate::ui::spinner::live_output_callback;
@@ -62,7 +61,7 @@ impl<'a> WorkflowRunner<'a> {
     /// An optional `StateStore` enables state-aware marker checks and step recording.
     #[allow(clippy::too_many_arguments)]
     pub fn run_with_ui(
-        &self,
+        &mut self,
         options: &RunOptions,
         context: &InterpolationContext,
         global_env: &HashMap<String, String>,
@@ -214,9 +213,8 @@ impl<'a> WorkflowRunner<'a> {
             // Evaluate precondition using the new CheckEvaluator (never bypassed by --force)
             if !options.dry_run {
                 if let Some(precondition) = step.execution.effective_precondition() {
-                    let mut snapshot_store = SnapshotStore::empty();
                     let mut evaluator =
-                        CheckEvaluator::new(project_root, &context, &mut snapshot_store);
+                        CheckEvaluator::new(project_root, &context, &mut self.snapshot_store);
                     let precond_result = evaluator.evaluate(&precondition);
                     if !precond_result.passed_check() {
                         ui.message(&step_display);
@@ -239,10 +237,11 @@ impl<'a> WorkflowRunner<'a> {
             // Check if already complete (unless forced) using the new CheckEvaluator
             if !needs_force && !options.dry_run {
                 if let Some(check) = step.execution.effective_check() {
-                    let mut snapshot_store = SnapshotStore::empty();
+                    let config_hash = check.config_hash();
                     let mut evaluator =
-                        CheckEvaluator::new(project_root, &context, &mut snapshot_store)
-                            .with_step(step_name, "default");
+                        CheckEvaluator::new(project_root, &context, &mut self.snapshot_store)
+                            .with_step(step_name, &config_hash)
+                            .with_workflow(workflow_name);
                     let check_result = evaluator.evaluate(&check);
                     if check_result.passed_check() {
                         if interactive && effective_prompt_if_complete {

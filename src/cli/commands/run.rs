@@ -279,8 +279,9 @@ impl Command for RunCommand {
         options.provided_requirements = provided_requirements;
         options.active_environment = Some(env_name.clone());
 
-        // Create runner
-        let runner = WorkflowRunner::new(&config, steps);
+        // Create runner with project-backed snapshot store for change check baselines
+        let snapshot_store = crate::snapshots::SnapshotStore::load_for_project(&project_id);
+        let mut runner = WorkflowRunner::with_snapshot_store(&config, steps, snapshot_store);
 
         // Create gap checker for requirement detection
         let probe = EnvironmentProbe::run();
@@ -318,7 +319,7 @@ impl Command for RunCommand {
             history.step_skipped(skipped);
         }
 
-        // Update state (unless dry-run)
+        // Update state and snapshots (unless dry-run)
         if !self.args.dry_run {
             let record = if result.success {
                 history.finish_success()
@@ -327,6 +328,11 @@ impl Command for RunCommand {
             };
             state.record_run(record);
             state.save(&project_id)?;
+
+            // Save snapshot baselines accumulated during check evaluation
+            if let Err(e) = runner.snapshot_store_mut().save() {
+                tracing::warn!("Failed to save snapshot store: {}", e);
+            }
         }
 
         // Build and show run summary

@@ -145,6 +145,17 @@ impl Check {
         }
     }
 
+    /// Compute a short hash of this check's configuration for snapshot key isolation.
+    ///
+    /// Two checks with different configs (different targets, on_change values, etc.)
+    /// will produce different hashes, ensuring their baselines don't collide.
+    pub fn config_hash(&self) -> String {
+        use sha2::{Digest, Sha256};
+        let yaml = serde_yaml::to_string(self).unwrap_or_default();
+        let hash = Sha256::digest(yaml.as_bytes());
+        format!("{:x}", hash)[..8].to_string()
+    }
+
     /// Convert a legacy `CompletedCheck` to the new `Check` type.
     ///
     /// This bridges the old config schema (`completed_check` field) to the new

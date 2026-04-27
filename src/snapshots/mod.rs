@@ -131,6 +131,20 @@ impl SnapshotStore {
         }
     }
 
+    /// Load or create a snapshot store for a project.
+    ///
+    /// Uses `~/.bivvy/projects/{project_hash}/snapshots/` as the storage
+    /// directory, matching the state store's project isolation scheme.
+    pub fn load_for_project(project_id: &crate::state::ProjectId) -> Self {
+        let dir = dirs::home_dir()
+            .unwrap_or_else(|| PathBuf::from("~"))
+            .join(".bivvy")
+            .join("projects")
+            .join(project_id.hash())
+            .join("snapshots");
+        Self::new(dir)
+    }
+
     /// Get the baseline hash for a change check.
     ///
     /// The `baseline_name` parameter selects which baseline to compare against:
