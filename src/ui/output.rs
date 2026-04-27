@@ -91,6 +91,73 @@ impl Output {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Named OutputSink implementations
+// ---------------------------------------------------------------------------
+
+use crate::shell::command::{OutputLine, OutputSink};
+
+/// Streams command output lines to stdout with a fixed indent.
+///
+/// Used in **non-interactive verbose** mode where no spinner is available.
+/// Each non-empty line is printed as `"{indent}{text}"`.
+pub struct VerboseStreamSink {
+    indent: String,
+}
+
+impl VerboseStreamSink {
+    /// Create a sink that indents each line with `n` spaces.
+    pub fn new(indent_spaces: usize) -> Self {
+        Self {
+            indent: " ".repeat(indent_spaces),
+        }
+    }
+}
+
+impl OutputSink for VerboseStreamSink {
+    fn write_line(&self, line: OutputLine) {
+        let text = match &line {
+            OutputLine::Stdout(s) | OutputLine::Stderr(s) => s.trim_end(),
+        };
+        if !text.is_empty() {
+            let _ = writeln!(std::io::stdout(), "{}{text}", self.indent);
+        }
+    }
+}
+
+/// Streams fix-command output to stderr with a `"    fix: "` prefix.
+///
+/// Used by the recovery module when running a suggested fix command.
+pub struct FixOutputSink;
+
+impl OutputSink for FixOutputSink {
+    fn write_line(&self, line: OutputLine) {
+        let text = match &line {
+            OutputLine::Stdout(s) | OutputLine::Stderr(s) => s,
+        };
+        let _ = writeln!(std::io::stderr(), "    fix: {}", text);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Presenter label helpers
+// ---------------------------------------------------------------------------
+
+/// Format a label for a step whose `satisfied_when` conditions all passed.
+pub fn satisfaction_label(description: &str) -> String {
+    format!("Satisfied ({})", description)
+}
+
+/// Format a label for a step whose check passed (work already done).
+pub fn check_passed_label(description: &str) -> String {
+    format!("Check passed ({})", description)
+}
+
+/// Format a prompt asking the user whether to re-run a check-passed step.
+pub fn rerun_prompt_label(description: &str) -> String {
+    format!("Check passed ({}). Run anyway?", description)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -156,5 +223,53 @@ mod tests {
         let config_mode = crate::config::schema::OutputMode::Silent;
         let ui_mode: OutputMode = config_mode.into();
         assert_eq!(ui_mode, OutputMode::Silent);
+    }
+
+    // --- OutputSink tests ---
+
+    #[test]
+    fn verbose_stream_sink_skips_empty_lines() {
+        let sink = VerboseStreamSink::new(6);
+        // Empty and whitespace-only lines should be skipped (no panic, no output).
+        // Can't easily capture stdout in a unit test, so verify the call doesn't panic.
+        sink.write_line(OutputLine::Stdout("".to_string()));
+        sink.write_line(OutputLine::Stdout("   ".to_string()));
+        // Verify the struct constructs with the right indent
+        assert_eq!(sink.indent, "      ");
+    }
+
+    #[test]
+    fn verbose_stream_sink_indent() {
+        let sink = VerboseStreamSink::new(4);
+        assert_eq!(sink.indent, "    ");
+
+        let sink = VerboseStreamSink::new(0);
+        assert_eq!(sink.indent, "");
+    }
+
+    // --- Label helper tests ---
+
+    #[test]
+    fn satisfaction_label_formats() {
+        assert_eq!(
+            satisfaction_label("node_modules exists"),
+            "Satisfied (node_modules exists)"
+        );
+    }
+
+    #[test]
+    fn check_passed_label_formats() {
+        assert_eq!(
+            check_passed_label("yarn.lock exists"),
+            "Check passed (yarn.lock exists)"
+        );
+    }
+
+    #[test]
+    fn rerun_prompt_label_formats() {
+        assert_eq!(
+            rerun_prompt_label("deps installed"),
+            "Check passed (deps installed). Run anyway?"
+        );
     }
 }

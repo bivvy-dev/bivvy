@@ -225,18 +225,18 @@ mod tests {
         let bar = ProgressBar::hidden();
         let callback = live_output_callback(bar.clone(), "Running...".to_string(), 4, 2);
 
-        callback(OutputLine::Stdout("line 1".to_string()));
+        callback.write_line(OutputLine::Stdout("line 1".to_string()));
         let msg = bar.message();
         assert!(msg.contains("Running..."));
         assert!(msg.contains("line 1"));
 
-        callback(OutputLine::Stderr("line 2".to_string()));
+        callback.write_line(OutputLine::Stderr("line 2".to_string()));
         let msg = bar.message();
         assert!(msg.contains("line 1"));
         assert!(msg.contains("line 2"));
 
         // Ring buffer evicts oldest line
-        callback(OutputLine::Stdout("line 3".to_string()));
+        callback.write_line(OutputLine::Stdout("line 3".to_string()));
         let msg = bar.message();
         assert!(!msg.contains("line 1"));
         assert!(msg.contains("line 2"));
@@ -251,10 +251,10 @@ mod tests {
         let callback = live_output_callback(bar.clone(), "Running...".to_string(), 4, 2);
 
         // Send an empty line — should not cause a newline in the message
-        callback(OutputLine::Stdout("".to_string()));
+        callback.write_line(OutputLine::Stdout("".to_string()));
 
         // Now send a real line — the message should have exactly one output line
-        callback(OutputLine::Stdout("real output".to_string()));
+        callback.write_line(OutputLine::Stdout("real output".to_string()));
         let msg = bar.message();
         assert!(msg.contains("real output"));
         // Only one newline (base message + one output line)
@@ -269,7 +269,7 @@ mod tests {
         let callback = live_output_callback(bar.clone(), "Running...".to_string(), 4, 2);
 
         let long_line = "x".repeat(100);
-        callback(OutputLine::Stdout(long_line));
+        callback.write_line(OutputLine::Stdout(long_line));
         let msg = bar.message();
         assert!(msg.contains("..."));
         // Should not contain the full 100-char line

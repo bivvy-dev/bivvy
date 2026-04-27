@@ -131,8 +131,27 @@ pub enum OutputLine {
     Stderr(String),
 }
 
+/// Trait for consuming streaming command output.
+///
+/// Implementations receive each line of stdout/stderr as it is produced
+/// by a running command. The trait replaces raw `println!()` / `eprintln!()`
+/// closures so that all command output flows through a named, testable path.
+///
+/// A blanket implementation is provided for any `Fn(OutputLine) + Send`,
+/// so closures continue to work wherever `OutputSink` is expected.
+pub trait OutputSink: Send {
+    /// Handle a single line of output from a running command.
+    fn write_line(&self, line: OutputLine);
+}
+
+impl<F: Fn(OutputLine) + Send> OutputSink for F {
+    fn write_line(&self, line: OutputLine) {
+        self(line);
+    }
+}
+
 /// Callback for streaming output.
-pub type OutputCallback = Box<dyn Fn(OutputLine) + Send>;
+pub type OutputCallback = Box<dyn OutputSink>;
 
 /// Execute a shell command.
 pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult> {
@@ -307,9 +326,9 @@ pub fn execute_streaming(
         output
     });
 
-    // Process output through callback
+    // Process output through sink
     for line in rx {
-        callback(line);
+        callback.write_line(line);
     }
 
     let stdout_output = stdout_handle.join().unwrap_or_default();

@@ -33,7 +33,10 @@ pub mod theme;
 pub use icons::StatusKind;
 pub use mock::{MockSpinner, MockUI};
 pub use non_interactive::NonInteractiveUI;
-pub use output::{Output, OutputMode};
+pub use output::{
+    check_passed_label, rerun_prompt_label, satisfaction_label, FixOutputSink, Output, OutputMode,
+    VerboseStreamSink,
+};
 pub use preflight::PreflightCollector;
 pub use progress::{format_duration, format_relative_time, StepProgress};
 pub use prompts::prompt_user;

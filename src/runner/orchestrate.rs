@@ -22,7 +22,6 @@ use crate::error::{BivvyError, Result};
 use crate::logging::{BivvyEvent, EventBus};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
-use crate::shell::OutputLine;
 use crate::state::StateStore;
 use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
 use crate::ui::spinner::live_output_callback;
@@ -371,7 +370,7 @@ impl<'a> WorkflowRunner<'a> {
                             reason: format!("satisfied: {}", satisfied_desc),
                         });
                         ui.message(&step_display);
-                        let skip_label = format!("Satisfied ({})", satisfied_desc);
+                        let skip_label = crate::ui::satisfaction_label(&satisfied_desc);
                         ui.message(&format!(
                             "{}{}",
                             step_pad,
@@ -412,10 +411,8 @@ impl<'a> WorkflowRunner<'a> {
                             if step.behavior.skippable {
                                 // Show step header, then ask if they want to re-run
                                 ui.message(&step_header);
-                                let prompt_label = format!(
-                                    "Check passed ({}). Run anyway?",
-                                    &check_result.description
-                                );
+                                let prompt_label =
+                                    crate::ui::rerun_prompt_label(&check_result.description);
                                 let prompt = Prompt {
                                     key: format!("rerun_{}", step_name),
                                     question: format!("{}{}", step_pad, prompt_label),
@@ -450,7 +447,7 @@ impl<'a> WorkflowRunner<'a> {
                                     // Clear prompt output (question + answer = 2 lines)
                                     ui.clear_lines(2);
                                     let skip_label =
-                                        format!("Check passed ({})", &check_result.description);
+                                        crate::ui::check_passed_label(&check_result.description);
                                     ui.message(&format!(
                                         "{}{}",
                                         step_pad,
@@ -487,7 +484,7 @@ impl<'a> WorkflowRunner<'a> {
                             });
                             ui.message(&step_display);
                             let skip_label =
-                                format!("Check passed ({})", &check_result.description);
+                                crate::ui::check_passed_label(&check_result.description);
                             ui.message(&format!(
                                 "{}{}",
                                 step_pad,
@@ -880,17 +877,10 @@ fn execute_step_with_recovery(
                 ))
             })
             .or_else(|| {
-                // Non-interactive verbose: stream output directly
+                // Non-interactive verbose: stream output through VerboseStreamSink
                 if output_mode == OutputMode::Verbose {
-                    let cb: crate::shell::OutputCallback = Box::new(|line: OutputLine| {
-                        let text = match &line {
-                            OutputLine::Stdout(s) => s.trim_end(),
-                            OutputLine::Stderr(s) => s.trim_end(),
-                        };
-                        if !text.is_empty() {
-                            println!("      {text}");
-                        }
-                    });
+                    let cb: crate::shell::OutputCallback =
+                        Box::new(crate::ui::VerboseStreamSink::new(6));
                     Some(cb)
                 } else {
                     None

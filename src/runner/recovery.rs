@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use crate::error::Result;
-use crate::shell::{execute_streaming, CommandOptions, OutputLine};
-use crate::ui::{Prompt, PromptOption, PromptType, Prompter};
+use crate::shell::{execute_streaming, CommandOptions, OutputCallback};
+use crate::ui::{FixOutputSink, OutputWriter, Prompt, PromptOption, PromptType, Prompter};
 
 use super::patterns::FixSuggestion;
 
@@ -39,7 +39,7 @@ pub enum RecoveryAction {
 /// already been attempted — if the suggested fix was already tried, it is
 /// not offered again.
 pub fn prompt_recovery(
-    ui: &mut dyn Prompter,
+    ui: &mut (impl Prompter + OutputWriter + ?Sized),
     step_name: &str,
     fix: Option<&FixSuggestion>,
     has_hint: bool,
@@ -52,10 +52,10 @@ pub fn prompt_recovery(
 
     if let Some(f) = fix {
         if fix_history.contains(&f.command) {
-            eprintln!(
+            ui.warning(&format!(
                 "    Previous fix `{}` did not resolve this error.",
                 f.command
-            );
+            ));
         } else {
             options.push(PromptOption {
                 label: format!("Fix — {}", f.label),
@@ -154,12 +154,7 @@ pub fn run_fix(command: &str, project_root: &Path, env: &HashMap<String, String>
         ..Default::default()
     };
 
-    let callback: crate::shell::OutputCallback = Box::new(|line| {
-        let text = match &line {
-            OutputLine::Stdout(s) | OutputLine::Stderr(s) => s,
-        };
-        eprintln!("    fix: {}", text);
-    });
+    let callback: OutputCallback = Box::new(FixOutputSink);
 
     let result = execute_streaming(command, &options, callback)?;
 
