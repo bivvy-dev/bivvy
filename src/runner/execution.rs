@@ -180,17 +180,15 @@ pub(super) fn execute_step_with_recovery(
                 spinner.finish_error(&format!("Failed ({})", duration_str));
 
                 // Build combined error output for pattern matching and display
-                let mut output_parts = Vec::new();
-                if let Some(ref err) = result.error {
-                    output_parts.push(err.as_str());
-                }
-                if let Some(ref output) = result.output {
-                    let trimmed = output.trim();
-                    if !trimmed.is_empty() {
-                        output_parts.push(trimmed);
-                    }
-                }
-                let combined_output = output_parts.join("\n");
+                let combined_output = result
+                    .output
+                    .as_deref()
+                    .map(|s| s.trim())
+                    .filter(|s| !s.is_empty())
+                    .unwrap_or_else(|| {
+                        result.error.as_deref().unwrap_or("Command failed")
+                    })
+                    .to_string();
 
                 // Match against pattern registry
                 let fix = patterns::find_fix(&combined_output, step_ctx);

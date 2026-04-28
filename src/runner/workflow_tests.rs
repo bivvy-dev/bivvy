@@ -1244,9 +1244,7 @@ fn run_with_ui_shows_error_output_on_failure() {
         .unwrap();
 
     assert!(!result.success);
-    // Error line should show the exit code
-    assert!(ui.has_message("Command failed with exit code"));
-    // Captured stderr should be surfaced as messages
+    // Captured stderr should be surfaced as the error output (no internal exit code noise)
     assert!(ui.has_message("something went wrong"));
 }
 
