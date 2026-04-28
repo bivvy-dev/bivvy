@@ -81,6 +81,9 @@ tempfile = "3.24.0"
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+[features]
+default = []
+
 [profile.release]
 lto = true
 strip = true

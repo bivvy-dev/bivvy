@@ -25,6 +25,7 @@ use crate::ui::theme::BivvyTheme;
 use crate::ui::{Prompt, PromptOption, PromptType, StatusKind, UserInterface};
 
 use super::decision;
+use super::diagnostic;
 use super::execution::{config_prompt_to_ui_prompt, execute_step_with_recovery};
 use super::patterns::StepContext;
 use super::plan::build_execution_plan;
@@ -804,6 +805,33 @@ impl<'a> WorkflowRunner<'a> {
                 name: step_name.clone(),
             });
 
+            // Build workflow state for diagnostic funnel
+            let workflow_state = {
+                let step_refs: Vec<(&str, &ResolvedStep)> = self
+                    .steps
+                    .iter()
+                    .map(|(name, step)| (name.as_str(), step))
+                    .collect();
+                let mut outcomes = HashMap::new();
+                for r in &results {
+                    outcomes.insert(r.name.clone(), r.status());
+                }
+                for s in &satisfied_steps {
+                    outcomes.entry(s.clone()).or_insert(StepStatus::Completed);
+                }
+                for s in &failed_steps {
+                    outcomes.entry(s.clone()).or_insert(StepStatus::Failed);
+                }
+                for s in &user_skipped_steps {
+                    outcomes.entry(s.clone()).or_insert(StepStatus::Skipped);
+                }
+                (step_refs, outcomes)
+            };
+            let ws = diagnostic::WorkflowState {
+                steps: &workflow_state.0,
+                outcomes: &workflow_state.1,
+            };
+
             // Execute step with retry and recovery
             let exec_result = execute_step_with_recovery(
                 step,
@@ -817,6 +845,8 @@ impl<'a> WorkflowRunner<'a> {
                 options.dry_run,
                 interactive,
                 &step_ctx,
+                options.diagnostic_funnel,
+                &ws,
                 ui,
                 event_bus,
             )?;

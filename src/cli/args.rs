@@ -146,6 +146,14 @@ pub struct RunArgs {
     #[arg(short, long, value_name = "ENV")]
     pub env: Option<String>,
 
+    /// Use the diagnostic funnel for error recovery (overrides config)
+    #[arg(long)]
+    pub diagnostic_funnel: bool,
+
+    /// Disable the diagnostic funnel, use legacy pattern matching
+    #[arg(long, conflicts_with = "diagnostic_funnel")]
+    pub no_diagnostic_funnel: bool,
+
     /// Suppress run header (used when chaining from init)
     #[arg(skip)]
     pub suppress_header: bool,
@@ -165,6 +173,8 @@ impl Default for RunArgs {
             non_interactive: false,
             ci: false,
             env: None,
+            diagnostic_funnel: false,
+            no_diagnostic_funnel: false,
             suppress_header: false,
         }
     }

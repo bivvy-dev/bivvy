@@ -151,6 +151,14 @@ pub struct ExecutionSettings {
     )]
     pub history_retention: usize,
 
+    /// Use the diagnostic funnel pipeline for step failure recovery.
+    ///
+    /// When true, step failures are analyzed by a multi-stage pipeline that
+    /// produces ranked resolution candidates. When false, the legacy pattern
+    /// registry is used (single fix per error). Default: true.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub diagnostic_funnel: bool,
+
     /// Enable automatic background updates.
     ///
     /// When true, bivvy checks for new versions in the background after each
@@ -166,6 +174,7 @@ impl Default for ExecutionSettings {
             parallel: false,
             max_parallel: default_max_parallel(),
             history_retention: default_history_retention(),
+            diagnostic_funnel: true,
             auto_update: default_auto_update(),
         }
     }

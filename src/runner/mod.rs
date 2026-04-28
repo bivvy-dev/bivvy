@@ -2,6 +2,7 @@
 
 pub mod decision;
 pub mod dependency;
+pub mod diagnostic;
 mod execution;
 mod orchestrate;
 pub mod patterns;

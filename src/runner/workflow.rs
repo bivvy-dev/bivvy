@@ -81,6 +81,8 @@ pub struct RunOptions {
     pub provided_requirements: HashSet<String>,
     /// Active environment name for only_environments filtering.
     pub active_environment: Option<String>,
+    /// Use the diagnostic funnel pipeline for error recovery.
+    pub diagnostic_funnel: bool,
 }
 
 impl<'a> WorkflowRunner<'a> {

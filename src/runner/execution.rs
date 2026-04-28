@@ -18,6 +18,7 @@ use crate::ui::spinner::live_output_callback;
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{format_duration, OutputMode, Prompt, PromptOption, PromptType, UserInterface};
 
+use super::diagnostic;
 use super::patterns::{self, FixSuggestion, StepContext};
 use super::recovery::{self, RecoveryAction};
 
@@ -53,6 +54,8 @@ pub(super) fn execute_step_with_recovery(
     dry_run: bool,
     interactive: bool,
     step_ctx: &StepContext<'_>,
+    diagnostic_funnel: bool,
+    workflow_state: &diagnostic::WorkflowState<'_>,
     ui: &mut dyn UserInterface,
     event_bus: &mut EventBus,
 ) -> Result<StepExecutionResult> {
@@ -185,14 +188,37 @@ pub(super) fn execute_step_with_recovery(
                     .as_deref()
                     .map(|s| s.trim())
                     .filter(|s| !s.is_empty())
-                    .unwrap_or_else(|| {
-                        result.error.as_deref().unwrap_or("Command failed")
-                    })
+                    .unwrap_or_else(|| result.error.as_deref().unwrap_or("Command failed"))
                     .to_string();
 
-                // Match against pattern registry
-                let fix = patterns::find_fix(&combined_output, step_ctx);
-                let hint = patterns::find_hint(&combined_output, step_ctx);
+                // Match against error recovery system
+                let (fix, hint, resolutions) = if diagnostic_funnel {
+                    let diag_ctx = diagnostic::StepContext {
+                        name: step_ctx.name,
+                        command: step_ctx.command,
+                        requires: step_ctx.requires,
+                        template: step_ctx.template,
+                    };
+                    let diag = diagnostic::diagnose(&combined_output, &diag_ctx, workflow_state);
+                    // Collect all resolutions with confidence 0.1–0.29 as hint text
+                    // (shown below error block, not in menu)
+                    let hints: Vec<String> = diag
+                        .resolutions
+                        .iter()
+                        .filter(|r| r.confidence >= 0.1 && r.confidence < 0.3)
+                        .map(|r| r.label.clone())
+                        .collect();
+                    let hint = if hints.is_empty() {
+                        None
+                    } else {
+                        Some(format!("You might try: {}", hints.join(", or ")))
+                    };
+                    (None, hint, diag.resolutions)
+                } else {
+                    let fix = patterns::find_fix(&combined_output, step_ctx);
+                    let hint = patterns::find_hint(&combined_output, step_ctx);
+                    (fix, hint, Vec::new())
+                };
 
                 // Show error block — skip in non-interactive verbose
                 // where output was already streamed to stdout
@@ -244,6 +270,8 @@ pub(super) fn execute_step_with_recovery(
                     &combined_output,
                     fix,
                     hint,
+                    &resolutions,
+                    diagnostic_funnel,
                     &mut fix_history,
                     &mut retry_count,
                     &mut skipped_by_user,
@@ -286,6 +314,8 @@ fn handle_recovery_menu(
     combined_output: &str,
     fix: Option<FixSuggestion>,
     hint: Option<String>,
+    resolutions: &[diagnostic::ResolutionCandidate],
+    diagnostic_funnel: bool,
     fix_history: &mut HashSet<String>,
     retry_count: &mut u32,
     skipped_by_user: &mut bool,
@@ -302,7 +332,11 @@ fn handle_recovery_menu(
     });
     let has_hint = hint.is_some();
     loop {
-        let action = recovery::prompt_recovery(ui, step_name, fix.as_ref(), has_hint, fix_history)?;
+        let action = if diagnostic_funnel {
+            recovery::prompt_recovery_multi(ui, step_name, resolutions, fix_history)?
+        } else {
+            recovery::prompt_recovery(ui, step_name, fix.as_ref(), has_hint, fix_history)?
+        };
 
         match action {
             RecoveryAction::Retry => {

@@ -67,11 +67,21 @@ impl RunCommand {
     }
 
     /// Build run options from args.
-    fn build_options(&self) -> RunOptions {
+    fn build_options(&self, config: &crate::config::BivvyConfig) -> RunOptions {
         let skip_behavior = match self.args.skip_behavior.as_str() {
             "skip_only" => SkipBehavior::SkipOnly,
             "run_anyway" => SkipBehavior::RunAnyway,
             _ => SkipBehavior::SkipWithDependents,
+        };
+
+        // CLI flags override config: --diagnostic-funnel forces on,
+        // --no-diagnostic-funnel forces off, otherwise use config value.
+        let diagnostic_funnel = if self.args.diagnostic_funnel {
+            true
+        } else if self.args.no_diagnostic_funnel {
+            false
+        } else {
+            config.settings.execution.diagnostic_funnel
         };
 
         RunOptions {
@@ -83,6 +93,7 @@ impl RunCommand {
             dry_run: self.args.dry_run,
             provided_requirements: HashSet::new(),
             active_environment: None,
+            diagnostic_funnel,
         }
     }
 
@@ -302,7 +313,7 @@ impl Command for RunCommand {
             .unwrap_or_default();
 
         // Build run options with resolved workflow and provided requirements
-        let mut options = self.build_options();
+        let mut options = self.build_options(&config);
         options.workflow = Some(workflow_name.clone());
         options.provided_requirements = provided_requirements;
         options.active_environment = Some(env_name.clone());
@@ -565,7 +576,7 @@ mod tests {
         let args = RunArgs::default();
         let cmd = RunCommand::new(temp.path(), args);
 
-        let options = cmd.build_options();
+        let options = cmd.build_options(&crate::config::BivvyConfig::default());
 
         assert!(options.only.is_empty());
         assert!(options.skip.is_empty());
@@ -581,7 +592,7 @@ mod tests {
         };
 
         let cmd = RunCommand::new(temp.path(), args);
-        let options = cmd.build_options();
+        let options = cmd.build_options(&crate::config::BivvyConfig::default());
 
         assert!(options.skip.contains("step1"));
         assert!(options.skip.contains("step2"));
@@ -595,7 +606,8 @@ mod tests {
         let args = RunArgs::default();
         let cmd = RunCommand::new(temp.path(), args);
         assert_eq!(
-            cmd.build_options().skip_behavior,
+            cmd.build_options(&crate::config::BivvyConfig::default())
+                .skip_behavior,
             SkipBehavior::SkipWithDependents
         );
 
@@ -605,7 +617,11 @@ mod tests {
             ..Default::default()
         };
         let cmd = RunCommand::new(temp.path(), args);
-        assert_eq!(cmd.build_options().skip_behavior, SkipBehavior::SkipOnly);
+        assert_eq!(
+            cmd.build_options(&crate::config::BivvyConfig::default())
+                .skip_behavior,
+            SkipBehavior::SkipOnly
+        );
 
         // Run anyway
         let args = RunArgs {
@@ -613,7 +629,11 @@ mod tests {
             ..Default::default()
         };
         let cmd = RunCommand::new(temp.path(), args);
-        assert_eq!(cmd.build_options().skip_behavior, SkipBehavior::RunAnyway);
+        assert_eq!(
+            cmd.build_options(&crate::config::BivvyConfig::default())
+                .skip_behavior,
+            SkipBehavior::RunAnyway
+        );
     }
 
     #[test]
@@ -1014,7 +1034,7 @@ workflows:
         let args = RunArgs::default();
         let cmd = RunCommand::new(temp.path(), args);
 
-        let options = cmd.build_options();
+        let options = cmd.build_options(&crate::config::BivvyConfig::default());
 
         assert!(options.provided_requirements.is_empty());
     }
@@ -1402,5 +1422,79 @@ workflows:
 
         // Command outputs via ui.error() directly
         assert!(ui.has_error("Unknown workflow"));
+    }
+
+    #[test]
+    fn build_options_diagnostic_funnel_defaults_to_config_value() {
+        let temp = TempDir::new().unwrap();
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+
+        // Default config has diagnostic_funnel = true
+        let config = crate::config::BivvyConfig::default();
+        let options = cmd.build_options(&config);
+        assert!(options.diagnostic_funnel);
+
+        // Config with diagnostic_funnel = false
+        let mut config_off = crate::config::BivvyConfig::default();
+        config_off.settings.execution.diagnostic_funnel = false;
+        let options = cmd.build_options(&config_off);
+        assert!(!options.diagnostic_funnel);
+    }
+
+    #[test]
+    fn build_options_diagnostic_funnel_cli_flag_overrides_config() {
+        let temp = TempDir::new().unwrap();
+
+        // --diagnostic-funnel forces on even when config says false
+        let args = RunArgs {
+            diagnostic_funnel: true,
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut config = crate::config::BivvyConfig::default();
+        config.settings.execution.diagnostic_funnel = false;
+        let options = cmd.build_options(&config);
+        assert!(options.diagnostic_funnel);
+
+        // --no-diagnostic-funnel forces off even when config says true
+        let args = RunArgs {
+            no_diagnostic_funnel: true,
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let config = crate::config::BivvyConfig::default();
+        let options = cmd.build_options(&config);
+        assert!(!options.diagnostic_funnel);
+    }
+
+    #[test]
+    fn config_diagnostic_funnel_deserialization() {
+        let yaml = r#"
+app_name: test
+settings:
+  diagnostic_funnel: false
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let config: crate::config::BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!config.settings.execution.diagnostic_funnel);
+
+        // Omitted means true (default)
+        let yaml_default = r#"
+app_name: test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let config: crate::config::BivvyConfig = serde_yaml::from_str(yaml_default).unwrap();
+        assert!(config.settings.execution.diagnostic_funnel);
     }
 }
