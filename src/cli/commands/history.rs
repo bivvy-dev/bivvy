@@ -9,7 +9,10 @@ use std::time::Duration;
 use crate::cli::args::HistoryArgs;
 use crate::error::Result;
 use crate::ui::theme::BivvyTheme;
-use crate::ui::{format_duration, format_relative_time, OutputWriter, StatusKind, UserInterface};
+use crate::ui::{
+    format_duration, format_relative_time, OutputWriter, Prompt, PromptResult, PromptType,
+    StatusKind, UserInterface,
+};
 
 use super::dispatcher::{Command, CommandResult};
 
@@ -219,8 +222,72 @@ fn parse_log_filename_timestamp(path: &Path) -> Option<chrono::DateTime<chrono::
         .map(|dt| dt.with_timezone(&chrono::Utc))
 }
 
+impl HistoryCommand {
+    /// Delete every JSONL log file under `~/.bivvy/logs/` whose
+    /// `session_started.working_directory` matches this project. Logs from
+    /// other projects, and any non-JSONL files, are left untouched.
+    fn clear_history(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        self.clear_history_in(&crate::logging::default_log_dir(), ui)
+    }
+
+    /// Like [`Self::clear_history`] but scoped to a specific log directory.
+    /// Exists so tests can verify the prompt + deletion flow without touching
+    /// the user's real `~/.bivvy/logs/`.
+    fn clear_history_in(
+        &self,
+        log_dir: &Path,
+        ui: &mut dyn UserInterface,
+    ) -> Result<CommandResult> {
+        let project_id = crate::state::ProjectId::from_path(&self.project_root)?;
+        let logs = crate::logging::list_project_logs(log_dir, project_id.path());
+        let count = logs.len();
+        if count == 0 {
+            ui.message("No run history to clear for this project.");
+            return Ok(CommandResult::success());
+        }
+
+        if !self.args.force && ui.is_interactive() {
+            let prompt = Prompt {
+                key: "clear_history".to_string(),
+                question: format!(
+                    "Clear {} run log{} for this project?",
+                    count,
+                    if count == 1 { "" } else { "s" },
+                ),
+                prompt_type: PromptType::Confirm,
+                default: Some("false".to_string()),
+            };
+
+            match ui.prompt(&prompt)? {
+                PromptResult::Bool(true) => {}
+                _ => {
+                    ui.message("Cancelled");
+                    return Ok(CommandResult::success());
+                }
+            }
+        }
+
+        let mut deleted = 0usize;
+        for path in &logs {
+            if std::fs::remove_file(path).is_ok() {
+                deleted += 1;
+            }
+        }
+        ui.success(&format!(
+            "Cleared {} run log{} for this project",
+            deleted,
+            if deleted == 1 { "" } else { "s" },
+        ));
+        Ok(CommandResult::success())
+    }
+}
+
 impl Command for HistoryCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        if self.args.clear {
+            return self.clear_history(ui);
+        }
+
         let limit = self.args.limit.unwrap_or(10);
         let project_id = crate::state::ProjectId::from_path(&self.project_root)?;
         let mut records = scan_log_files(limit.max(100), project_id.path()); // scan more, filter later
@@ -496,6 +563,137 @@ mod tests {
 
         let records = scan_log_dir(log_dir.path(), 3, &canonical);
         assert_eq!(records.len(), 3);
+    }
+
+    /// Helper: write a session_started + workflow_completed pair into a log
+    /// file owned by `project`. Mirrors the real bivvy log shape.
+    fn write_clear_log(log_dir: &Path, name: &str, project: &Path) {
+        let session_started = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_clear",
+            "type": "session_started",
+            "command": "run",
+            "args": ["default"],
+            "version": "1.9.0",
+            "working_directory": project.display().to_string()
+        });
+        std::fs::write(log_dir.join(name), format!("{}\n", session_started)).unwrap();
+    }
+
+    #[test]
+    fn clear_reports_when_no_logs_match() {
+        let project = TempDir::new().unwrap();
+        let logs = TempDir::new().unwrap();
+
+        let other = TempDir::new().unwrap();
+        write_clear_log(
+            logs.path(),
+            "other.jsonl",
+            &other.path().canonicalize().unwrap(),
+        );
+
+        let cmd = HistoryCommand::new(
+            project.path(),
+            HistoryArgs {
+                clear: true,
+                force: true,
+                ..Default::default()
+            },
+        );
+        let mut ui = MockUI::new();
+
+        let result = cmd.clear_history_in(logs.path(), &mut ui).unwrap();
+        assert!(result.success);
+        assert!(ui.has_message("No run history to clear for this project."));
+        // The other project's log must remain on disk.
+        assert!(logs.path().join("other.jsonl").exists());
+    }
+
+    #[test]
+    fn clear_with_force_deletes_only_this_projects_logs() {
+        let project = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let canonical_other = other.path().canonicalize().unwrap();
+        let logs = TempDir::new().unwrap();
+
+        write_clear_log(logs.path(), "mine_a.jsonl", &canonical);
+        write_clear_log(logs.path(), "mine_b.jsonl", &canonical);
+        write_clear_log(logs.path(), "theirs.jsonl", &canonical_other);
+
+        let cmd = HistoryCommand::new(
+            project.path(),
+            HistoryArgs {
+                clear: true,
+                force: true,
+                ..Default::default()
+            },
+        );
+        let mut ui = MockUI::new();
+
+        let result = cmd.clear_history_in(logs.path(), &mut ui).unwrap();
+        assert!(result.success);
+        assert!(ui.has_success("Cleared 2 run logs for this project"));
+
+        assert!(!logs.path().join("mine_a.jsonl").exists());
+        assert!(!logs.path().join("mine_b.jsonl").exists());
+        assert!(logs.path().join("theirs.jsonl").exists());
+        // No interactive prompt should fire when --force is set.
+        assert!(ui.prompts_shown().is_empty());
+    }
+
+    #[test]
+    fn clear_prompts_when_interactive_without_force() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let logs = TempDir::new().unwrap();
+
+        write_clear_log(logs.path(), "mine.jsonl", &canonical);
+
+        let cmd = HistoryCommand::new(
+            project.path(),
+            HistoryArgs {
+                clear: true,
+                force: false,
+                ..Default::default()
+            },
+        );
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("clear_history", "true");
+
+        let result = cmd.clear_history_in(logs.path(), &mut ui).unwrap();
+        assert!(result.success);
+        assert!(ui.prompts_shown().iter().any(|k| k == "clear_history"));
+        assert!(ui.has_success("Cleared 1 run log for this project"));
+        assert!(!logs.path().join("mine.jsonl").exists());
+    }
+
+    #[test]
+    fn clear_cancelled_when_user_declines_prompt() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let logs = TempDir::new().unwrap();
+
+        write_clear_log(logs.path(), "mine.jsonl", &canonical);
+
+        let cmd = HistoryCommand::new(
+            project.path(),
+            HistoryArgs {
+                clear: true,
+                force: false,
+                ..Default::default()
+            },
+        );
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.set_prompt_response("clear_history", "false");
+
+        let result = cmd.clear_history_in(logs.path(), &mut ui).unwrap();
+        assert!(result.success);
+        assert!(ui.has_message("Cancelled"));
+        // The log must still be on disk.
+        assert!(logs.path().join("mine.jsonl").exists());
     }
 
     #[test]

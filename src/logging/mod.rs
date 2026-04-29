@@ -85,6 +85,27 @@ pub fn log_working_directory(log_path: &Path) -> Option<PathBuf> {
     None
 }
 
+/// List all JSONL log files in `log_dir` that belong to `canonical_project`.
+///
+/// Order is unspecified. Returns an empty vector if the directory does not
+/// exist or cannot be read. Used by `bivvy history --clear` to enumerate
+/// the files that should be deleted for the current project, leaving logs
+/// from other projects untouched.
+pub fn list_project_logs(log_dir: &Path, canonical_project: &Path) -> Vec<PathBuf> {
+    if !log_dir.exists() {
+        return Vec::new();
+    }
+    fs::read_dir(log_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "jsonl"))
+        .filter(|p| log_belongs_to_project(p, canonical_project))
+        .collect()
+}
+
 /// Test whether a log file belongs to the project rooted at `canonical_project`.
 ///
 /// Compares the canonical project path against the `working_directory`
@@ -850,6 +871,97 @@ mod tests {
         fs::write(&log_path, format!("{}\n", line)).unwrap();
 
         assert!(!log_belongs_to_project(&log_path, &canonical_a));
+    }
+
+    #[test]
+    fn list_project_logs_returns_empty_for_missing_dir() {
+        let logs = list_project_logs(
+            Path::new("/tmp/bivvy-list-project-logs-missing"),
+            Path::new("/some/project"),
+        );
+        assert!(logs.is_empty());
+    }
+
+    #[test]
+    fn list_project_logs_includes_only_matching_project() {
+        let project_a = TempDir::new().unwrap();
+        let project_b = TempDir::new().unwrap();
+        let canonical_a = project_a.path().canonicalize().unwrap();
+        let canonical_b = project_b.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        let line_for = |wd: &Path| {
+            serde_json::json!({
+                "ts": "2026-04-25T10:00:00.000Z",
+                "session": "sess_test",
+                "type": "session_started",
+                "command": "run",
+                "args": [],
+                "version": "1.9.0",
+                "working_directory": wd.display().to_string(),
+            })
+            .to_string()
+        };
+
+        fs::write(
+            log_dir.path().join("a1.jsonl"),
+            format!("{}\n", line_for(&canonical_a)),
+        )
+        .unwrap();
+        fs::write(
+            log_dir.path().join("b1.jsonl"),
+            format!("{}\n", line_for(&canonical_b)),
+        )
+        .unwrap();
+        fs::write(
+            log_dir.path().join("a2.jsonl"),
+            format!("{}\n", line_for(&canonical_a)),
+        )
+        .unwrap();
+        // Non-jsonl noise file — must be ignored.
+        fs::write(log_dir.path().join("notes.txt"), "ignore me").unwrap();
+
+        let mut logs_a = list_project_logs(log_dir.path(), &canonical_a);
+        logs_a.sort();
+        assert_eq!(logs_a.len(), 2);
+        assert!(logs_a
+            .iter()
+            .all(|p| p.extension().and_then(|e| e.to_str()) == Some("jsonl")));
+        assert!(logs_a.iter().all(|p| p
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap()
+            .starts_with('a')));
+
+        let logs_b = list_project_logs(log_dir.path(), &canonical_b);
+        assert_eq!(logs_b.len(), 1);
+    }
+
+    #[test]
+    fn list_project_logs_skips_files_without_session_started() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        // No session_started — must be excluded under project scoping.
+        let event_line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "workflow_completed",
+            "name": "default",
+            "success": true,
+            "aborted": false,
+            "steps_run": 1,
+            "steps_skipped": 0,
+            "duration_ms": 1000
+        });
+        fs::write(
+            log_dir.path().join("orphan.jsonl"),
+            format!("{}\n", event_line),
+        )
+        .unwrap();
+
+        assert!(list_project_logs(log_dir.path(), &canonical).is_empty());
     }
 
     #[test]

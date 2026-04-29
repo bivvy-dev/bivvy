@@ -286,6 +286,15 @@ pub struct HistoryArgs {
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
+
+    /// Delete this project's run history (only logs that belong to this
+    /// project; logs from other projects are left untouched)
+    #[arg(long)]
+    pub clear: bool,
+
+    /// Skip the confirmation prompt when used with `--clear`
+    #[arg(short, long)]
+    pub force: bool,
 }
 
 /// Arguments for the `lint` command.

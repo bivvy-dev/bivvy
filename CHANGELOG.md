@@ -30,6 +30,7 @@ Pre-release versions are < 2.0.0.
 - 21 missing requirements registered with `CommandSucceeds` checks, install hints, and dependency chains
 - Insta snapshot testing support
 - Audited system tests with artifact audit templates for 11 ecosystems
+- `--clear` flag added to `bivvy history` command to clear run history for a project
 
 ### Changed
 - Persistent workflow progress bar pinned at terminal bottom using `MultiProgress`; step output scrolls above while the bar updates in place

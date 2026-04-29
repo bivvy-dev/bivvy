@@ -22,6 +22,8 @@ bivvy history
 | `--step <name>` | Filter to runs containing the named step |
 | `--detail` | Show steps, skipped steps, and errors for each run |
 | `--json` | Output as JSON |
+| `--clear` | Delete this project's run history |
+| `-f`, `--force` | Skip the confirmation prompt when used with `--clear` |
 
 ## Example Output
 
@@ -98,3 +100,24 @@ bivvy history --json
 ```
 
 This outputs the filtered run records as a JSON array, suitable for piping to tools like `jq`.
+
+## Clearing History
+
+Use `--clear` to delete the run history for the current project:
+
+```bash
+bivvy history --clear
+```
+
+This only removes log files that belong to the current project. Logs from
+other projects in `~/.bivvy/logs/` are untouched. You'll be prompted to
+confirm before any files are deleted.
+
+To skip the confirmation prompt (e.g., in scripts), add `--force`:
+
+```bash
+bivvy history --clear --force
+```
+
+Run history is for reporting only — clearing it does not affect step
+satisfaction state. To re-evaluate steps from scratch, use `bivvy run --fresh`.
