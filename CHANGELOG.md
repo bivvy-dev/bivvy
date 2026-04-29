@@ -12,7 +12,9 @@ Pre-release versions are < 2.0.0.
 - `bivvy schema` command: outputs JSON Schema to stdout or `--output` file
 - `bivvy snapshot` command: capture, list, and delete execution snapshots
 - JSON Schema generation with `schemars` derive macros on all config types; schema embedded at compile time via `include_str!`
-- yaml-language-server modeline written to generated config files; `.bivvy/schema.json` written during `bivvy init` for offline IDE support
+- Global config bootstrapping: `~/.bivvy/config.yml` created on first run with commented-out examples of all settings
+- JSON Schema moved to global config directory (`~/.bivvy/schema.json`), rewritten on every invocation to stay current after upgrades
+- Docker daemon detection in diagnostic funnel: suggests `open -a Docker` (macOS) or `systemctl start docker` (Linux) for connection-refused errors
 - Split-file steps and workflows: define steps/workflows in individual files under `.bivvy/steps/` and `.bivvy/workflows/`; filename stem becomes the key
 - `check`/`checks` fields on step config as the new check system (replaces `completed_check`)
 - `satisfied_when` field on steps with ref and inline check support
@@ -30,6 +32,9 @@ Pre-release versions are < 2.0.0.
 - Audited system tests with artifact audit templates for 11 ecosystems
 
 ### Changed
+- Persistent workflow progress bar pinned at terminal bottom using `MultiProgress`; step output scrolls above while the bar updates in place
+- Separated `StepManager` from workflow orchestration: step-level logic (prompts, execution, recovery, error display) extracted into dedicated module; workflow layer owns only sequencing, filtering, and aggregate state
+- Environment name merged into run header line (`env: X`) instead of a separate line
 - System redesign: decomposed `workflow.rs` into focused modules, unified output through `OutputWriter` trait, wired `CheckEvaluator` into orchestrator, added deprecation and migration support
 - `StepConfig` broken into logical sub-structs
 - `ResolvedStep` broken into matching sub-structs
@@ -44,6 +49,7 @@ Pre-release versions are < 2.0.0.
 - Legacy code removed as part of system redesign
 
 ### Fixed
+- Docker daemon connection-refused errors now produce actionable recovery suggestions instead of a generic menu
 - Bundler recovery bugs and version resolver
 - Process drop in zsh
 - Template mapping
