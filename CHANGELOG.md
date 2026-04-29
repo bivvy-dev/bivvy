@@ -9,6 +9,9 @@ Pre-release versions are < 2.0.0.
 ## [Unreleased] - 1.9.0
 
 ### Added
+- Portable workflow files: `.bivvy/workflows/<name>.yml` can now carry its own `steps:` and `vars:` blocks alongside a `workflow:` declaration. Drop a self-contained workflow into a project and `bivvy run <name>` works without further setup. Legacy workflow files (with `description` + an ordered `steps:` list) keep working unchanged
+- `Discovery` module for cheap filename-based enumeration of `.bivvy/workflows/` and `.bivvy/steps/` plus light header parsing of workflow files
+- Per-command load profiles: `load_project_config`, `load_single_workflow_file`, `load_single_step_file`, and `load_for_run`/`load_for_run_with_trust` so each command pays only for the files it actually needs
 - `bivvy schema` command: outputs JSON Schema to stdout or `--output` file
 - `bivvy snapshot` command: capture, list, and delete execution snapshots
 - JSON Schema generation with `schemars` derive macros on all config types; schema embedded at compile time via `include_str!`
@@ -33,6 +36,11 @@ Pre-release versions are < 2.0.0.
 - `--clear` flag added to `bivvy history` command to clear run history for a project
 
 ### Changed
+- `bivvy run <workflow>` now performs a two-phase load: phase 1 reads only `.bivvy/config.yml` to resolve the workflow name; phase 2 deep-merges with only the named workflow file in the chain. Sibling workflow files are not parsed, so a malformed neighbor cannot break a run of an unrelated workflow
+- `bivvy lint` now requires a target. Bare `bivvy lint` lints `.bivvy/config.yml` only. `bivvy lint <name>` resolves to `.bivvy/workflows/<name>.yml` first, then `.bivvy/steps/<name>.yml`. `--workflow <name>` and `--step <name>` are explicit disambiguators. `--all` opts into the legacy full-merge behavior
+- `bivvy list` now uses cheap discovery by default — workflow file bodies are not parsed, only headers (description + step ordering). Pass a positional workflow name to load that single file in detail, or `--all` to restore the legacy full-merge behavior
+- `bivvy add` now uses the project-only loader instead of walking the full merge chain
+- `bivvy status` accepts an optional positional workflow name; with `<workflow>`, workflow-bundled steps are visible
 - Generated JSON Schema now rejects unknown fields. Editors with the YAML language server flag typos and unsupported keys (e.g., `dark_mode` under `settings`) instead of silently accepting them. Runtime deserialization remains tolerant of unknown fields under structs that use `#[serde(flatten)]` (`settings`, `steps.*`) for backward compatibility; everywhere else, unknown fields also produce a parse error
 - Persistent workflow progress bar pinned at terminal bottom using `MultiProgress`; step output scrolls above while the bar updates in place
 - Separated `StepManager` from workflow orchestration: step-level logic (prompts, execution, recovery, error display) extracted into dedicated module; workflow layer owns only sequencing, filtering, and aggregate state

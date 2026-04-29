@@ -3,14 +3,31 @@
 //! This module handles finding and loading configuration files from
 //! various locations in the correct priority order.
 
+use crate::config::discovery::Discovery;
 use crate::config::extends::ExtendsResolver;
 use crate::config::merger::merge_configs;
-use crate::config::schema::BivvyConfig;
+use crate::config::schema::{BivvyConfig, StepConfig, WorkflowConfig, WorkflowFile};
 use crate::config::trust::{TrustPolicy, TrustStore};
 use crate::error::{BivvyError, Result};
 use crate::ui::{Prompt, PromptResult, PromptType, Prompter};
 use std::fs;
 use std::path::{Path, PathBuf};
+
+/// Selects which workflow files participate in a merge.
+///
+/// `bivvy run` only merges the named workflow file, while `bivvy config
+/// --merged` (and the legacy `load_merged_config` entry point) merge all
+/// of them.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+enum WorkflowSelection<'a> {
+    /// Include every workflow file under `.bivvy/workflows/`.
+    All,
+    /// Include only the workflow file matching the given filename stem.
+    One(&'a str),
+    /// Include no workflow files (used by per-target lint paths).
+    None,
+}
 
 /// Paths to configuration files in priority order (later overrides earlier).
 ///
@@ -329,6 +346,147 @@ fn load_split_files(paths: &[PathBuf], top_key: &str) -> Result<Option<serde_yam
     Ok(Some(serde_yaml::Value::Mapping(wrapper)))
 }
 
+/// Parse a single workflow file into a [`WorkflowFile`], auto-detecting
+/// new vs. legacy format.
+///
+/// New format: file has a top-level `workflow:` mapping. The whole file
+/// is parsed as `WorkflowFile`.
+///
+/// Legacy format: no top-level `workflow:` key. The file is parsed as
+/// `WorkflowConfig` and wrapped in a `WorkflowFile` with empty
+/// `steps`/`vars`, preserving the workflow declaration as-is.
+pub fn parse_workflow_file_value(
+    value: serde_yaml::Value,
+    source_path: &Path,
+) -> Result<WorkflowFile> {
+    let is_new_format = value
+        .as_mapping()
+        .map(|m| m.contains_key(serde_yaml::Value::String("workflow".to_string())))
+        .unwrap_or(false);
+
+    if is_new_format {
+        serde_yaml::from_value(value).map_err(|e| BivvyError::ConfigParseError {
+            path: source_path.to_path_buf(),
+            message: e.to_string(),
+        })
+    } else {
+        let workflow: WorkflowConfig =
+            serde_yaml::from_value(value).map_err(|e| BivvyError::ConfigParseError {
+                path: source_path.to_path_buf(),
+                message: e.to_string(),
+            })?;
+        Ok(WorkflowFile {
+            description: workflow.description.clone(),
+            steps: Default::default(),
+            vars: Default::default(),
+            workflow,
+        })
+    }
+}
+
+/// Read a workflow file from disk and parse it into a [`WorkflowFile`].
+///
+/// This is the public entry point used by `bivvy lint --workflow <name>`
+/// and discovery-based commands that want a single workflow file in
+/// isolation, without merging anything else.
+pub fn load_single_workflow_file(path: &Path) -> Result<WorkflowFile> {
+    let value = load_config_value(path)?;
+    parse_workflow_file_value(value, path)
+}
+
+/// Read a step file from disk and parse it into a [`StepConfig`].
+///
+/// Step files are simpler than workflow files — they have only one shape.
+pub fn load_single_step_file(path: &Path) -> Result<StepConfig> {
+    let content = fs::read_to_string(path).map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            BivvyError::ConfigNotFound {
+                path: path.to_path_buf(),
+            }
+        } else {
+            BivvyError::Io(e)
+        }
+    })?;
+    serde_yaml::from_str(&content).map_err(|e| BivvyError::ConfigParseError {
+        path: path.to_path_buf(),
+        message: e.to_string(),
+    })
+}
+
+/// Convert a [`WorkflowFile`] into the partial `BivvyConfig` YAML value it
+/// contributes to the merge chain.
+///
+/// Produces a mapping with `vars`, `steps`, and `workflows.<stem>` keys.
+/// The workflow's description falls back to the file-level description
+/// when not set inside the `workflow:` block.
+fn workflow_file_to_partial(file: &WorkflowFile, stem: &str) -> Result<serde_yaml::Value> {
+    let mut wrapper = serde_yaml::Mapping::new();
+
+    if !file.vars.is_empty() {
+        let vars_value =
+            serde_yaml::to_value(&file.vars).map_err(|e| BivvyError::ConfigParseError {
+                path: PathBuf::from(format!(".bivvy/workflows/{stem}.yml")),
+                message: format!("Failed to serialize workflow vars: {e}"),
+            })?;
+        wrapper.insert(serde_yaml::Value::String("vars".to_string()), vars_value);
+    }
+
+    if !file.steps.is_empty() {
+        let steps_value =
+            serde_yaml::to_value(&file.steps).map_err(|e| BivvyError::ConfigParseError {
+                path: PathBuf::from(format!(".bivvy/workflows/{stem}.yml")),
+                message: format!("Failed to serialize workflow steps: {e}"),
+            })?;
+        wrapper.insert(serde_yaml::Value::String("steps".to_string()), steps_value);
+    }
+
+    let mut workflow = file.workflow.clone();
+    if workflow.description.is_none() {
+        if let Some(ref desc) = file.description {
+            workflow.description = Some(desc.clone());
+        }
+    }
+
+    let workflow_value =
+        serde_yaml::to_value(&workflow).map_err(|e| BivvyError::ConfigParseError {
+            path: PathBuf::from(format!(".bivvy/workflows/{stem}.yml")),
+            message: format!("Failed to serialize workflow: {e}"),
+        })?;
+
+    let mut workflows_map = serde_yaml::Mapping::new();
+    workflows_map.insert(serde_yaml::Value::String(stem.to_string()), workflow_value);
+    wrapper.insert(
+        serde_yaml::Value::String("workflows".to_string()),
+        serde_yaml::Value::Mapping(workflows_map),
+    );
+
+    Ok(serde_yaml::Value::Mapping(wrapper))
+}
+
+/// Load every workflow file in `paths`, parse each as `WorkflowFile`
+/// (with legacy fallback), and produce one merged partial config value.
+fn load_split_workflow_files_all(paths: &[PathBuf]) -> Result<Option<serde_yaml::Value>> {
+    if paths.is_empty() {
+        return Ok(None);
+    }
+
+    let partials: Vec<serde_yaml::Value> = paths
+        .iter()
+        .map(|path| {
+            let stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+                BivvyError::ConfigParseError {
+                    path: path.clone(),
+                    message: "Could not determine name from filename".to_string(),
+                }
+            })?;
+            let file = load_single_workflow_file(path)?;
+            workflow_file_to_partial(&file, stem)
+        })
+        .collect::<Result<Vec<_>>>()?;
+
+    Ok(Some(merge_configs(&partials)))
+}
+
 /// Collect config values in merge order, including split files.
 ///
 /// Merge order:
@@ -336,9 +494,13 @@ fn load_split_files(paths: &[PathBuf], top_key: &str) -> Result<Option<serde_yam
 /// 2. User global config (`~/.bivvy/config.yml`)
 /// 3. Project config (`.bivvy/config.yml`)
 /// 4. Split-file steps (`.bivvy/steps/*.yml`)
-/// 5. Split-file workflows (`.bivvy/workflows/*.yml`)
+/// 5. Split-file workflows (`.bivvy/workflows/*.yml`) — selection
+///    determines which files participate.
 /// 6. Local overrides (`.bivvy/config.local.yml`)
-fn collect_config_values(paths: &ConfigPaths) -> Result<Vec<serde_yaml::Value>> {
+fn collect_config_values(
+    paths: &ConfigPaths,
+    workflows: WorkflowSelection<'_>,
+) -> Result<Vec<serde_yaml::Value>> {
     let mut configs = Vec::new();
 
     // 1. Remote extends (populated later by resolver)
@@ -361,9 +523,24 @@ fn collect_config_values(paths: &ConfigPaths) -> Result<Vec<serde_yaml::Value>> 
         configs.push(v);
     }
 
-    // 5. Split-file workflows
-    if let Some(v) = load_split_files(&paths.split_workflows, "workflows")? {
-        configs.push(v);
+    // 5. Split-file workflows (selected per request)
+    match workflows {
+        WorkflowSelection::All => {
+            if let Some(v) = load_split_workflow_files_all(&paths.split_workflows)? {
+                configs.push(v);
+            }
+        }
+        WorkflowSelection::One(name) => {
+            if let Some(path) = paths.split_workflows.iter().find(|p| {
+                p.file_stem()
+                    .and_then(|s| s.to_str())
+                    .is_some_and(|stem| stem == name)
+            }) {
+                let file = load_single_workflow_file(path)?;
+                configs.push(workflow_file_to_partial(&file, name)?);
+            }
+        }
+        WorkflowSelection::None => {}
     }
 
     // 6. Local overrides
@@ -408,7 +585,7 @@ pub fn load_merged_config_with_resolver(
         });
     }
 
-    let configs = collect_config_values(&paths)?;
+    let configs = collect_config_values(&paths, WorkflowSelection::All)?;
 
     // Merge all configs
     let merged = merge_configs(&configs);
@@ -457,7 +634,7 @@ pub fn load_merged_config_with_trust(
         });
     }
 
-    let configs = collect_config_values(&paths)?;
+    let configs = collect_config_values(&paths, WorkflowSelection::All)?;
 
     let merged = merge_configs(&configs);
 
@@ -539,6 +716,161 @@ pub fn load_config(project_root: &Path, config_override: Option<&Path>) -> Resul
         load_config_file(override_path)
     } else {
         load_merged_config(project_root)
+    }
+}
+
+/// Load only `.bivvy/config.yml`, with no merging of other files.
+///
+/// This is the cheap path used by commands that only operate on the
+/// project file (like `bivvy add`). It does not consult `~/.bivvy/`,
+/// split-file directories, or `config.local.yml`. Returns an empty
+/// `BivvyConfig` when the file does not exist (callers can detect this
+/// via [`Discovery::project_config_path`] if needed).
+pub fn load_project_config(project_root: &Path) -> Result<BivvyConfig> {
+    let discovery = Discovery::new(project_root);
+    match discovery.project_config_path() {
+        Some(path) => load_config_file(&path),
+        None => Err(BivvyError::ConfigNotFound {
+            path: project_root.join(".bivvy").join("config.yml"),
+        }),
+    }
+}
+
+/// Full deep-merge load path, but only the named workflow file
+/// participates in the chain.
+///
+/// This is the loader used by `bivvy run <workflow>`. It walks the
+/// resolution chain (extends → user-global → project → split steps →
+/// the named workflow file → local) and produces a final
+/// [`BivvyConfig`]. Other workflow files are not parsed, so a malformed
+/// sibling cannot break a run of an unrelated workflow.
+pub fn load_for_run(project_root: &Path, workflow_name: &str) -> Result<BivvyConfig> {
+    load_for_run_with_resolver(project_root, workflow_name, &ExtendsResolver::default())
+}
+
+/// Variant of [`load_for_run`] that accepts a custom extends resolver.
+///
+/// Exposed for tests that inject a mocked HTTP server.
+pub fn load_for_run_with_resolver(
+    project_root: &Path,
+    workflow_name: &str,
+    resolver: &ExtendsResolver,
+) -> Result<BivvyConfig> {
+    let paths = ConfigPaths::discover(project_root);
+
+    if !paths.has_project_config() {
+        return Err(BivvyError::ConfigNotFound {
+            path: project_root.join(".bivvy").join("config.yml"),
+        });
+    }
+
+    let configs = collect_config_values(&paths, WorkflowSelection::One(workflow_name))?;
+    let merged = merge_configs(&configs);
+
+    let mut config: BivvyConfig =
+        serde_yaml::from_value(merged).map_err(|e| BivvyError::ConfigParseError {
+            path: project_root.join(".bivvy").join("config.yml"),
+            message: format!("Failed to parse merged config: {}", e),
+        })?;
+
+    config.migrate_deprecated_fields();
+
+    if config.extends.is_some() {
+        let resolved = resolver.resolve(&config)?;
+        Ok(resolved)
+    } else {
+        Ok(config)
+    }
+}
+
+/// Variant of [`load_for_run`] with trust verification for remote `extends:` URLs.
+///
+/// This is the production loader for `bivvy run`. Behavior is identical
+/// to [`load_merged_config_with_trust`] except that only the named
+/// workflow file participates in the merge chain.
+pub fn load_for_run_with_trust(
+    project_root: &Path,
+    workflow_name: &str,
+    resolver: &ExtendsResolver,
+    trust_policy: TrustPolicy,
+    trust_store_path: &Path,
+    ui: &mut dyn Prompter,
+) -> Result<BivvyConfig> {
+    let paths = ConfigPaths::discover(project_root);
+
+    if !paths.has_project_config() {
+        return Err(BivvyError::ConfigNotFound {
+            path: project_root.join(".bivvy").join("config.yml"),
+        });
+    }
+
+    let configs = collect_config_values(&paths, WorkflowSelection::One(workflow_name))?;
+    let merged = merge_configs(&configs);
+
+    let mut config: BivvyConfig =
+        serde_yaml::from_value(merged).map_err(|e| BivvyError::ConfigParseError {
+            path: project_root.join(".bivvy").join("config.yml"),
+            message: format!("Failed to parse merged config: {}", e),
+        })?;
+
+    config.migrate_deprecated_fields();
+
+    if config.extends.is_some() {
+        let mut trust_store = TrustStore::load(trust_store_path).map_err(BivvyError::Other)?;
+        let mut store_modified = false;
+
+        let resolved = resolver
+            .resolve_with_trust(&config, &mut |url: &str| {
+                if trust_store.is_trusted(url) {
+                    return Ok(());
+                }
+
+                match trust_policy {
+                    TrustPolicy::TrustAll => {
+                        trust_store.trust(url);
+                        store_modified = true;
+                        Ok(())
+                    }
+                    TrustPolicy::Reject => Err(anyhow::anyhow!(
+                        "Untrusted remote config URL: {}. Use --trust to auto-approve or run interactively to confirm.",
+                        url
+                    )),
+                    TrustPolicy::Prompt => {
+                        let prompt = Prompt {
+                            key: format!("trust_url_{}", url),
+                            question: format!(
+                                "Trust remote config from {}? (y/N)",
+                                url
+                            ),
+                            prompt_type: PromptType::Confirm,
+                            default: Some("false".to_string()),
+                        };
+
+                        match ui.prompt(&prompt) {
+                            Ok(PromptResult::Bool(true)) => {
+                                trust_store.trust(url);
+                                store_modified = true;
+                                Ok(())
+                            }
+                            _ => Err(anyhow::anyhow!(
+                                "Untrusted remote config URL rejected by user: {}",
+                                url
+                            )),
+                        }
+                    }
+                }
+            })
+            .map_err(BivvyError::Other)?;
+
+        if store_modified {
+            trust_store
+                .save(trust_store_path)
+                .map_err(BivvyError::Other)?;
+        }
+
+        Ok(resolved)
+    } else {
+        Ok(config)
     }
 }
 
@@ -1647,5 +1979,277 @@ retry: 2
         assert_eq!(step.depends_on, vec!["deps"]);
         assert!(step.execution.check.is_some());
         assert_eq!(step.execution.retry, 2);
+    }
+
+    // --- Targeted loader tests (Phase 1) ---
+
+    #[test]
+    fn load_project_config_reads_only_project_file() {
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy).unwrap();
+        fs::write(bivvy.join("config.yml"), "app_name: ProjectOnly").unwrap();
+
+        // Local file that load_project_config should ignore
+        fs::write(bivvy.join("config.local.yml"), "app_name: LocalOverride\n").unwrap();
+
+        let config = load_project_config(temp.path()).unwrap();
+        assert_eq!(config.app_name, Some("ProjectOnly".to_string()));
+    }
+
+    #[test]
+    fn load_project_config_errors_when_missing() {
+        let temp = TempDir::new().unwrap();
+        let result = load_project_config(temp.path());
+        assert!(matches!(result, Err(BivvyError::ConfigNotFound { .. })));
+    }
+
+    #[test]
+    fn load_single_workflow_file_parses_legacy_format() {
+        let temp = TempDir::new().unwrap();
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        let path = workflows_dir.join("ci.yml");
+        fs::write(
+            &path,
+            r#"
+description: "CI pipeline"
+steps: [deps, test]
+"#,
+        )
+        .unwrap();
+
+        let file = load_single_workflow_file(&path).unwrap();
+        assert_eq!(file.description, Some("CI pipeline".to_string()));
+        assert!(file.steps.is_empty());
+        assert!(file.vars.is_empty());
+        assert_eq!(file.workflow.steps, vec!["deps", "test"]);
+    }
+
+    #[test]
+    fn load_single_workflow_file_parses_new_format() {
+        let temp = TempDir::new().unwrap();
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        let path = workflows_dir.join("release.yml");
+        fs::write(
+            &path,
+            r#"
+description: "Release prep"
+steps:
+  fetch:
+    command: "git fetch"
+vars:
+  ver: "1.0"
+workflow:
+  steps:
+    - fetch
+"#,
+        )
+        .unwrap();
+
+        let file = load_single_workflow_file(&path).unwrap();
+        assert_eq!(file.description, Some("Release prep".to_string()));
+        assert!(file.steps.contains_key("fetch"));
+        assert!(file.vars.contains_key("ver"));
+        assert_eq!(file.workflow.steps, vec!["fetch"]);
+    }
+
+    #[test]
+    fn load_single_step_file_parses_step_yaml() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("step.yml");
+        fs::write(
+            &path,
+            r#"
+title: "Setup database"
+command: "rails db:setup"
+"#,
+        )
+        .unwrap();
+
+        let step = load_single_step_file(&path).unwrap();
+        assert_eq!(step.title, Some("Setup database".to_string()));
+        assert_eq!(step.execution.command, Some("rails db:setup".to_string()));
+    }
+
+    #[test]
+    fn load_for_run_only_loads_named_workflow_file() {
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        let workflows_dir = bivvy.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+
+        fs::write(bivvy.join("config.yml"), "app_name: Test").unwrap();
+
+        // The workflow we want to run.
+        fs::write(
+            workflows_dir.join("good.yml"),
+            r#"
+description: "Good workflow"
+steps:
+  hello:
+    command: "echo hello"
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+
+        // A malformed sibling — must not be parsed.
+        fs::write(
+            workflows_dir.join("broken.yml"),
+            "this: is: not: valid: yaml: at all",
+        )
+        .unwrap();
+
+        let config = load_for_run(temp.path(), "good").unwrap();
+        assert!(config.workflows.contains_key("good"));
+        assert!(!config.workflows.contains_key("broken"));
+        assert!(config.steps.contains_key("hello"));
+    }
+
+    #[test]
+    fn load_for_run_workflow_step_overrides_project_step() {
+        // Resolution chain: project (3) → workflow file (5) → local (6).
+        // Workflow files override project config; local overrides everything.
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        let workflows_dir = bivvy.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+
+        fs::write(
+            bivvy.join("config.yml"),
+            r#"
+app_name: Test
+steps:
+  hello:
+    command: "from project"
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            workflows_dir.join("greet.yml"),
+            r#"
+steps:
+  hello:
+    command: "from workflow file"
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+
+        let config = load_for_run(temp.path(), "greet").unwrap();
+        assert_eq!(
+            config.steps["hello"].execution.command,
+            Some("from workflow file".to_string())
+        );
+    }
+
+    #[test]
+    fn load_for_run_local_overrides_workflow_step() {
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        let workflows_dir = bivvy.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+
+        fs::write(bivvy.join("config.yml"), "app_name: Test").unwrap();
+
+        fs::write(
+            workflows_dir.join("greet.yml"),
+            r#"
+steps:
+  hello:
+    command: "workflow"
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            bivvy.join("config.local.yml"),
+            r#"
+steps:
+  hello:
+    command: "local override"
+"#,
+        )
+        .unwrap();
+
+        let config = load_for_run(temp.path(), "greet").unwrap();
+        assert_eq!(
+            config.steps["hello"].execution.command,
+            Some("local override".to_string())
+        );
+    }
+
+    #[test]
+    fn load_for_run_handles_legacy_workflow_layout() {
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        let workflows_dir = bivvy.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+
+        fs::write(
+            bivvy.join("config.yml"),
+            r#"
+app_name: Legacy
+steps:
+  deps:
+    command: "yarn install"
+"#,
+        )
+        .unwrap();
+
+        fs::write(
+            workflows_dir.join("ci.yml"),
+            r#"
+description: "Legacy CI"
+steps: [deps]
+"#,
+        )
+        .unwrap();
+
+        let config = load_for_run(temp.path(), "ci").unwrap();
+        let workflow = config.workflows.get("ci").unwrap();
+        assert_eq!(workflow.description, Some("Legacy CI".to_string()));
+        assert_eq!(workflow.steps, vec!["deps"]);
+        assert!(config.steps.contains_key("deps"));
+    }
+
+    #[test]
+    fn load_merged_config_handles_new_format_workflow_files() {
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        let workflows_dir = bivvy.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+
+        fs::write(bivvy.join("config.yml"), "app_name: Mixed").unwrap();
+
+        fs::write(
+            workflows_dir.join("release.yml"),
+            r#"
+description: "Release"
+steps:
+  fetch:
+    command: "git fetch"
+workflow:
+  steps:
+    - fetch
+"#,
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        let workflow = config.workflows.get("release").unwrap();
+        assert_eq!(workflow.description, Some("Release".to_string()));
+        assert_eq!(workflow.steps, vec!["fetch"]);
+        assert!(config.steps.contains_key("fetch"));
     }
 }

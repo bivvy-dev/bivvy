@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::AddArgs;
-use crate::config::load_config;
+use crate::config::{load_config, load_project_config};
 use crate::error::{BivvyError, Result};
 use crate::registry::resolver::Registry;
 use crate::registry::template::Template;
@@ -276,8 +276,14 @@ impl Command for AddCommand {
             .as_deref()
             .unwrap_or(template_name.as_str());
 
-        // Validate step doesn't already exist
-        let config = load_config(&self.project_root, self.config_override.as_deref())?;
+        // Validate step doesn't already exist. `add` only edits
+        // .bivvy/config.yml, so we use the cheap project-only loader unless
+        // the caller passed --config to override.
+        let config = if let Some(ref override_path) = self.config_override {
+            load_config(&self.project_root, Some(override_path))?
+        } else {
+            load_project_config(&self.project_root)?
+        };
         if config.steps.contains_key(step_name) {
             ui.error(&format!(
                 "Step '{}' already exists in configuration. Use a different name with --as.",

@@ -704,6 +704,34 @@ pub struct WorkflowConfig {
     pub force_all: bool,
 }
 
+/// A self-contained workflow file. Lives at `.bivvy/workflows/<stem>.yml`.
+///
+/// Can carry its own step definitions, vars, and workflow declaration.
+/// When loaded as part of `bivvy run <stem>`, the contents are spliced
+/// into the merged [`BivvyConfig`] at the workflow-file slot of the
+/// resolution chain (between split steps and `config.local.yml`).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(default, deny_unknown_fields)]
+pub struct WorkflowFile {
+    /// Human-readable description (shown in `bivvy list`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    /// Step definitions private to this workflow file (in the absence of
+    /// overrides from later in the resolution chain).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub steps: HashMap<String, StepConfig>,
+
+    /// Variables available during interpolation when this workflow runs.
+    /// Merged into the global vars table from `.bivvy/config.yml`.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub vars: HashMap<String, VarDefinition>,
+
+    /// The workflow declaration itself: ordering, env, force directives.
+    #[serde(default)]
+    pub workflow: WorkflowConfig,
+}
+
 /// Per-step overrides within a workflow
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default, deny_unknown_fields)]

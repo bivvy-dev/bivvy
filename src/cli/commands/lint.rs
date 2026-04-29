@@ -2,10 +2,14 @@
 //!
 //! The `bivvy lint` command validates configuration files using the lint rule system.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::LintArgs;
-use crate::config::{load_config, ConfigPaths};
+use crate::config::{
+    load_config, load_merged_config, load_project_config, load_single_step_file,
+    load_single_workflow_file, BivvyConfig, ConfigPaths, Discovery,
+};
 use crate::error::{BivvyError, Result};
 use crate::lint::{
     CircularRequirementDepRule, Fix, FixEngine, HumanFormatter, InstallTemplateMissingRule,
@@ -18,6 +22,18 @@ use crate::requirements::registry::RequirementRegistry;
 use crate::ui::{OutputMode, UserInterface};
 
 use super::dispatcher::{Command, CommandResult};
+
+/// What the user asked to lint.
+enum LintTarget {
+    /// Bare invocation or `--config`: lint `.bivvy/config.yml` only.
+    ProjectConfig,
+    /// `--workflow <name>` or positional that resolved to a workflow file.
+    WorkflowFile(String),
+    /// `--step <name>` or positional that resolved to a step file.
+    StepFile(String),
+    /// `--all`: full merged config (legacy behavior).
+    All,
+}
 
 /// The lint command implementation.
 pub struct LintCommand {
@@ -63,6 +79,154 @@ impl LintCommand {
             diagnostics.extend(rule.check(config));
         }
         diagnostics
+    }
+
+    /// Resolve which target the user asked to lint.
+    fn resolve_target(&self) -> Result<LintTarget> {
+        if self.config_override.is_some() {
+            // Explicit config file override: lint just that file via load_config.
+            return Ok(LintTarget::ProjectConfig);
+        }
+        if let Some(ref name) = self.args.workflow {
+            return Ok(LintTarget::WorkflowFile(name.clone()));
+        }
+        if let Some(ref name) = self.args.step {
+            return Ok(LintTarget::StepFile(name.clone()));
+        }
+        if self.args.all {
+            return Ok(LintTarget::All);
+        }
+        if self.args.config {
+            return Ok(LintTarget::ProjectConfig);
+        }
+        if let Some(ref name) = self.args.target {
+            let discovery = Discovery::new(&self.project_root);
+            if discovery.workflow_path(name).is_some() {
+                if discovery.step_path(name).is_some() {
+                    // Both exist (rare) — pick workflow but surface a hint.
+                    return Ok(LintTarget::WorkflowFile(name.clone()));
+                }
+                return Ok(LintTarget::WorkflowFile(name.clone()));
+            }
+            if discovery.step_path(name).is_some() {
+                return Ok(LintTarget::StepFile(name.clone()));
+            }
+            return Err(BivvyError::ConfigValidationError {
+                message: format!(
+                    "Unknown lint target: {name}. No file found at \
+                     .bivvy/workflows/{name}.yml or .bivvy/steps/{name}.yml"
+                ),
+            });
+        }
+        Ok(LintTarget::ProjectConfig)
+    }
+
+    /// Build the [`BivvyConfig`] view to lint plus the source paths it draws from.
+    fn build_target_config(&self, target: &LintTarget) -> Result<(BivvyConfig, Vec<PathBuf>)> {
+        if let Some(ref override_path) = self.config_override {
+            // Explicit override: just load that file in isolation.
+            let cfg = load_config(&self.project_root, Some(override_path))?;
+            return Ok((cfg, vec![override_path.clone()]));
+        }
+
+        match target {
+            LintTarget::ProjectConfig => {
+                let cfg = load_project_config(&self.project_root)?;
+                let path = self.project_root.join(".bivvy").join("config.yml");
+                Ok((cfg, vec![path]))
+            }
+            LintTarget::WorkflowFile(name) => {
+                let discovery = Discovery::new(&self.project_root);
+                let workflow_path =
+                    discovery
+                        .workflow_path(name)
+                        .ok_or_else(|| BivvyError::ConfigNotFound {
+                            path: self
+                                .project_root
+                                .join(".bivvy")
+                                .join("workflows")
+                                .join(format!("{name}.yml")),
+                        })?;
+
+                // Project file gives us context (settings, templates, custom
+                // requirements). Missing project file is fine — fall back to
+                // a default config so we can still lint the workflow file.
+                let mut cfg = match load_project_config(&self.project_root) {
+                    Ok(c) => c,
+                    Err(BivvyError::ConfigNotFound { .. }) => BivvyConfig::default(),
+                    Err(e) => return Err(e),
+                };
+
+                let workflow_file = load_single_workflow_file(&workflow_path)?;
+
+                // Replace workflows with just the named one so cross-workflow
+                // rules don't fire on workflows we aren't targeting.
+                let mut workflow = workflow_file.workflow.clone();
+                if workflow.description.is_none() {
+                    workflow.description = workflow_file.description.clone();
+                }
+                cfg.workflows = HashMap::new();
+                cfg.workflows.insert(name.clone(), workflow);
+
+                // Splice in steps and vars from the workflow file.
+                for (step_name, step_config) in workflow_file.steps {
+                    cfg.steps.insert(step_name, step_config);
+                }
+                for (var_name, var_def) in workflow_file.vars {
+                    cfg.vars.insert(var_name, var_def);
+                }
+                cfg.migrate_deprecated_fields();
+
+                let mut paths = vec![workflow_path];
+                let project_path = self.project_root.join(".bivvy").join("config.yml");
+                if project_path.exists() {
+                    paths.push(project_path);
+                }
+                Ok((cfg, paths))
+            }
+            LintTarget::StepFile(name) => {
+                let discovery = Discovery::new(&self.project_root);
+                let step_path =
+                    discovery
+                        .step_path(name)
+                        .ok_or_else(|| BivvyError::ConfigNotFound {
+                            path: self
+                                .project_root
+                                .join(".bivvy")
+                                .join("steps")
+                                .join(format!("{name}.yml")),
+                        })?;
+
+                let mut cfg = match load_project_config(&self.project_root) {
+                    Ok(c) => c,
+                    Err(BivvyError::ConfigNotFound { .. }) => BivvyConfig::default(),
+                    Err(e) => return Err(e),
+                };
+
+                let step_config = load_single_step_file(&step_path)?;
+                cfg.steps.insert(name.clone(), step_config);
+                cfg.migrate_deprecated_fields();
+
+                let mut paths = vec![step_path];
+                let project_path = self.project_root.join(".bivvy").join("config.yml");
+                if project_path.exists() {
+                    paths.push(project_path);
+                }
+                Ok((cfg, paths))
+            }
+            LintTarget::All => {
+                let cfg = load_merged_config(&self.project_root)?;
+                let discovered = ConfigPaths::discover(&self.project_root);
+                let mut paths: Vec<PathBuf> = discovered
+                    .all_existing()
+                    .iter()
+                    .map(|p| (*p).clone())
+                    .collect();
+                paths.extend(discovered.split_steps.iter().cloned());
+                paths.extend(discovered.split_workflows.iter().cloned());
+                Ok((cfg, paths))
+            }
+        }
     }
 
     /// Format diagnostics using the appropriate formatter.
@@ -137,11 +301,43 @@ impl Command for LintCommand {
             }
         }
 
-        // Load configuration
-        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
-            Ok(c) => c,
+        // Resolve which target the user asked to lint.
+        let target = match self.resolve_target() {
+            Ok(t) => t,
+            Err(BivvyError::ConfigValidationError { message }) => {
+                ui.error(&message);
+                let discovery = Discovery::new(&self.project_root);
+                let workflows = discovery.workflow_names();
+                let steps = discovery.step_file_names();
+                if !workflows.is_empty() {
+                    ui.message(&format!("Available workflows: {}", workflows.join(", ")));
+                }
+                if !steps.is_empty() {
+                    ui.message(&format!("Available steps: {}", steps.join(", ")));
+                }
+                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                    exit_code: 1,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                });
+                return Ok(CommandResult::failure(1));
+            }
+            Err(e) => return Err(e),
+        };
+
+        // Build the BivvyConfig view to lint along with the file paths
+        // we actually consulted (used for raw-YAML deprecation scanning).
+        let (config, lint_file_paths) = match self.build_target_config(&target) {
+            Ok(pair) => pair,
             Err(BivvyError::ConfigParseError { path, message }) => {
                 ui.error(&format!("Parse error in {}: {}", path.display(), message));
+                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                    exit_code: 1,
+                    duration_ms: start.elapsed().as_millis() as u64,
+                });
+                return Ok(CommandResult::failure(1));
+            }
+            Err(BivvyError::ConfigNotFound { path }) => {
+                ui.error(&format!("File not found: {}", path.display()));
                 event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
                     exit_code: 1,
                     duration_ms: start.elapsed().as_millis() as u64,
@@ -156,19 +352,7 @@ impl Command for LintCommand {
 
         // Scan raw YAML for alias-based deprecations (e.g., old field names)
         {
-            let config_file_paths: Vec<std::path::PathBuf> =
-                if let Some(ref p) = self.config_override {
-                    vec![p.clone()]
-                } else {
-                    let paths = ConfigPaths::discover(&self.project_root);
-                    paths
-                        .all_existing()
-                        .iter()
-                        .map(|p| p.to_path_buf())
-                        .collect()
-                };
-            let refs: Vec<&std::path::Path> =
-                config_file_paths.iter().map(|p| p.as_path()).collect();
+            let refs: Vec<&std::path::Path> = lint_file_paths.iter().map(|p| p.as_path()).collect();
             deprecation_warnings.extend(
                 crate::lint::rules::deprecated_fields::collect_raw_yaml_deprecation_warnings(&refs),
             );
@@ -576,6 +760,123 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         // Without strict mode, warnings don't cause failure
+        assert!(result.success);
+    }
+
+    #[test]
+    fn lint_targeted_workflow_does_not_parse_other_workflow_files() {
+        // A malformed sibling workflow file must NOT block targeted lint of
+        // a different workflow.
+        let temp = setup_project("app_name: Test\n");
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(
+            workflows_dir.join("good.yml"),
+            r#"
+steps:
+  hello:
+    command: echo hello
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+        fs::write(
+            workflows_dir.join("broken.yml"),
+            "this: is: not: valid: yaml: at all",
+        )
+        .unwrap();
+
+        let args = LintArgs {
+            target: Some("good".to_string()),
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+    }
+
+    #[test]
+    fn lint_unknown_target_errors_with_available_list() {
+        let temp = setup_project("app_name: Test\n");
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(workflows_dir.join("ci.yml"), "steps: []").unwrap();
+
+        let args = LintArgs {
+            target: Some("nonexistent".to_string()),
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(!result.success);
+        assert!(ui
+            .messages()
+            .iter()
+            .chain(ui.errors().iter())
+            .any(|m| m.contains("nonexistent")));
+    }
+
+    #[test]
+    fn lint_step_target_loads_step_file() {
+        let temp = setup_project(
+            r#"
+app_name: Test
+steps:
+  other:
+    command: "echo other"
+"#,
+        );
+        let steps_dir = temp.path().join(".bivvy").join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(
+            steps_dir.join("deps.yml"),
+            "command: yarn install\ntitle: Install deps\n",
+        )
+        .unwrap();
+
+        let args = LintArgs {
+            target: Some("deps".to_string()),
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+    }
+
+    #[test]
+    fn lint_all_flag_uses_full_merge() {
+        let temp = setup_project(
+            r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#,
+        );
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(
+            workflows_dir.join("ci.yml"),
+            "description: CI\nsteps: [hello]\n",
+        )
+        .unwrap();
+
+        let args = LintArgs {
+            all: true,
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
         assert!(result.success);
     }
 }

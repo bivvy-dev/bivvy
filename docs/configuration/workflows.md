@@ -138,3 +138,64 @@ flags and step-level `force: true`. Any source can opt a step in;
 nothing turns force off. Preconditions are still never bypassed. See
 [Forcing Re-run](completed-checks.md#forcing-re-run) for the full
 matrix.
+
+## Portable Workflow Files
+
+A file at `.bivvy/workflows/<name>.yml` can carry its own step
+definitions and variables alongside the workflow declaration. Drop
+one of these into a project and `bivvy run <name>` works end-to-end —
+no need to split steps across multiple files.
+
+```yaml
+# .bivvy/workflows/release-prepare.yml
+description: "Prepare a release branch"
+
+vars:
+  current_version:
+    command: "bin/rails runner 'puts MyApp::VERSION'"
+
+steps:
+  fetch-working:
+    title: "Fetch working branch"
+    command: "git fetch origin ${working_branch}"
+
+  finalize-changelog:
+    title: "Finalize changelog"
+    command: "bundle exec rake reissue:finalize"
+    depends_on: [fetch-working]
+
+workflow:
+  steps:
+    - fetch-working
+    - finalize-changelog
+  env_file: .bivvy/release.env
+```
+
+The `workflow:` block is the workflow declaration itself (ordering,
+env, force directives) — exactly the same shape as inline workflows
+under `workflows:` in `.bivvy/config.yml`. The file's top-level
+`steps:` and `vars:` blocks are bundled with this workflow but can be
+overridden by the project file or `.bivvy/config.local.yml`.
+
+### Resolution Order
+
+When `bivvy run <name>` executes, configuration merges in this order
+(later overrides earlier):
+
+1. Remote `extends:` URLs
+2. `~/.bivvy/config.yml`
+3. `.bivvy/config.yml`
+4. `.bivvy/steps/*.yml`
+5. `.bivvy/workflows/<the-named-one>.yml`
+6. `.bivvy/config.local.yml`
+
+Only the workflow file matching the requested name participates —
+sibling workflow files are not parsed, so a malformed neighbor cannot
+break a run of an unrelated workflow.
+
+### Legacy Workflow Files
+
+Files written in the legacy shape (`description` + `steps:` as an
+ordered list of names, no `workflow:` block) continue to work
+unchanged. The new format is detected by the presence of a top-level
+`workflow:` mapping.

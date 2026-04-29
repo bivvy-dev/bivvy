@@ -12,7 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use crate::checks::{change, Check};
-use crate::config::load_config;
+use crate::config::{load_config, load_for_run, load_project_config};
 use crate::error::{BivvyError, Result};
 use crate::snapshots::{SnapshotKey, SnapshotStore};
 use crate::state::ProjectId;
@@ -153,14 +153,36 @@ impl SnapshotCommand {
         let project_id = ProjectId::from_path(&self.project_root)?;
         let mut store = SnapshotStore::load_for_project(&project_id);
 
-        // Load config to find steps with change checks
-        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
-            Ok(c) => c,
-            Err(BivvyError::ConfigNotFound { .. }) => {
-                ui.error("No configuration found. Run 'bivvy init' first.");
-                return Ok(());
+        // Load only what's needed for this snapshot. With --workflow we use
+        // the run-style loader so steps bundled in the named workflow file
+        // are visible. Otherwise the cheap project-only loader is enough.
+        let config = if let Some(ref override_path) = self.config_override {
+            match load_config(&self.project_root, Some(override_path)) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => return Err(e),
+        } else if let Some(ref workflow_name) = workflow_filter {
+            match load_for_run(&self.project_root, workflow_name) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            match load_project_config(&self.project_root) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(());
+                }
+                Err(e) => return Err(e),
+            }
         };
 
         // Determine which steps to capture

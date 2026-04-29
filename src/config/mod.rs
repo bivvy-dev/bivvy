@@ -35,6 +35,7 @@
 //! 5. Split-file workflows (`.bivvy/workflows/*.yml`)
 //! 6. Local overrides (`.bivvy/config.local.yml`)
 
+pub mod discovery;
 pub mod env_file;
 pub mod env_layer;
 pub mod environment;
@@ -54,8 +55,11 @@ pub use schema::{
     EnvironmentProfileSettings, EnvironmentScopingConfig, EnvironmentVarsConfig, ExecutionConfig,
     ExecutionSettings, HookConfig, OutputMode, PromptConfig, PromptType, SecretConfig, Settings,
     StepConfig, StepEnvironmentOverride, StepOutputConfig, StepOutputSettings, StepOverride,
-    TemplateSource, VarDefinition, WorkflowConfig, WorkflowSettings,
+    TemplateSource, VarDefinition, WorkflowConfig, WorkflowFile, WorkflowSettings,
 };
+
+// Discovery re-exports
+pub use discovery::{Discovery, WorkflowHeader};
 
 // Check type re-exports (new check system)
 pub use crate::checks::{
@@ -69,8 +73,10 @@ pub use vars::evaluate_vars;
 // Loader re-exports
 pub use loader::{
     ensure_global_config, find_project_root, load_config, load_config_file, load_config_value,
-    load_merged_config, load_merged_config_with_resolver, load_merged_config_with_trust,
-    parse_config, ConfigPaths,
+    load_for_run, load_for_run_with_resolver, load_for_run_with_trust, load_merged_config,
+    load_merged_config_with_resolver, load_merged_config_with_trust, load_project_config,
+    load_single_step_file, load_single_workflow_file, parse_config, parse_workflow_file_value,
+    ConfigPaths,
 };
 
 // Merger re-exports

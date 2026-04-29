@@ -9,7 +9,7 @@ use std::time::Duration;
 use serde_json::json;
 
 use crate::cli::args::StatusArgs;
-use crate::config::load_config;
+use crate::config::{load_config, load_for_run, load_project_config};
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::requirements::checker::GapChecker;
@@ -215,18 +215,48 @@ impl Command for StatusCommand {
             working_directory: Some(self.project_root.display().to_string()),
         });
 
-        // Load configuration
-        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
-            Ok(c) => c,
-            Err(BivvyError::ConfigNotFound { .. }) => {
-                ui.error("No configuration found. Run 'bivvy init' first.");
-                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
-                    exit_code: 2,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                });
-                return Ok(CommandResult::failure(2));
+        // Load configuration. With an explicit workflow, we use the
+        // run-style loader so workflow-bundled steps are visible. Otherwise
+        // the cheap project-only loader is enough for a status overview.
+        let config = if let Some(ref override_path) = self.config_override {
+            match load_config(&self.project_root, Some(override_path)) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                        exit_code: 2,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                    });
+                    return Ok(CommandResult::failure(2));
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => return Err(e),
+        } else if let Some(ref workflow_name) = self.args.workflow {
+            match load_for_run(&self.project_root, workflow_name) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                        exit_code: 2,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                    });
+                    return Ok(CommandResult::failure(2));
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            match load_project_config(&self.project_root) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                        exit_code: 2,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                    });
+                    return Ok(CommandResult::failure(2));
+                }
+                Err(e) => return Err(e),
+            }
         };
 
         // Apply config default_output when no CLI flag was explicitly set

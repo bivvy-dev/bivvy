@@ -2,12 +2,16 @@
 //!
 //! The `bivvy list` command lists steps and workflows.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::cli::args::ListArgs;
-use crate::config::load_config;
+use crate::config::{
+    load_config, load_merged_config, load_project_config, load_single_step_file,
+    load_single_workflow_file, BivvyConfig, Discovery,
+};
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
 use crate::ui::theme::BivvyTheme;
@@ -90,16 +94,113 @@ impl ListCommand {
     fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
         ResolvedEnvironment::resolve_from_config(self.args.env.as_deref(), &config.settings)
     }
+
+    /// Build the configuration view to display.
+    ///
+    /// The selection rules:
+    /// * `--all` or `--config` override → full merged load (legacy).
+    /// * Positional `<name>` → that workflow file plus project context.
+    /// * Otherwise → project config + discovery (names from filename
+    ///   stems, headers parsed for workflow descriptions).
+    fn build_view(&self) -> Result<BivvyConfig> {
+        if self.config_override.is_some() {
+            return load_config(&self.project_root, self.config_override.as_deref());
+        }
+        if self.args.all {
+            return load_merged_config(&self.project_root);
+        }
+
+        let discovery = Discovery::new(&self.project_root);
+        let mut cfg = match load_project_config(&self.project_root) {
+            Ok(c) => c,
+            Err(BivvyError::ConfigNotFound { .. }) => BivvyConfig::default(),
+            Err(e) => return Err(e),
+        };
+
+        if let Some(ref name) = self.args.target {
+            // Detail view for a single workflow file. Project config gives
+            // step definitions; the workflow file overrides/adds.
+            let path =
+                discovery
+                    .workflow_path(name)
+                    .ok_or_else(|| BivvyError::ConfigValidationError {
+                        message: format!(
+                            "Unknown workflow: {name}. No file found at \
+                         .bivvy/workflows/{name}.yml"
+                        ),
+                    })?;
+            let file = load_single_workflow_file(&path)?;
+            let mut workflow = file.workflow.clone();
+            if workflow.description.is_none() {
+                workflow.description = file.description.clone();
+            }
+            cfg.workflows = HashMap::new();
+            cfg.workflows.insert(name.clone(), workflow);
+            for (step_name, step) in file.steps {
+                cfg.steps.insert(step_name, step);
+            }
+            for (var_name, var_def) in file.vars {
+                cfg.vars.insert(var_name, var_def);
+            }
+            return Ok(cfg);
+        }
+
+        // Default: discovery-based summary. Augment project config with
+        // step files (full parse, cheap) and workflow file headers
+        // (light parse — no full schema deserialize).
+        for path in discovery.step_files() {
+            let stem = match path.file_stem().and_then(|s| s.to_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            if let Ok(step) = load_single_step_file(&path) {
+                cfg.steps.insert(stem, step);
+            }
+        }
+
+        for name in discovery.workflow_names() {
+            if cfg.workflows.contains_key(&name) {
+                continue;
+            }
+            let header = match discovery.workflow_header(&name) {
+                Ok(h) => h,
+                Err(_) => continue,
+            };
+            let workflow = crate::config::WorkflowConfig {
+                description: header.description,
+                steps: header.step_names,
+                ..Default::default()
+            };
+            cfg.workflows.insert(name, workflow);
+        }
+
+        Ok(cfg)
+    }
 }
 
 impl Command for ListCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        // Load configuration
-        let config = match load_config(&self.project_root, self.config_override.as_deref()) {
+        // Load configuration via the appropriate strategy (discovery vs full
+        // merge vs single-target detail view).
+        let discovery = Discovery::new(&self.project_root);
+        let has_any_project_files = discovery.project_config_path().is_some()
+            || !discovery.workflow_files().is_empty()
+            || !discovery.step_files().is_empty()
+            || self.config_override.is_some();
+        if !has_any_project_files {
+            ui.error("No configuration found. Run 'bivvy init' first.");
+            return Ok(CommandResult::failure(2));
+        }
+
+        let config = match self.build_view() {
             Ok(c) => c,
             Err(BivvyError::ConfigNotFound { .. }) => {
                 ui.error("No configuration found. Run 'bivvy init' first.");
                 return Ok(CommandResult::failure(2));
+            }
+            Err(BivvyError::ConfigValidationError { message }) => {
+                ui.error(&message);
+                return Ok(CommandResult::failure(1));
             }
             Err(e) => return Err(e),
         };
@@ -758,6 +859,116 @@ workflows:
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
         assert!(parsed.get("steps").is_none());
         assert!(parsed["workflows"].is_array());
+    }
+
+    #[test]
+    fn list_default_uses_discovery_for_workflow_files() {
+        let temp = setup_project("app_name: Test\n");
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(
+            workflows_dir.join("ci.yml"),
+            "description: CI pipeline\nsteps: [foo]\n",
+        )
+        .unwrap();
+
+        let args = ListArgs::default();
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("ci")));
+        assert!(ui.messages().iter().any(|m| m.contains("CI pipeline")));
+    }
+
+    #[test]
+    fn list_default_does_not_fail_on_broken_sibling_workflow() {
+        // The discovery default uses light header parsing — a broken sibling
+        // workflow file should not crash the listing.
+        let temp = setup_project("app_name: Test\n");
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(workflows_dir.join("ok.yml"), "steps: []\n").unwrap();
+        fs::write(
+            workflows_dir.join("broken.yml"),
+            "this: is: not: valid: yaml: at all",
+        )
+        .unwrap();
+
+        let args = ListArgs::default();
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+    }
+
+    #[test]
+    fn list_target_loads_single_workflow_file() {
+        let temp = setup_project("app_name: Test\n");
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(
+            workflows_dir.join("greet.yml"),
+            r#"
+description: "Greet"
+steps:
+  hello:
+    command: echo hello
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+
+        let args = ListArgs {
+            target: Some("greet".to_string()),
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(ui.messages().iter().any(|m| m.contains("greet")));
+        assert!(ui.messages().iter().any(|m| m.contains("hello")));
+    }
+
+    #[test]
+    fn list_unknown_target_errors() {
+        let temp = setup_project("app_name: Test\n");
+        let args = ListArgs {
+            target: Some("missing".to_string()),
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(!result.success);
+    }
+
+    #[test]
+    fn list_all_uses_full_merge() {
+        // --all loads via load_merged_config (legacy path).
+        let temp = setup_project(
+            r#"
+app_name: Test
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#,
+        );
+        let args = ListArgs {
+            all: true,
+            ..Default::default()
+        };
+        let cmd = ListCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+        assert!(ui.messages().iter().any(|m| m.contains("hello")));
     }
 
     #[test]

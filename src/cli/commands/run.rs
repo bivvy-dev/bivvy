@@ -9,8 +9,8 @@ use crate::cli::args::RunArgs;
 #[cfg(test)]
 use crate::config::load_merged_config;
 use crate::config::{
-    evaluate_vars, load_merged_config_with_trust, ConfigPaths, ExtendsResolver,
-    InterpolationContext, TrustPolicy, TrustStore,
+    evaluate_vars, load_for_run_with_trust, load_project_config, ConfigPaths, Discovery,
+    ExtendsResolver, InterpolationContext, TrustPolicy, TrustStore,
 };
 use crate::environment::resolver::ResolvedEnvironment;
 use crate::error::{BivvyError, Result};
@@ -189,7 +189,9 @@ pub(crate) fn merge_force_directives(
 impl Command for RunCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         // Load configuration — use override path if provided, otherwise
-        // discover and merge with trust verification for remote extends.
+        // perform a two-phase load that resolves the workflow name first
+        // (using only `.bivvy/config.yml`), then deep-merges with only the
+        // named workflow file in the chain.
         let config = if let Some(ref override_path) = self.config_override {
             match crate::config::load_config_file(override_path) {
                 Ok(c) => c,
@@ -203,10 +205,63 @@ impl Command for RunCommand {
                 }
             }
         } else {
+            // Phase 1: load only `.bivvy/config.yml` so we can resolve the
+            // workflow name against the active environment's `default_workflow`
+            // and surface "workflow not found" errors before walking the
+            // full merge chain.
+            let phase1 = match load_project_config(&self.project_root) {
+                Ok(c) => c,
+                Err(BivvyError::ConfigNotFound { .. }) => {
+                    ui.error("No configuration found. Run 'bivvy init' first.");
+                    return Ok(CommandResult::failure(2));
+                }
+                Err(e) => return Err(e),
+            };
+
+            // Resolve the workflow name using the project file's environments.
+            let phase1_env = ResolvedEnvironment::resolve_from_config(
+                self.args.env.as_deref(),
+                &phase1.settings,
+            );
+            let resolved_name = if self.args.workflow == "default" {
+                phase1
+                    .settings
+                    .environment_profiles
+                    .environments
+                    .get(&phase1_env.name)
+                    .and_then(|env_config| env_config.default_workflow.clone())
+                    .unwrap_or_else(|| self.args.workflow.clone())
+            } else {
+                self.args.workflow.clone()
+            };
+
+            // Validate the resolved workflow exists somewhere bivvy will look.
+            let discovery = Discovery::new(&self.project_root);
+            let workflow_known = phase1.workflows.contains_key(&resolved_name)
+                || discovery
+                    .workflow_names()
+                    .iter()
+                    .any(|n| n == &resolved_name);
+            if !workflow_known {
+                let mut available: Vec<String> = phase1.workflows.keys().cloned().collect();
+                available.extend(discovery.workflow_names());
+                available.sort();
+                available.dedup();
+                let hint = if available.is_empty() {
+                    String::new()
+                } else {
+                    format!(" Available: {}", available.join(", "))
+                };
+                ui.error(&format!("Unknown workflow: {}.{}", resolved_name, hint));
+                return Ok(CommandResult::failure(1));
+            }
+
+            // Phase 2: full merge with only the named workflow file in the chain.
             let trust_store_path = TrustStore::default_path();
             let resolver = ExtendsResolver::default();
-            match load_merged_config_with_trust(
+            match load_for_run_with_trust(
                 &self.project_root,
+                &resolved_name,
                 &resolver,
                 self.trust_policy,
                 &trust_store_path,
@@ -769,6 +824,82 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
+    }
+
+    #[test]
+    fn portable_workflow_file_runs_end_to_end() {
+        // A portable workflow file carries its own steps, so .bivvy/config.yml
+        // is empty besides app_name. `bivvy run greet` must work end-to-end.
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let workflows_dir = bivvy_dir.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: Portable").unwrap();
+        fs::write(
+            workflows_dir.join("greet.yml"),
+            r#"
+description: "Greet the user"
+steps:
+  hello:
+    command: echo hello
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+
+        let args = RunArgs {
+            workflow: "greet".to_string(),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success, "portable workflow should run successfully");
+    }
+
+    #[test]
+    fn malformed_sibling_workflow_does_not_break_named_run() {
+        // A broken workflow file in the sibling slot must NOT prevent
+        // `bivvy run good` from working — the new loader only parses the
+        // named file.
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let workflows_dir = bivvy_dir.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: Test").unwrap();
+        fs::write(
+            workflows_dir.join("good.yml"),
+            r#"
+steps:
+  hello:
+    command: echo hello
+workflow:
+  steps:
+    - hello
+"#,
+        )
+        .unwrap();
+        fs::write(
+            workflows_dir.join("broken.yml"),
+            "this: is: not: valid: yaml: at all",
+        )
+        .unwrap();
+
+        let args = RunArgs {
+            workflow: "good".to_string(),
+            ..Default::default()
+        };
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(
+            result.success,
+            "named workflow should run despite broken sibling"
+        );
     }
 
     #[test]

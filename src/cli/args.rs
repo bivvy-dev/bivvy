@@ -217,6 +217,10 @@ pub struct InitArgs {
 /// Arguments for the `status` command.
 #[derive(Debug, Clone, Default, clap::Args)]
 pub struct StatusArgs {
+    /// Workflow to show status for. When provided, the workflow's
+    /// portable steps are visible alongside the project-level ones.
+    pub workflow: Option<String>,
+
     /// Output as JSON
     #[arg(long)]
     pub json: bool,
@@ -233,6 +237,9 @@ pub struct StatusArgs {
 /// Arguments for the `list` command.
 #[derive(Debug, Clone, Default, clap::Args)]
 pub struct ListArgs {
+    /// Show details for one workflow (parses just that file).
+    pub target: Option<String>,
+
     /// List only steps
     #[arg(long)]
     pub steps_only: bool,
@@ -240,6 +247,12 @@ pub struct ListArgs {
     /// List only workflows
     #[arg(long)]
     pub workflows_only: bool,
+
+    /// Show every step and workflow from the merged configuration
+    /// (legacy behavior). Without this flag, output is built from
+    /// discovery + headers and does not deep-merge.
+    #[arg(long)]
+    pub all: bool,
 
     /// Output as JSON
     #[arg(long)]
@@ -306,6 +319,27 @@ pub struct HistoryArgs {
 /// Arguments for the `lint` command.
 #[derive(Debug, Clone, Default, clap::Args)]
 pub struct LintArgs {
+    /// Workflow or step name to lint. Resolves to .bivvy/workflows/<name>.yml
+    /// first, then .bivvy/steps/<name>.yml.
+    pub target: Option<String>,
+
+    /// Force lookup as a workflow file: .bivvy/workflows/<NAME>.yml
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["step", "config", "all"])]
+    pub workflow: Option<String>,
+
+    /// Force lookup as a step file: .bivvy/steps/<NAME>.yml
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["workflow", "config", "all"])]
+    pub step: Option<String>,
+
+    /// Lint .bivvy/config.yml only (the default when no target is given)
+    #[arg(long, conflicts_with_all = ["workflow", "step", "all"])]
+    pub config: bool,
+
+    /// Lint every file in the merged state — equivalent to the legacy
+    /// "lint everything" behavior, now opt-in
+    #[arg(long, conflicts_with_all = ["workflow", "step", "config"])]
+    pub all: bool,
+
     /// Output format: human, json, sarif
     #[arg(long, default_value = "human")]
     pub format: String,

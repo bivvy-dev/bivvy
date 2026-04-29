@@ -9,7 +9,16 @@ Configuration is loaded and merged in this order (later overrides earlier):
 1. Remote base configs (from `extends:`)
 2. User global config (`~/.bivvy/config.yml`)
 3. Project config (`.bivvy/config.yml`)
-4. Local overrides (`.bivvy/config.local.yml`) - gitignored
+4. Split-file step definitions (`.bivvy/steps/*.yml`)
+5. Workflow file for the active workflow (`.bivvy/workflows/<name>.yml`)
+6. Local overrides (`.bivvy/config.local.yml`) — gitignored
+
+When `bivvy run <workflow>` executes, only the workflow file matching
+the requested name participates in the merge. Other workflow files in
+`.bivvy/workflows/` are not parsed, so a broken sibling cannot prevent
+an unrelated workflow from running. See
+[Portable Workflow Files](workflows.md#portable-workflow-files) for
+the full layout.
 
 ## Basic Structure
 
