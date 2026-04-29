@@ -30,7 +30,7 @@ fn any_value_map_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars
 
 /// Root configuration structure for bivvy.yml
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct BivvyConfig {
     /// Application name (for display purposes)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -226,7 +226,7 @@ pub struct EnvironmentProfileSettings {
 /// These serve as project-wide (or system-wide) defaults. Step-level settings
 /// override these, and workflow `step_overrides` override step-level settings.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct DefaultsSettings {
     /// Default output mode: verbose, quiet, silent
     #[serde(default = "default_output")]
@@ -276,8 +276,14 @@ impl DefaultsSettings {
 ///
 /// Uses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat
 /// (e.g., `settings.parallel` in YAML, not `settings.execution.parallel`).
+///
+/// `deny_unknown_fields` is applied via the `schemars`-only attribute because
+/// serde's variant is incompatible with `#[serde(flatten)]`. The schema
+/// therefore rejects unknown fields in editors, while runtime deserialization
+/// continues to silently ignore them (preserving backward compatibility).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[schemars(deny_unknown_fields)]
 pub struct Settings {
     /// JSONL event logging settings (enable/disable, retention)
     #[serde(flatten)]
@@ -512,8 +518,14 @@ pub struct EnvironmentScopingConfig {
 }
 
 /// Configuration for a single setup step
+///
+/// `deny_unknown_fields` is applied via the `schemars`-only attribute because
+/// serde's variant is incompatible with `#[serde(flatten)]`. The schema
+/// therefore rejects unknown fields in editors, while runtime deserialization
+/// continues to silently ignore them (preserving backward compatibility).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
+#[schemars(deny_unknown_fields)]
 pub struct StepConfig {
     /// Reference to a template (mutually exclusive with inline config)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -590,6 +602,7 @@ fn default_true() -> bool {
 
 /// Prompt configuration for interactive input
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PromptConfig {
     /// Unique key for this prompt (used in interpolation)
     pub key: String,
@@ -622,6 +635,7 @@ pub enum PromptType {
 
 /// Option for select/multiselect prompts
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct PromptOption {
     /// Display label
     pub label: String,
@@ -631,6 +645,7 @@ pub struct PromptOption {
 
 /// Step-specific output configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct StepOutputConfig {
     /// Output mode for this step
     pub default: Option<OutputMode>,
@@ -638,7 +653,7 @@ pub struct StepOutputConfig {
 
 /// Configuration for a named workflow
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WorkflowConfig {
     /// Human-readable description
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -672,7 +687,7 @@ pub struct WorkflowConfig {
 
 /// Per-step overrides within a workflow
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct StepOverride {
     /// Skip prompts, just run
     #[serde(default, skip_serializing_if = "is_false")]
@@ -697,7 +712,7 @@ pub struct StepOverride {
 
 /// Workflow-level settings overrides
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct WorkflowSettings {
     /// Force non-interactive mode for this workflow
     #[serde(default, skip_serializing_if = "is_false")]
@@ -706,6 +721,7 @@ pub struct WorkflowSettings {
 
 /// Remote template source configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct TemplateSource {
     /// URL to template repository or file
     pub url: String,
@@ -735,6 +751,7 @@ fn default_timeout() -> u64 {
 
 /// Cache configuration for remote templates
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CacheConfig {
     /// Time-to-live (e.g., "7d", "24h")
     pub ttl: String,
@@ -754,6 +771,7 @@ pub enum CacheStrategy {
 
 /// Authentication for remote template sources
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct AuthConfig {
     /// Auth type: bearer, header
     #[serde(rename = "type")]
@@ -775,6 +793,7 @@ pub enum AuthType {
 
 /// Config inheritance source
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ExtendsConfig {
     /// URL to base config
     pub url: String,
@@ -782,6 +801,7 @@ pub struct ExtendsConfig {
 
 /// Secret configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct SecretConfig {
     /// Command to fetch the secret
     pub command: String,
@@ -812,6 +832,7 @@ pub enum VarDefinition {
 
 /// A project-specific requirement definition.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CustomRequirement {
     /// How to check if this requirement is satisfied
     pub check: CustomRequirementCheck,
@@ -850,7 +871,7 @@ pub enum CustomRequirementCheck {
 
 /// Configuration for a named environment.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct EnvironmentConfig {
     /// Rules for auto-detecting this environment.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -868,6 +889,7 @@ pub struct EnvironmentConfig {
 
 /// A rule for auto-detecting an environment.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
 pub struct EnvironmentDetectRule {
     /// Environment variable name to check.
     pub env: String,
@@ -883,7 +905,7 @@ pub struct EnvironmentDetectRule {
 /// The `env` field uses `HashMap<String, Option<String>>`:
 /// `Some(val)` = set/override, `None` = remove the key from the base env.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct StepEnvironmentOverride {
     /// Override step title
     #[serde(skip_serializing_if = "Option::is_none")]

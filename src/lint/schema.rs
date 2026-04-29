@@ -221,4 +221,70 @@ mod tests {
         let from_cache: Value = serde_json::from_str(schema_json()).unwrap();
         assert_eq!(generated, from_cache);
     }
+
+    #[test]
+    fn root_rejects_unknown_fields() {
+        let schema = SchemaGenerator::new().generate();
+        assert_eq!(
+            schema["additionalProperties"],
+            Value::Bool(false),
+            "root config schema should set additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn settings_rejects_unknown_fields() {
+        let schema = SchemaGenerator::new().generate();
+        assert_eq!(
+            schema["$defs"]["Settings"]["additionalProperties"],
+            Value::Bool(false),
+            "Settings schema should set additionalProperties: false (e.g., \
+             reject `dark_mode` under `settings`)"
+        );
+    }
+
+    #[test]
+    fn step_config_rejects_unknown_fields() {
+        let schema = SchemaGenerator::new().generate();
+        assert_eq!(
+            schema["$defs"]["StepConfig"]["additionalProperties"],
+            Value::Bool(false),
+            "StepConfig schema should set additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn defaults_settings_rejects_unknown_fields() {
+        let schema = SchemaGenerator::new().generate();
+        assert_eq!(
+            schema["$defs"]["DefaultsSettings"]["additionalProperties"],
+            Value::Bool(false),
+            "DefaultsSettings schema should set additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn workflow_config_rejects_unknown_fields() {
+        let schema = SchemaGenerator::new().generate();
+        assert_eq!(
+            schema["$defs"]["WorkflowConfig"]["additionalProperties"],
+            Value::Bool(false),
+            "WorkflowConfig schema should set additionalProperties: false"
+        );
+    }
+
+    #[test]
+    fn deserialize_rejects_unknown_root_field() {
+        // `dark_mode` is not a known top-level field; deserialization should fail.
+        let yaml = r#"
+app_name: "demo"
+dark_mode: true
+"#;
+        let result: Result<crate::config::schema::BivvyConfig, _> = serde_yaml::from_str(yaml);
+        assert!(
+            result.is_err(),
+            "expected deserialization to reject unknown root field `dark_mode`, \
+             but it succeeded"
+        );
+    }
 }

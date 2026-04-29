@@ -57,27 +57,27 @@ bivvy schema > bivvy-schema.json
 
 ## IDE Integration
 
-The generated schema enables autocompletion, validation, and hover documentation in editors that support YAML language server features. See the [IDE Integration guide](/guides/ide-integration/) for setup instructions for VS Code, JetBrains IDEs, and other editors.
+The generated schema enables autocompletion, validation, and hover documentation in editors that support YAML language server features. See the [IDE Integration guide](/guides/ide-integration/) for full setup instructions covering VS Code, JetBrains IDEs, Neovim, and Helix.
+
+In most cases you don't need to run `bivvy schema` at all: every bivvy invocation refreshes `~/.bivvy/schema.json`, which editors can point at directly.
 
 ### Quick Setup (VS Code)
 
-```bash
-bivvy schema --output bivvy-schema.json
-```
-
-Then add to `.vscode/settings.json`:
+Add to your user settings JSON:
 
 ```json
 {
   "yaml.schemas": {
-    "./bivvy-schema.json": ".bivvy/config.yml"
+    "/Users/you/.bivvy/schema.json": "**/.bivvy/config.yml"
   }
 }
 ```
 
-Or add an inline schema comment to the top of your config file, pointing at either a local file or the hosted schema:
+Or add an inline schema directive to the top of your config file:
 
 ```yaml
-# yaml-language-server: $schema=https://bivvy.dev/schemas/config.json
+# yaml-language-server: $schema=/Users/you/.bivvy/schema.json
 app_name: my-app
 ```
+
+`bivvy init` writes this directive automatically on new configs.

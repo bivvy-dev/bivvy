@@ -33,6 +33,7 @@ Pre-release versions are < 2.0.0.
 - `--clear` flag added to `bivvy history` command to clear run history for a project
 
 ### Changed
+- Generated JSON Schema now rejects unknown fields. Editors with the YAML language server flag typos and unsupported keys (e.g., `dark_mode` under `settings`) instead of silently accepting them. Runtime deserialization remains tolerant of unknown fields under structs that use `#[serde(flatten)]` (`settings`, `steps.*`) for backward compatibility; everywhere else, unknown fields also produce a parse error
 - Persistent workflow progress bar pinned at terminal bottom using `MultiProgress`; step output scrolls above while the bar updates in place
 - Separated `StepManager` from workflow orchestration: step-level logic (prompts, execution, recovery, error display) extracted into dedicated module; workflow layer owns only sequencing, filtering, and aggregate state
 - Environment name merged into run header line (`env: X`) instead of a separate line
