@@ -239,7 +239,7 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             // Evaluate completed check using the new CheckEvaluator
-            if !options.should_force(step_name) {
+            if !options.should_force(step_name) && !step.behavior.force {
                 if let Some(check) = step.execution.effective_check() {
                     let config_hash = check.config_hash();
                     let mut evaluator =
@@ -266,7 +266,7 @@ impl<'a> WorkflowRunner<'a> {
             });
 
             let exec_options = ExecutionOptions {
-                force: options.should_force(step_name),
+                force: options.should_force(step_name) || step.behavior.force,
                 dry_run: options.dry_run,
                 capture_output: true,
                 ..Default::default()

@@ -94,6 +94,9 @@ pub struct ResolvedBehavior {
 
     /// How long a previous successful run counts as recent enough.
     pub rerun_window: crate::runner::RerunWindow,
+
+    /// Always re-run this step, bypassing its checks.
+    pub force: bool,
 }
 
 impl Default for ResolvedBehavior {
@@ -107,6 +110,7 @@ impl Default for ResolvedBehavior {
             allow_failure: false,
             sensitive: false,
             rerun_window: crate::runner::RerunWindow::default(),
+            force: false,
         }
     }
 }
@@ -239,6 +243,7 @@ impl ResolvedStep {
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
                 rerun_window: resolve_rerun_window(config.behavior.rerun_window.as_deref()),
+                force: config.behavior.force,
             },
             hooks: ResolvedHooks {
                 before: config.hooks.before.clone(),
@@ -300,6 +305,7 @@ impl ResolvedStep {
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
                 rerun_window: resolve_rerun_window(config.behavior.rerun_window.as_deref()),
+                force: config.behavior.force,
             },
             hooks: ResolvedHooks {
                 before: config.hooks.before.clone(),

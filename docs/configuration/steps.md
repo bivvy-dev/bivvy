@@ -68,6 +68,23 @@ See [Auto-Run and the Decision Engine](../guides/auto-run.md) for the
 full explanation of how Bivvy decides whether to run, skip, or prompt for
 each step.
 
+## Always Re-run a Step
+
+Mark a step `force: true` to always re-run it, bypassing its `check`,
+`checks`, and `satisfied_when` evaluation. Equivalent to listing the
+step in `--force` on every run:
+
+```yaml
+steps:
+  migrate:
+    command: "bin/rails db:migrate"
+    force: true
+```
+
+Preconditions still apply — they are never bypassed by force. See
+[Forcing Re-run](completed-checks.md#forcing-re-run) for the related
+CLI flags.
+
 ## Completed Checks
 
 Determine if a step is already complete:

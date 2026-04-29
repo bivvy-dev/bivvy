@@ -460,6 +460,12 @@ pub struct BehaviorConfig {
     /// If not set, uses the global `default_rerun_window` setting (default: `"4h"`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rerun_window: Option<String>,
+
+    /// Always re-run this step, bypassing its `check`, `checks`, and
+    /// `satisfied_when` evaluation. Equivalent to listing the step in
+    /// `--force` on every run. Preconditions still apply.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub force: bool,
 }
 
 impl Default for BehaviorConfig {
@@ -473,6 +479,7 @@ impl Default for BehaviorConfig {
             allow_failure: false,
             sensitive: false,
             rerun_window: None,
+            force: false,
         }
     }
 }
@@ -1748,6 +1755,35 @@ settings:
         assert!(
             !yaml.contains("auto_run"),
             "None auto_run should be omitted"
+        );
+    }
+
+    #[test]
+    fn behavior_config_force_defaults_false() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!config.behavior.force);
+    }
+
+    #[test]
+    fn behavior_config_force_parses_true() {
+        let yaml = r#"
+            command: "bin/migrate"
+            force: true
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.behavior.force);
+    }
+
+    #[test]
+    fn behavior_config_force_omitted_when_false() {
+        let config = BehaviorConfig::default();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(
+            !yaml.contains("force"),
+            "false force should be omitted from serialized output"
         );
     }
 

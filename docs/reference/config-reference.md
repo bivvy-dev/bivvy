@@ -88,6 +88,7 @@ At minimum, a step needs either `command` or `template`.
 | `output` | [StepOutput](#step-output) | — | Output settings override |
 | `rerun_window` | string | — | How long a previous run counts as "recent enough" (e.g., `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`) |
 | `sensitive` | bool | `false` | Hide command and suppress output |
+| `force` | bool | `false` | Always re-run, bypassing `check`/`checks`/`satisfied_when` (equivalent to listing the step in `--force` on every run; preconditions still apply) |
 | `requires_sudo` | bool | `false` | Needs elevated permissions |
 | `before` | list | `[]` | Commands to run before step |
 | `after` | list | `[]` | Commands to run after step |

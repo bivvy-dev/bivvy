@@ -693,6 +693,65 @@ fn run_with_ui_force_all_reruns_every_satisfied_step() {
 }
 
 #[test]
+fn run_with_ui_step_level_force_reruns_satisfied_step() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("marker.txt"), "done").unwrap();
+
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [migrate]
+        "#,
+    )
+    .unwrap();
+
+    let mut steps = HashMap::new();
+    let mut step = make_step_with_check(
+        "migrate",
+        "echo migrating",
+        Some(crate::checks::Check::Presence {
+            name: None,
+            target: Some("marker.txt".to_string()),
+            kind: Some(crate::checks::PresenceKind::File),
+            command: None,
+        }),
+    );
+    step.behavior.force = true;
+    steps.insert("migrate".to_string(), step);
+
+    let mut runner = WorkflowRunner::new(&config, steps);
+    let options = RunOptions::default();
+    let ctx = InterpolationContext::new();
+
+    let mut ui = MockUI::new();
+    ui.set_interactive(true);
+
+    let result = runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            None,
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                "/tmp/bivvy_test_step_force_sat.json",
+            )),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
+
+    assert!(result.success);
+    // Step ran despite the check passing.
+    assert_eq!(result.steps.len(), 1);
+    assert!(!result.steps[0].skipped);
+}
+
+#[test]
 fn run_options_should_force_returns_true_for_named_step() {
     let mut options = RunOptions::default();
     options.force.insert("install".to_string());

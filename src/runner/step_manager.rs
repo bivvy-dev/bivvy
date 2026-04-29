@@ -222,7 +222,7 @@ impl<'a> StepManager<'a> {
             }
         }
 
-        let needs_force = opts.should_force(self.step_name);
+        let needs_force = opts.should_force(self.step_name) || self.step.behavior.force;
 
         // ── Pre-engine: collect named check results for cross-step refs ──
         if !opts.dry_run {

@@ -843,6 +843,10 @@
           "description": "Per-environment overrides for this step.",
           "type": "object"
         },
+        "force": {
+          "description": "Always re-run this step, bypassing its `check`, `checks`, and\n`satisfied_when` evaluation. Equivalent to listing the step in\n`--force` on every run. Preconditions still apply.",
+          "type": "boolean"
+        },
         "inputs": {
           "additionalProperties": true,
           "description": "Template inputs (when using template)",

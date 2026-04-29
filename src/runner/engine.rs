@@ -162,7 +162,7 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
     }
 
     // 4. Force override
-    if ctx.force_all || ctx.force.contains(step_name) {
+    if ctx.force_all || ctx.force.contains(step_name) || step.behavior.force {
         let result = EvaluationResult {
             decision: StepDecision::Run,
             reason: "forced".to_string(),
@@ -464,6 +464,39 @@ mod tests {
 
         let result = evaluate_step("build", &mut ctx);
         assert_eq!(result.decision, StepDecision::Run);
+    }
+
+    #[test]
+    fn step_level_force_bypasses_satisfaction() {
+        let mut steps = HashMap::new();
+        let mut step = make_step("build", vec![]);
+        step.behavior.force = true;
+        steps.insert("build".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+
+        let result = evaluate_step("build", &mut ctx);
+        assert_eq!(
+            result.decision,
+            StepDecision::Run,
+            "step.behavior.force should force the step to run"
+        );
     }
 
     #[test]
