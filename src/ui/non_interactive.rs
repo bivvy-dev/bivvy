@@ -151,12 +151,13 @@ impl WorkflowDisplay for NonInteractiveUI {
         workflow: &str,
         step_count: usize,
         version: &str,
+        env_name: &str,
     ) {
         if self.mode.shows_status() {
             let step_label = if step_count == 1 { "step" } else { "steps" };
             println!(
-                "\n⛺ {} v{} · {} workflow · {} {}\n",
-                app_name, version, workflow, step_count, step_label
+                "\n⛺ {} v{} · {} workflow · {} {} · env: {}\n",
+                app_name, version, workflow, step_count, step_label, env_name
             );
         }
     }

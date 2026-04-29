@@ -11,6 +11,7 @@ pub mod plan;
 pub mod recovery;
 pub mod rerun_window;
 pub mod satisfaction;
+mod step_manager;
 pub mod telemetry;
 pub mod workflow;
 

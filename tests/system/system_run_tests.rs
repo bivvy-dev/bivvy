@@ -808,7 +808,7 @@ fn run_env_flag() {
     let temp = setup_project_with_git(REALISTIC_CONFIG);
     let mut s = spawn_bivvy(&["run", "--env", "ci", "--dry-run"], temp.path());
 
-    expect_or_dump(&mut s, "Environment: ci", "Environment shown in output");
+    expect_or_dump(&mut s, "env: ci", "Environment shown in header");
     expect_or_dump(&mut s, "Running in dry-run mode - no commands will be executed", "Dry-run message");
     let _output = read_to_eof(&mut s);
     assert_exit_code(&s, 0);

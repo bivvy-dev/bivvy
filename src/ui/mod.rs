@@ -124,15 +124,16 @@ pub trait ProgressDisplay {
 /// All methods have default implementations that delegate to
 /// [`OutputWriter`] and [`ProgressDisplay`].
 pub trait WorkflowDisplay: OutputWriter + ProgressDisplay {
-    /// Show a rich run header with app name, version, workflow, and step count.
+    /// Show a rich run header with app name, version, workflow, step count, and environment.
     fn show_run_header(
         &mut self,
         app_name: &str,
         workflow: &str,
         step_count: usize,
         version: &str,
+        env_name: &str,
     ) {
-        let _ = (workflow, step_count, version);
+        let _ = (workflow, step_count, version, env_name);
         self.show_header(app_name);
     }
 

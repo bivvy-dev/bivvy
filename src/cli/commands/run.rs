@@ -288,13 +288,8 @@ impl Command for RunCommand {
                 &workflow_name,
                 step_count,
                 crate::updates::version::VERSION,
+                &env_name,
             );
-
-            // Show environment and config info
-            ui.message(&format!(
-                "  Environment: {} ({})",
-                env_name, resolved_env.source
-            ));
         }
 
         if self.args.dry_run {
@@ -1160,7 +1155,7 @@ workflows:
     }
 
     #[test]
-    fn execute_shows_environment_info() {
+    fn execute_shows_environment_in_header() {
         let config = r#"
 app_name: Test Project
 steps:
@@ -1180,10 +1175,9 @@ workflows:
 
         cmd.execute(&mut ui).unwrap();
 
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("Environment:") && m.contains("staging")));
+        // Environment is now part of the run header, not a separate message
+        assert!(!ui.run_headers().is_empty());
+        assert_eq!(ui.run_headers()[0].4, "staging");
     }
 
     #[test]

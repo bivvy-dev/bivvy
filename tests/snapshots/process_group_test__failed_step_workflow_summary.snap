@@ -1,4 +1,3 @@
-
 ---
 source: tests/process_group_test.rs
 expression: normalize_for_snapshot(&summary)

@@ -452,11 +452,11 @@ fn run_env_flag() {
         home.path(),
     );
 
-    // Header should show environment with source
+    // Header should show environment in the run header line
     expect_or_dump(
         &mut s,
-        "Environment: ci (--env flag)",
-        "Environment line should show 'ci' with '--env flag' source",
+        "env: ci",
+        "Run header should include 'env: ci'",
     );
     expect_or_dump(
         &mut s,

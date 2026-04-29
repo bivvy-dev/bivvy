@@ -213,11 +213,12 @@ impl WorkflowDisplay for TerminalUI {
         workflow: &str,
         step_count: usize,
         version: &str,
+        env_name: &str,
     ) {
         if self.mode.shows_status() {
             let step_label = if step_count == 1 { "step" } else { "steps" };
             self.println(&format!(
-                "\n{} {} {} {} {} {}\n",
+                "\n{} {} {} {} {} {} {}\n",
                 self.theme.header.apply_to("⛺"),
                 self.theme.highlight.apply_to(app_name),
                 self.theme.dim.apply_to(format!("v{}", version)),
@@ -226,6 +227,7 @@ impl WorkflowDisplay for TerminalUI {
                 self.theme
                     .dim
                     .apply_to(format!("· {} {}", step_count, step_label)),
+                self.theme.dim.apply_to(format!("· env: {}", env_name)),
             ));
         }
     }
