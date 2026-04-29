@@ -23,7 +23,7 @@ indicatif = "0.18.3"
 # Serialization
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
-schemars = { version = "0.8", features = ["derive"] }
+schemars = { version = "1.2", features = ["derive"] }
 
 # YAML parsing
 serde_yaml = "0.9"
@@ -46,7 +46,7 @@ reqwest = { version = "0.13.1", default-features = false, features = ["blocking"
 chrono = { version = "0.4.43", features = ["serde"] }
 
 # Hashing (for project identification)
-sha2 = "0.10"
+sha2 = "0.11"
 hex = "0.4.3"
 
 # Random number generation (in src/sys.rs via /dev/urandom / BCryptGenRandom)

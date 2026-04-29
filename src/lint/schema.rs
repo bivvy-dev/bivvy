@@ -49,11 +49,7 @@ impl SchemaGenerator {
     /// Uses `schemars` to derive the schema from the Rust type definitions,
     /// ensuring the schema always matches the actual config parser.
     pub fn generate(&self) -> Value {
-        let settings = schemars::gen::SchemaSettings::draft07().with(|s| {
-            s.option_nullable = false;
-            s.option_add_null_type = true;
-        });
-        let gen = settings.into_generator();
+        let gen = schemars::generate::SchemaSettings::draft2020_12().into_generator();
         let schema = gen.into_root_schema_for::<BivvyConfig>();
         let mut value = serde_json::to_value(schema).expect("schema serializes to JSON");
 
@@ -84,7 +80,10 @@ mod tests {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        assert_eq!(
+            schema["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
         assert_eq!(schema["type"], "object");
     }
 
@@ -209,7 +208,10 @@ mod tests {
     #[test]
     fn schema_json_is_valid() {
         let schema: Value = serde_json::from_str(schema_json()).unwrap();
-        assert_eq!(schema["$schema"], "http://json-schema.org/draft-07/schema#");
+        assert_eq!(
+            schema["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
         assert_eq!(schema["type"], "object");
     }
 
@@ -219,5 +221,4 @@ mod tests {
         let from_cache: Value = serde_json::from_str(schema_json()).unwrap();
         assert_eq!(generated, from_cache);
     }
-
 }

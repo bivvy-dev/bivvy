@@ -10,21 +10,22 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 /// Helper for `serde_yaml::Value` fields — accepts any valid YAML/JSON value.
-fn any_value_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    schemars::schema::Schema::Bool(true)
+fn any_value_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+    true.into()
 }
 
 /// Helper for `HashMap<String, serde_yaml::Value>` — object with any values.
-fn any_value_map_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
-    schemars::schema::SchemaObject {
-        instance_type: Some(schemars::schema::InstanceType::Object.into()),
-        object: Some(Box::new(schemars::schema::ObjectValidation {
-            additional_properties: Some(Box::new(schemars::schema::Schema::Bool(true))),
-            ..Default::default()
-        })),
-        ..Default::default()
-    }
-    .into()
+fn any_value_map_schema(_: &mut schemars::generate::SchemaGenerator) -> schemars::Schema {
+    let mut map = serde_json::Map::new();
+    map.insert(
+        "type".to_string(),
+        serde_json::Value::String("object".to_string()),
+    );
+    map.insert(
+        "additionalProperties".to_string(),
+        serde_json::Value::Bool(true),
+    );
+    map.into()
 }
 
 /// Root configuration structure for bivvy.yml

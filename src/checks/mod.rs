@@ -187,7 +187,7 @@ impl Check {
         use sha2::{Digest, Sha256};
         let yaml = serde_yaml::to_string(self).unwrap_or_default();
         let hash = Sha256::digest(yaml.as_bytes());
-        format!("{:x}", hash)[..8].to_string()
+        hex::encode(hash)[..8].to_string()
     }
 }
 

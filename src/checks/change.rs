@@ -25,7 +25,7 @@ pub fn hash_file(path: &Path) -> HashResult {
     match std::fs::read(path) {
         Ok(contents) => {
             let hash = Sha256::digest(&contents);
-            HashResult::Ok(format!("sha256:{:x}", hash))
+            HashResult::Ok(format!("sha256:{}", hex::encode(hash)))
         }
         Err(e) => HashResult::NotFound(format!("Cannot read {}: {}", path.display(), e)),
     }
@@ -95,7 +95,7 @@ pub fn hash_glob(pattern: &str, project_root: &Path, size_limit: &SizeLimit) -> 
         hasher.update(path.as_bytes());
         hasher.update(contents);
     }
-    HashResult::Ok(format!("sha256:{:x}", hasher.finalize()))
+    HashResult::Ok(format!("sha256:{}", hex::encode(hasher.finalize())))
 }
 
 /// Hash the stdout of a command.
@@ -109,7 +109,7 @@ pub fn hash_command(command: &str, project_root: &Path) -> HashResult {
     match output {
         Ok(o) if o.status.success() => {
             let hash = Sha256::digest(&o.stdout);
-            HashResult::Ok(format!("sha256:{:x}", hash))
+            HashResult::Ok(format!("sha256:{}", hex::encode(hash)))
         }
         Ok(o) => {
             let code = o.status.code().unwrap_or(-1);

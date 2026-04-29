@@ -52,10 +52,9 @@ pub mod vars;
 pub use schema::{
     BehaviorConfig, BivvyConfig, CustomRequirement, CustomRequirementCheck, EnvVarSettings,
     EnvironmentProfileSettings, EnvironmentScopingConfig, EnvironmentVarsConfig, ExecutionConfig,
-    ExecutionSettings, HookConfig, OutputMode, PromptConfig, PromptType,
-    SecretConfig, Settings, StepConfig, StepEnvironmentOverride, StepOutputConfig,
-    StepOutputSettings, StepOverride, TemplateSource, VarDefinition, WorkflowConfig,
-    WorkflowSettings,
+    ExecutionSettings, HookConfig, OutputMode, PromptConfig, PromptType, SecretConfig, Settings,
+    StepConfig, StepEnvironmentOverride, StepOutputConfig, StepOutputSettings, StepOverride,
+    TemplateSource, VarDefinition, WorkflowConfig, WorkflowSettings,
 };
 
 // Check type re-exports (new check system)

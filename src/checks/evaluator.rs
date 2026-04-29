@@ -270,7 +270,7 @@ impl<'a> CheckEvaluator<'a> {
         if output.status.success() {
             use sha2::{Digest, Sha256};
             let hash = Sha256::digest(&output.stdout);
-            Some(format!("sha256:{:x}", hash))
+            Some(format!("sha256:{}", hex::encode(hash)))
         } else {
             None
         }
@@ -1384,7 +1384,7 @@ mod tests {
                 .arg("echo stable")
                 .output()
                 .unwrap();
-            format!("sha256:{:x}", Sha256::digest(&output.stdout))
+            format!("sha256:{}", hex::encode(Sha256::digest(&output.stdout)))
         };
 
         let key = SnapshotKey::project("check_version", "cfgcmd2");

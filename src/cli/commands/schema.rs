@@ -62,7 +62,7 @@ mod tests {
         let messages = ui.messages();
         let output = messages.join("\n");
         assert!(output.contains("\"$schema\""));
-        assert!(output.contains("http://json-schema.org/draft-07/schema#"));
+        assert!(output.contains("https://json-schema.org/draft/2020-12/schema"));
     }
 
     #[test]
@@ -83,7 +83,10 @@ mod tests {
 
         let content = std::fs::read_to_string(&output_path).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&content).unwrap();
-        assert_eq!(parsed["$schema"], "http://json-schema.org/draft-07/schema#");
+        assert_eq!(
+            parsed["$schema"],
+            "https://json-schema.org/draft/2020-12/schema"
+        );
     }
 
     #[test]
