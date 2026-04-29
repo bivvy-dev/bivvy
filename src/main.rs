@@ -65,6 +65,9 @@ fn main() -> ExitCode {
     let cli = Cli::parse();
     init_tracing(cli.debug);
 
+    // Ensure ~/.bivvy/config.yml exists (first-run bootstrap).
+    bivvy::config::ensure_global_config();
+
     tracing::debug!("Bivvy starting with args: {:?}", cli);
 
     // Determine output mode

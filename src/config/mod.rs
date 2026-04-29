@@ -68,8 +68,9 @@ pub use vars::evaluate_vars;
 
 // Loader re-exports
 pub use loader::{
-    find_project_root, load_config, load_config_file, load_config_value, load_merged_config,
-    load_merged_config_with_resolver, load_merged_config_with_trust, parse_config, ConfigPaths,
+    ensure_global_config, find_project_root, load_config, load_config_file, load_config_value,
+    load_merged_config, load_merged_config_with_resolver, load_merged_config_with_trust,
+    parse_config, ConfigPaths,
 };
 
 // Merger re-exports
