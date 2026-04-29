@@ -3,7 +3,7 @@
 All notable changes to Bivvy will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+and this project (mostly) adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Pre-release versions are < 2.0.0.
 
 ## [Unreleased] - 1.9.0
@@ -58,6 +58,9 @@ Pre-release versions are < 2.0.0.
 - Rerun check logic
 - Cache boundary in `GapChecker`
 - Formatting after `StepConfig` refactor
+- Run summary no longer shows redundant `satisfied:` prefix inside `Check passed (...)`
+- Steps that were check-passed (skipped because already satisfied) no longer overwrite their last-run timestamp, so subsequent runs report the actual last execution time instead of the last evaluation time
+- Run summary footer's "already satisfied" count now correctly reflects check-passed steps
 
 ## [1.0.0]
 

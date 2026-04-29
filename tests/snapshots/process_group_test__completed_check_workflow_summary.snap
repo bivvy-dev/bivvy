@@ -7,9 +7,9 @@ expression: normalize_for_snapshot(&summary)
 
 ┌─ Summary ──────────────────────────
 │ ✓ install-tools        [TIME]
-│ ✓ verify-repo          Check passed (satisfied: ✓ git rev-parse --git-dir succeeded)
+│ ✓ verify-repo          Check passed (✓ git rev-parse --git-dir succeeded)
 │ ✓ run-analysis         [TIME]
 ├────────────────────────────────────
-│ Total: [TIME] · 3 run · 0 skipped
+│ Total: [TIME] · 3 run · 0 skipped · 1 already satisfied
 └────────────────────────────────────
 Run `bivvy status` to verify setup health.

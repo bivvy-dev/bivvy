@@ -567,7 +567,7 @@ impl<'a> StepManager<'a> {
         });
         event_bus.emit(&BivvyEvent::StepSkipped {
             name: self.step_name.to_string(),
-            reason: format!("satisfied: {}", eval_result.reason),
+            reason: eval_result.reason.clone(),
         });
         ui.message(step_display);
         let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
@@ -579,7 +579,7 @@ impl<'a> StepManager<'a> {
         Ok(StepAction::Skipped(
             StepResult::check_passed(
                 &self.step.name,
-                CheckResult::passed(format!("satisfied: {}", eval_result.reason)),
+                CheckResult::passed(eval_result.reason.clone()),
             ),
             SkipCategory::Satisfied,
         ))
@@ -620,7 +620,7 @@ impl<'a> StepManager<'a> {
             if answer.as_string() != "yes" {
                 event_bus.emit(&BivvyEvent::StepSkipped {
                     name: self.step_name.to_string(),
-                    reason: format!("satisfied: {}", eval_result.reason),
+                    reason: eval_result.reason.clone(),
                 });
                 let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
                 ui.message(&format!(
@@ -631,7 +631,7 @@ impl<'a> StepManager<'a> {
                 return Ok(Some(StepAction::Skipped(
                     StepResult::check_passed(
                         &self.step.name,
-                        CheckResult::passed(format!("satisfied: {}", eval_result.reason)),
+                        CheckResult::passed(eval_result.reason.clone()),
                     ),
                     SkipCategory::Satisfied,
                 )));

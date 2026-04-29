@@ -457,12 +457,17 @@ impl Command for RunCommand {
 
         // Update state and snapshots (unless dry-run)
         if !self.args.dry_run {
-            // Record step results into state store
+            // Record step results into state store. Only steps that actually
+            // executed update state — check-passed and skipped results don't
+            // represent a run, so overwriting `last_run` would mis-report the
+            // last execution time on subsequent runs.
             for step_result in &result.steps {
+                if !step_result.actually_executed() {
+                    continue;
+                }
                 let status = match step_result.status() {
                     crate::steps::StepStatus::Completed => crate::state::StepStatus::Success,
                     crate::steps::StepStatus::Failed => crate::state::StepStatus::Failed,
-                    crate::steps::StepStatus::Skipped => crate::state::StepStatus::Skipped,
                     _ => crate::state::StepStatus::NeverRun,
                 };
                 state.record_step_result(&step_result.name, status, step_result.duration);
@@ -477,17 +482,7 @@ impl Command for RunCommand {
         }
 
         // Build and show run summary
-        let steps_satisfied = result
-            .steps
-            .iter()
-            .filter(|s| {
-                s.skipped
-                    && s.check_result
-                        .as_ref()
-                        .map(|c| c.description.starts_with("satisfied:"))
-                        .unwrap_or(false)
-            })
-            .count();
+        let steps_satisfied = result.steps.iter().filter(|s| s.was_check_passed()).count();
         let steps_run = result.steps.len();
         let steps_skipped = result.skipped.len();
         let failed_steps: Vec<String> = result
@@ -906,6 +901,14 @@ workflows:
         assert!(
             detail.contains("Check passed") && detail.contains("exit 0"),
             "expected 'Check passed' with check description in summary detail, got: {}",
+            detail
+        );
+        // Regression: the inner reason must not be redundantly prefixed with
+        // "satisfied:" — that text is internal to the satisfaction layer and
+        // looks awkward inside "Check passed (...)".
+        assert!(
+            !detail.contains("satisfied:"),
+            "summary detail should not include redundant 'satisfied:' prefix, got: {}",
             detail
         );
     }

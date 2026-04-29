@@ -176,6 +176,18 @@ impl StepResult {
         }
     }
 
+    /// Whether this result represents a step whose check passed without
+    /// actually executing the command (the work was already done).
+    pub fn was_check_passed(&self) -> bool {
+        self.success && !self.skipped && self.check_result.is_some() && self.duration.is_zero()
+    }
+
+    /// Whether the step's command actually executed (succeeded or failed),
+    /// as opposed to being skipped or short-circuited by a passing check.
+    pub fn actually_executed(&self) -> bool {
+        !self.skipped && !self.was_check_passed()
+    }
+
     /// Generate a summary line for display.
     pub fn summary_line(&self) -> String {
         let status = self.status();
@@ -642,6 +654,41 @@ mod tests {
         let check_result = crate::checks::CheckResult::passed("already done");
         let result = StepResult::skipped("test", check_result);
         assert_eq!(result.status(), StepStatus::Skipped);
+    }
+
+    #[test]
+    fn was_check_passed_distinguishes_check_only_results() {
+        let check_result = crate::checks::CheckResult::passed("done");
+        assert!(StepResult::check_passed("a", check_result.clone()).was_check_passed());
+
+        // Actually-ran results are not "check passed"
+        assert!(
+            !StepResult::success("a", Duration::from_secs(1), Some(0), None).was_check_passed()
+        );
+        assert!(
+            !StepResult::failure("a", Duration::from_secs(1), "boom".into(), None)
+                .was_check_passed()
+        );
+        // User-skipped results are not "check passed"
+        assert!(!StepResult::skipped("a", check_result).was_check_passed());
+    }
+
+    #[test]
+    fn actually_executed_only_for_real_runs() {
+        let check_result = crate::checks::CheckResult::passed("done");
+
+        // Real executions count
+        assert!(
+            StepResult::success("a", Duration::from_secs(1), Some(0), None).actually_executed()
+        );
+        assert!(
+            StepResult::failure("a", Duration::from_secs(1), "boom".into(), None)
+                .actually_executed()
+        );
+
+        // Non-runs do not
+        assert!(!StepResult::check_passed("a", check_result.clone()).actually_executed());
+        assert!(!StepResult::skipped("a", check_result).actually_executed());
     }
 
     #[test]
