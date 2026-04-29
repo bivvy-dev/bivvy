@@ -167,7 +167,8 @@ workflows:
 
   release:
     description: "Tag and push a release (replaces bin/release)"
-    steps: [cargo-edit, version-bump, version-commit, release-preflight, rust, clippy, rustfmt, deps, build, lint, test, release-tag]
+    steps: [rust, clippy, rustfmt, cargo-edit, deps, build, lint, test,
+            release-preflight, version-bump, version-commit, release-tag]
 
   ci:
     description: "CI pipeline"
