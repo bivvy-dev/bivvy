@@ -245,12 +245,62 @@ pub struct ExecutionOptions {
     pub secret_patterns: Vec<String>,
 }
 
+/// Build the merged environment a step will run with.
+///
+/// Layers are applied lowest → highest:
+///
+/// 1. `base_env` — pre-merged YAML layers (settings.env_vars + workflow.env)
+/// 2. step `env_file` — loaded from disk if `step.env_vars.env_file` is set
+/// 3. step `env` — inline `env:` map on the step
+/// 4. `process_env` — the parent process environment
+///
+/// The parent process env wins last so that shell-exported variables
+/// (`DATABASE_URL=... bivvy run`) override values declared in YAML.
+///
+/// # Errors
+///
+/// Returns an error if `step.env_vars.env_file` is set, the file is missing,
+/// and `env_file_optional` is false.
+pub fn build_step_env(
+    step: &ResolvedStep,
+    project_root: &Path,
+    base_env: &HashMap<String, String>,
+    process_env: &HashMap<String, String>,
+) -> Result<HashMap<String, String>> {
+    let mut env = base_env.clone();
+
+    if let Some(ref env_file_path) = step.env_vars.env_file {
+        let resolved_path = project_root.join(env_file_path);
+        if step.env_vars.env_file_optional {
+            let file_env = crate::config::load_env_file_optional(&resolved_path);
+            env.extend(file_env);
+        } else {
+            let file_env = crate::config::load_env_file(&resolved_path)?;
+            env.extend(file_env);
+        }
+    }
+
+    env.extend(
+        step.env_vars
+            .env
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone())),
+    );
+
+    env.extend(process_env.iter().map(|(k, v)| (k.clone(), v.clone())));
+
+    Ok(env)
+}
+
 /// Execute a single step.
+///
+/// See [`build_step_env`] for the env-layering precedence.
 pub fn execute_step(
     step: &ResolvedStep,
     project_root: &Path,
     context: &InterpolationContext,
-    global_env: &HashMap<String, String>,
+    base_env: &HashMap<String, String>,
+    process_env: &HashMap<String, String>,
     options: &ExecutionOptions,
     output_callback: Option<OutputCallback>,
 ) -> Result<StepResult> {
@@ -260,6 +310,14 @@ pub fn execute_step(
     // Note: Check evaluation and precondition evaluation
     // are handled by the orchestrator BEFORE calling execute_step().
     // The executor only executes — it does not make run/skip decisions.
+
+    let env = build_step_env(step, project_root, base_env, process_env)?;
+
+    // Make the resolved env available for ${VAR} interpolation in
+    // command/hook strings.
+    let mut ctx_with_env = context.clone();
+    ctx_with_env.env = env.clone();
+    let context = &ctx_with_env;
 
     // Dry run mode
     if options.dry_run {
@@ -276,29 +334,6 @@ pub fn execute_step(
             Some(display),
         ));
     }
-
-    // Build environment
-    let mut env = global_env.clone();
-
-    // Load env_file if specified
-    if let Some(ref env_file_path) = step.env_vars.env_file {
-        let resolved_path = project_root.join(env_file_path);
-        if step.env_vars.env_file_optional {
-            let file_env = crate::config::load_env_file_optional(&resolved_path);
-            env.extend(file_env);
-        } else {
-            let file_env = crate::config::load_env_file(&resolved_path)?;
-            env.extend(file_env);
-        }
-    }
-
-    // Step-level env vars override env_file values
-    env.extend(
-        step.env_vars
-            .env
-            .iter()
-            .map(|(k, v)| (k.clone(), v.clone())),
-    );
 
     // Resolve command with interpolation
     let command = resolve_string(&step.execution.command, context)?;
@@ -422,8 +457,16 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         assert!(result.success);
         assert!(!result.skipped);
@@ -446,8 +489,16 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         assert!(result.success);
         assert!(result.output.unwrap().contains("Would run"));
@@ -466,8 +517,8 @@ mod tests {
             .env
             .insert("STEP_VAR".to_string(), "step_value".to_string());
 
-        let mut global_env = HashMap::new();
-        global_env.insert("GLOBAL_VAR".to_string(), "global_value".to_string());
+        let mut process_env = HashMap::new();
+        process_env.insert("UNRELATED_VAR".to_string(), "unrelated".to_string());
 
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions {
@@ -475,10 +526,170 @@ mod tests {
             ..Default::default()
         };
 
-        let result = execute_step(&step, temp.path(), &ctx, &global_env, &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &process_env,
+            &options,
+            None,
+        )
+        .unwrap();
 
         assert!(result.success);
         assert!(result.output.unwrap().contains("step_value"));
+    }
+
+    /// Bug fix: shell-exported env vars (`FOO=bar bivvy run`) must override
+    /// values declared in `step.env`, matching how Make/npm/Docker handle
+    /// command-line env overrides.
+    #[test]
+    #[cfg(unix)]
+    fn process_env_overrides_step_env() {
+        let temp = TempDir::new().unwrap();
+
+        let mut step = make_step("echo $DATABASE_URL");
+        step.env_vars
+            .env
+            .insert("DATABASE_URL".to_string(), "from_step".to_string());
+
+        let mut process_env = HashMap::new();
+        process_env.insert("DATABASE_URL".to_string(), "from_shell".to_string());
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            capture_output: true,
+            ..Default::default()
+        };
+
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &process_env,
+            &options,
+            None,
+        )
+        .unwrap();
+
+        assert!(result.success);
+        let output = result.output.unwrap();
+        assert!(
+            output.contains("from_shell"),
+            "expected shell value to win, got: {}",
+            output
+        );
+        assert!(
+            !output.contains("from_step"),
+            "step value should have been shadowed, got: {}",
+            output
+        );
+    }
+
+    /// Process env should also win over the YAML base env (which represents
+    /// global `settings.env_vars` and the active workflow's `env`).
+    #[test]
+    #[cfg(unix)]
+    fn process_env_overrides_base_env() {
+        let temp = TempDir::new().unwrap();
+        let step = make_step("echo $API_HOST");
+
+        let mut base_env = HashMap::new();
+        base_env.insert("API_HOST".to_string(), "from_yaml".to_string());
+
+        let mut process_env = HashMap::new();
+        process_env.insert("API_HOST".to_string(), "from_shell".to_string());
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            capture_output: true,
+            ..Default::default()
+        };
+
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &base_env,
+            &process_env,
+            &options,
+            None,
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert!(result.output.unwrap().contains("from_shell"));
+    }
+
+    /// When the shell does NOT set a variable, step env should still win
+    /// over the YAML base env — step is more specific than global/workflow.
+    #[test]
+    #[cfg(unix)]
+    fn step_env_overrides_base_env_when_shell_silent() {
+        let temp = TempDir::new().unwrap();
+
+        let mut step = make_step("echo $LOG_LEVEL");
+        step.env_vars
+            .env
+            .insert("LOG_LEVEL".to_string(), "debug".to_string());
+
+        let mut base_env = HashMap::new();
+        base_env.insert("LOG_LEVEL".to_string(), "info".to_string());
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            capture_output: true,
+            ..Default::default()
+        };
+
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &base_env,
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert!(result.output.unwrap().contains("debug"));
+    }
+
+    /// Verify the InterpolationContext.env is populated from the merged
+    /// runtime env so `${VAR}` in command strings resolves against shell +
+    /// step + base env, not an empty map.
+    #[test]
+    #[cfg(unix)]
+    fn interpolation_resolves_against_merged_env() {
+        let temp = TempDir::new().unwrap();
+        let step = make_step("echo resolved-${SHELL_PROVIDED}");
+
+        let mut process_env = HashMap::new();
+        process_env.insert("SHELL_PROVIDED".to_string(), "yes".to_string());
+
+        let ctx = InterpolationContext::new();
+        let options = ExecutionOptions {
+            capture_output: true,
+            ..Default::default()
+        };
+
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &process_env,
+            &options,
+            None,
+        )
+        .unwrap();
+
+        assert!(result.success);
+        assert!(result.output.unwrap().contains("resolved-yes"));
     }
 
     #[test]
@@ -495,8 +706,16 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
         assert!(result.success);
     }
 
@@ -510,7 +729,15 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        let result = execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None);
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        );
         assert!(result.is_err());
     }
 
@@ -529,7 +756,16 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         let content = fs::read_to_string(&order_file).unwrap();
         let lines: Vec<_> = content.lines().map(|l| l.trim()).collect();
@@ -548,7 +784,15 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        let result = execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None);
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        );
 
         assert!(result.is_err());
         assert!(!marker.exists());
@@ -565,8 +809,16 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         assert!(!result.success);
         assert!(!marker.exists());
@@ -587,7 +839,16 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         let content = fs::read_to_string(&output_file).unwrap();
         assert!(content.contains("hook_value"));
@@ -600,7 +861,15 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        let result = execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None);
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        );
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -614,7 +883,15 @@ mod tests {
         let ctx = InterpolationContext::new();
         let options = ExecutionOptions::default();
 
-        let result = execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None);
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        );
 
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -754,8 +1031,16 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         assert!(result.success);
         assert!(result.output.unwrap().contains("minor"));
@@ -773,8 +1058,16 @@ mod tests {
             ..Default::default()
         };
 
-        let result =
-            execute_step(&step, temp.path(), &ctx, &HashMap::new(), &options, None).unwrap();
+        let result = execute_step(
+            &step,
+            temp.path(),
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            &options,
+            None,
+        )
+        .unwrap();
 
         assert!(result.success);
         assert!(result

@@ -49,7 +49,8 @@ pub(super) fn execute_step_with_recovery(
     step_indent: usize,
     project_root: &Path,
     context: &InterpolationContext,
-    global_env: &HashMap<String, String>,
+    base_env: &HashMap<String, String>,
+    process_env: &HashMap<String, String>,
     needs_force: bool,
     dry_run: bool,
     interactive: bool,
@@ -130,7 +131,8 @@ pub(super) fn execute_step_with_recovery(
             step,
             project_root,
             context,
-            global_env,
+            base_env,
+            process_env,
             &exec_options,
             output_callback,
         ) {
@@ -285,7 +287,8 @@ pub(super) fn execute_step_with_recovery(
                     &mut aborted,
                     &mut final_result,
                     project_root,
-                    global_env,
+                    base_env,
+                    process_env,
                     ui,
                     event_bus,
                 )?;
@@ -330,7 +333,8 @@ fn handle_recovery_menu(
     aborted: &mut bool,
     final_result: &mut Option<StepResult>,
     project_root: &Path,
-    global_env: &HashMap<String, String>,
+    base_env: &HashMap<String, String>,
+    process_env: &HashMap<String, String>,
     ui: &mut dyn UserInterface,
     event_bus: &mut EventBus,
 ) -> Result<()> {
@@ -399,12 +403,9 @@ fn handle_recovery_menu(
                     "{}Dropping to debug shell (exit to return)...",
                     pad
                 ));
-                crate::shell::debug::spawn_debug_shell(
-                    step_name,
-                    project_root,
-                    &step.env_vars.env,
-                    global_env,
-                )?;
+                let debug_env =
+                    crate::steps::build_step_env(step, project_root, base_env, process_env)?;
+                crate::shell::debug::spawn_debug_shell(step_name, project_root, &debug_env)?;
                 // After shell exit, re-show recovery menu
             }
             RecoveryAction::Skip => {

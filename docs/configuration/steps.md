@@ -210,6 +210,27 @@ steps:
     env_file: .env.test
 ```
 
+### Environment Variable Precedence
+
+Bivvy layers env vars from broadest scope to narrowest, then lets the
+shell win on top. Lowest priority first:
+
+1. `settings.env_vars.env_file` — global file declared in
+   [project settings](settings.md#global-environment-variables)
+2. `settings.env_vars.env` — global inline values
+3. `workflow.env_file` — file declared on the active workflow
+4. `workflow.env` — inline values declared on the active workflow
+5. `step.env_file` — file declared on the step
+6. `step.env` — inline values on the step (per-environment overrides
+   are merged into this layer; see
+   [Per-Environment Overrides](#per-environment-overrides))
+7. **Parent process environment** — variables exported in your shell
+
+The parent process env wins last, so
+`DATABASE_URL=postgres://override bivvy run` will override any
+`DATABASE_URL` declared in YAML. This matches how Make, npm scripts,
+and `docker run -e` handle command-line env overrides.
+
 ## Hooks
 
 Run commands before and after the step:

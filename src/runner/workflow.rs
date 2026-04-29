@@ -129,18 +129,25 @@ impl<'a> WorkflowRunner<'a> {
     }
 
     /// Run the specified workflow.
+    ///
+    /// `base_env` is the YAML-derived env stack (settings + workflow), already
+    /// merged in priority order. `process_env` is the parent process
+    /// environment, which wins over both `base_env` and any step-level env.
+    #[allow(clippy::too_many_arguments)]
     pub fn run(
         &mut self,
         options: &RunOptions,
         context: &InterpolationContext,
-        global_env: &HashMap<String, String>,
+        base_env: &HashMap<String, String>,
+        process_env: &HashMap<String, String>,
         project_root: &Path,
     ) -> Result<WorkflowResult> {
         let mut event_bus = EventBus::new();
         self.run_with_progress(
             options,
             context,
-            global_env,
+            base_env,
+            process_env,
             project_root,
             None,
             None,
@@ -155,7 +162,8 @@ impl<'a> WorkflowRunner<'a> {
         &mut self,
         options: &RunOptions,
         context: &InterpolationContext,
-        global_env: &HashMap<String, String>,
+        base_env: &HashMap<String, String>,
+        process_env: &HashMap<String, String>,
         project_root: &Path,
         mut gap_checker: Option<&mut GapChecker<'_>>,
         mut state: Option<&mut StateStore>,
@@ -273,14 +281,21 @@ impl<'a> WorkflowRunner<'a> {
             };
 
             let step_start = Instant::now();
-            let result =
-                match execute_step(step, project_root, context, global_env, &exec_options, None) {
-                    Ok(result) => result,
-                    Err(e) => {
-                        warn!("Step '{}' errored: {}", step_name, e);
-                        StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
-                    }
-                };
+            let result = match execute_step(
+                step,
+                project_root,
+                context,
+                base_env,
+                process_env,
+                &exec_options,
+                None,
+            ) {
+                Ok(result) => result,
+                Err(e) => {
+                    warn!("Step '{}' errored: {}", step_name, e);
+                    StepResult::failure(step_name, step_start.elapsed(), e.to_string(), None)
+                }
+            };
 
             on_progress(RunProgress::StepFinished {
                 name: step_name,

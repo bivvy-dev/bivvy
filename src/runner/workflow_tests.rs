@@ -85,7 +85,13 @@ fn run_workflow_in_order() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     assert!(result.success);
@@ -132,7 +138,13 @@ fn run_workflow_with_skip() {
 
     let ctx = InterpolationContext::new();
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     assert!(result.skipped.contains(&"first".to_string()));
@@ -168,7 +180,13 @@ fn dry_run_does_not_execute() {
 
     let ctx = InterpolationContext::new();
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     assert!(result.success);
@@ -203,6 +221,7 @@ fn run_with_progress_emits_events() {
         .run_with_progress(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             None,
@@ -266,6 +285,7 @@ fn run_with_progress_reports_skips() {
         .run_with_progress(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             None,
@@ -360,6 +380,7 @@ fn run_with_ui_executes_simple_step() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -411,6 +432,7 @@ fn run_with_ui_interactive_no_check_auto_runs() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -472,6 +494,7 @@ fn run_with_ui_incomplete_check_auto_runs() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -531,6 +554,7 @@ fn run_with_ui_auto_skips_when_satisfied() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -593,6 +617,7 @@ fn run_with_ui_force_reruns_satisfied_step() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -671,6 +696,7 @@ fn run_with_ui_force_all_reruns_every_satisfied_step() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -731,6 +757,7 @@ fn run_with_ui_step_level_force_reruns_satisfied_step() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -830,6 +857,7 @@ fn workflow_force_all_in_yaml_reruns_every_satisfied_step() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -921,6 +949,7 @@ fn workflow_force_list_in_yaml_reruns_only_listed_steps() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -1001,6 +1030,7 @@ fn run_with_ui_silent_skip_when_not_interactive() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -1062,6 +1092,7 @@ fn run_with_ui_silent_skip_when_prompt_on_rerun_false() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -1113,6 +1144,7 @@ fn run_with_ui_sensitive_step_prompts() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -1163,6 +1195,7 @@ fn run_with_ui_sensitive_not_skippable_declined_errors() {
     let result = runner.run_with_ui(
         &options,
         &ctx,
+        &HashMap::new(),
         &HashMap::new(),
         temp.path(),
         false,
@@ -1218,6 +1251,7 @@ fn run_with_ui_workflow_non_interactive_suppresses_prompts() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             true, // workflow_non_interactive
@@ -1287,6 +1321,7 @@ fn run_with_ui_step_override_disables_prompt_on_rerun() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &overrides,
@@ -1338,7 +1373,13 @@ fn failed_step_stops_dependent_step() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     // Should return Ok (not Err), but marked as failed
@@ -1383,7 +1424,13 @@ fn allow_failure_continues_to_next_step() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     // Workflow reports failure (a step failed)
@@ -1438,7 +1485,13 @@ fn step_execution_error_does_not_abort_workflow() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     // Workflow completed (not Err), but not fully successful
@@ -1489,7 +1542,13 @@ fn step_execution_error_stops_when_not_allow_failure() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     // Returns Ok (not Err), marked as failed
@@ -1539,6 +1598,7 @@ fn run_with_ui_step_error_continues_with_allow_failure() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -1591,6 +1651,7 @@ fn run_with_ui_shows_error_output_on_failure() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -1635,6 +1696,7 @@ fn run_with_ui_error_block_indent_single_step() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -1690,6 +1752,7 @@ fn run_with_ui_error_block_indent_two_digit_total() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -1757,7 +1820,13 @@ fn allow_failure_lets_all_dependent_steps_run() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     assert!(!result.success);
@@ -1808,7 +1877,13 @@ fn independent_steps_continue_after_failure() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     assert!(!result.success);
@@ -1865,7 +1940,13 @@ fn transitive_dependency_blocked() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), temp.path())
+        .run(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            &HashMap::new(),
+            temp.path(),
+        )
         .unwrap();
 
     assert!(!result.success);
@@ -1910,6 +1991,7 @@ fn run_with_ui_auto_runs_all_steps_without_prompting() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -1963,6 +2045,7 @@ fn run_with_ui_confirm_step_skipped_when_declined() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2012,6 +2095,7 @@ fn run_with_ui_no_prompt_when_not_skippable() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2058,6 +2142,7 @@ fn run_with_ui_no_prompt_when_non_interactive() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -2115,6 +2200,7 @@ fn run_with_ui_satisfied_step_auto_skips_no_prompts() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2167,6 +2253,7 @@ fn run_with_ui_blocked_step_shows_warning() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -2233,6 +2320,7 @@ fn run_with_ui_proceeds_when_all_satisfied() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2290,6 +2378,7 @@ fn run_with_ui_warns_on_system_only() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2343,6 +2432,7 @@ fn run_with_ui_errors_on_unknown_requirement() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -2398,6 +2488,7 @@ fn run_with_ui_non_interactive_fails_on_missing() {
     let result = runner.run_with_ui(
         &options,
         &ctx,
+        &HashMap::new(),
         &HashMap::new(),
         temp.path(),
         false,
@@ -2456,6 +2547,7 @@ fn run_with_ui_interactive_warns_on_missing() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2505,6 +2597,7 @@ fn run_with_ui_no_gaps_when_requires_empty() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2551,7 +2644,7 @@ fn run_filters_only_environments() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &global_env, temp.path())
+        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
         .unwrap();
 
     // ci_only should be skipped in development
@@ -2589,7 +2682,7 @@ fn run_includes_matching_only_environments() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &global_env, temp.path())
+        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
         .unwrap();
 
     // ci_only should run in ci environment
@@ -2624,7 +2717,7 @@ fn run_empty_only_environments_runs_always() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &global_env, temp.path())
+        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
         .unwrap();
 
     assert_eq!(result.steps.len(), 1);
@@ -2663,7 +2756,7 @@ fn run_only_environments_skipped_steps_in_result() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &global_env, temp.path())
+        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
         .unwrap();
 
     assert_eq!(result.steps.len(), 1);
@@ -2706,6 +2799,7 @@ fn run_with_progress_respects_only_environments() {
         .run_with_progress(
             &options,
             &ctx,
+            &HashMap::new(),
             &global_env,
             temp.path(),
             None,
@@ -2807,6 +2901,7 @@ fn recovery_retry_succeeds() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2870,6 +2965,7 @@ fn recovery_skip_does_not_block_dependents() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2932,6 +3028,7 @@ fn recovery_abort_stops_workflow() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -2992,6 +3089,7 @@ fn recovery_abort_includes_partial_results() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -3045,6 +3143,7 @@ fn auto_retry_before_menu() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -3103,6 +3202,7 @@ fn auto_retry_succeeds() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -3164,6 +3264,7 @@ fn allow_failure_suppresses_menu() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -3213,6 +3314,7 @@ fn non_interactive_no_menu() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -3269,6 +3371,7 @@ fn non_interactive_auto_retry() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -3318,6 +3421,7 @@ fn recovery_detail_in_skip() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -3373,6 +3477,7 @@ fn recovery_detail_in_retry() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -3426,6 +3531,7 @@ fn hint_shown_on_low_confidence() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,
@@ -3505,6 +3611,7 @@ fn recovery_fix_confirmed_retries() {
             &options,
             &ctx,
             &HashMap::new(),
+            &HashMap::new(),
             temp.path(),
             false,
             &HashMap::new(),
@@ -3554,6 +3661,7 @@ fn recovery_fix_declined_reprompts() {
         .run_with_ui(
             &options,
             &ctx,
+            &HashMap::new(),
             &HashMap::new(),
             temp.path(),
             false,

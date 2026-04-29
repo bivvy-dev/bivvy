@@ -32,6 +32,7 @@
 //!     Path::new("."),
 //!     &ctx,
 //!     &HashMap::new(),
+//!     &HashMap::new(),
 //!     &options,
 //!     None,
 //! ).unwrap();
@@ -48,7 +49,7 @@ pub mod executor;
 pub mod resolved;
 pub mod sensitive;
 
-pub use executor::{execute_step, ExecutionOptions, StepResult, StepStatus};
+pub use executor::{build_step_env, execute_step, ExecutionOptions, StepResult, StepStatus};
 pub use resolved::{
     ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
     ResolvedScoping, ResolvedStep,

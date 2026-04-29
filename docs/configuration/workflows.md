@@ -93,6 +93,28 @@ settings:
   skip_behavior: run_dependents        # Still try to run dependent steps
 ```
 
+## Workflow Environment Variables
+
+A workflow can declare environment variables that apply to every step
+it runs:
+
+```yaml
+workflows:
+  ci:
+    steps: [deps, test]
+    env:
+      CI: "true"
+      RAILS_ENV: test
+    env_file: .env.ci
+```
+
+`env_file` is loaded relative to the project root. Values in `env:`
+win over `env_file`. Workflow-level values override
+`settings.env:` / `settings.env_file:` from the project-wide settings,
+and step-level `env:` / `env_file:` override workflow-level values.
+Shell-exported variables (`FOO=bar bivvy run`) win over all of them —
+see [Environment Variable Precedence](steps.md#environment-variable-precedence).
+
 ## Workflow Settings
 
 Override global settings per workflow:

@@ -457,7 +457,16 @@ impl Command for RunCommand {
 
         // Create interpolation context
         let ctx = InterpolationContext::new().with_vars(resolved_vars);
-        let global_env: HashMap<String, String> = std::env::vars().collect();
+
+        // Build the YAML-defined base env (settings.env_vars + workflow env),
+        // then snapshot the parent process env. The base env is layered first
+        // and the process env wins last in the executor (see
+        // `bivvy::steps::build_step_env`), so shell-exported variables
+        // override anything declared in YAML.
+        let base_env =
+            crate::config::build_yaml_env_stack(&config, &workflow_name, &self.project_root)?
+                .resolve();
+        let process_env: HashMap<String, String> = std::env::vars().collect();
 
         // Create event bus with logger for structured event logging
         let mut event_bus = crate::logging::EventBus::new();
@@ -521,7 +530,8 @@ impl Command for RunCommand {
         let result = runner.run_with_ui(
             &options,
             &ctx,
-            &global_env,
+            &base_env,
+            &process_env,
             &self.project_root,
             workflow_non_interactive,
             &step_overrides,

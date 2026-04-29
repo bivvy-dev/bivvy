@@ -15,11 +15,14 @@ use crate::shell::platform::detect_shell;
 /// The shell inherits stdin/stdout/stderr (takes over the terminal) and
 /// blocks until the user exits. Sets `BIVVY_DEBUG=1` and
 /// `BIVVY_DEBUG_STEP=<step_name>` in the environment.
+///
+/// `env` is the fully-merged environment the step ran with — see
+/// [`crate::steps::build_step_env`] for the layering rules. The debug shell
+/// itself only adds the `BIVVY_DEBUG` markers on top.
 pub fn spawn_debug_shell(
     step_name: &str,
     project_root: &Path,
-    step_env: &HashMap<String, String>,
-    global_env: &HashMap<String, String>,
+    env: &HashMap<String, String>,
 ) -> Result<()> {
     let shell_info = detect_shell();
     let shell_exe = shell_info.executable;
@@ -30,9 +33,7 @@ pub fn spawn_debug_shell(
     // Set working directory
     cmd.current_dir(project_root);
 
-    // Merge global env + step env (step overrides global)
-    let mut env: HashMap<String, String> = global_env.clone();
-    env.extend(step_env.iter().map(|(k, v)| (k.clone(), v.clone())));
+    let mut env = env.clone();
 
     // Add bivvy debug markers
     env.insert("BIVVY_DEBUG".to_string(), "1".to_string());
@@ -81,21 +82,17 @@ mod tests {
         // but we can verify the env setup logic by building a non-interactive
         // command that echoes the env vars.
         let temp = tempfile::TempDir::new().unwrap();
-        let step_env = HashMap::new();
-        let mut global_env: HashMap<String, String> = HashMap::new();
-        global_env.insert(
+        let mut env: HashMap<String, String> = HashMap::new();
+        env.insert(
             "PATH".to_string(),
             std::env::var("PATH").unwrap_or_default(),
         );
 
-        // Use a non-interactive command to verify env vars are set
         let shell_info = detect_shell();
         let mut cmd = Command::new(&shell_info.executable);
         cmd.args(["-c", "echo $BIVVY_DEBUG:$BIVVY_DEBUG_STEP"]);
         cmd.current_dir(temp.path());
 
-        let mut env = global_env;
-        env.extend(step_env);
         env.insert("BIVVY_DEBUG".to_string(), "1".to_string());
         env.insert("BIVVY_DEBUG_STEP".to_string(), "test_step".to_string());
         cmd.envs(&env);

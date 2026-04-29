@@ -106,7 +106,7 @@ pub use extends::{validate_extends, ExtendsResolver};
 pub use trust::{TrustPolicy, TrustStore};
 
 // Env layer re-exports
-pub use env_layer::{EnvLayer, EnvLayerStack};
+pub use env_layer::{build_yaml_env_stack, EnvLayer, EnvLayerStack};
 
 // Env file re-exports
 pub use env_file::EnvFileParser;

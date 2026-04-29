@@ -35,7 +35,11 @@ pub(super) struct StepExecutionOptions<'a> {
     pub interactive: bool,
     pub diagnostic_funnel: bool,
     pub project_root: &'a Path,
-    pub global_env: &'a HashMap<String, String>,
+    /// YAML-defined env (settings + workflow), pre-merged in priority order.
+    /// Step-level env layers and `process_env` are applied on top.
+    pub base_env: &'a HashMap<String, String>,
+    /// Parent process environment. Wins over `base_env` and step env.
+    pub process_env: &'a HashMap<String, String>,
     pub force_steps: &'a HashSet<String>,
     pub force_all: bool,
     pub provided_requirements: &'a HashSet<String>,
@@ -435,7 +439,8 @@ impl<'a> StepManager<'a> {
             step_indent,
             opts.project_root,
             context,
-            opts.global_env,
+            opts.base_env,
+            opts.process_env,
             needs_force,
             opts.dry_run,
             opts.interactive,

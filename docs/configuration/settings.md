@@ -46,6 +46,19 @@ settings:
     DEBUG: "true"
 ```
 
+Or load from a file:
+
+```yaml
+settings:
+  env_file: .env.bivvy
+```
+
+Both forms can be combined; values in `env:` win over `env_file`. These
+project-wide values are the lowest layer in the env stack — workflow
+and step values override them, and shell-exported variables override
+everything. See
+[Environment Variable Precedence](steps.md#environment-variable-precedence).
+
 ## Parallel Execution
 
 ```yaml

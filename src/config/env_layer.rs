@@ -3,7 +3,11 @@
 //! This module provides priority-based environment variable management
 //! with source tracking for debugging.
 
+use crate::config::environment::load_env_file;
+use crate::config::schema::BivvyConfig;
+use crate::error::Result;
 use std::collections::HashMap;
+use std::path::Path;
 
 /// Represents a layer of environment variables.
 ///
@@ -155,6 +159,73 @@ impl Default for EnvLayerStack {
     }
 }
 
+/// Build the YAML-defined env layer stack for a given workflow.
+///
+/// Layers are pushed in priority order (lowest → highest):
+///
+/// 1. `settings.env_vars.env_file` (loaded from disk, relative to project_root)
+/// 2. `settings.env_vars.env`
+/// 3. `workflows.<name>.env_file` (loaded from disk, relative to project_root)
+/// 4. `workflows.<name>.env`
+///
+/// The returned stack is the YAML-derived "base" env. Step-level `env_file`
+/// and `env`, plus the parent process environment, are layered on top of this
+/// inside the step executor — the process env always wins.
+///
+/// If the named workflow does not exist in the config, only the global layers
+/// are included.
+///
+/// # Errors
+///
+/// Returns an error if any specified env_file cannot be read or parsed.
+pub fn build_yaml_env_stack(
+    config: &BivvyConfig,
+    workflow_name: &str,
+    project_root: &Path,
+) -> Result<EnvLayerStack> {
+    let mut stack = EnvLayerStack::new();
+
+    if let Some(ref env_file) = config.settings.env_vars.env_file {
+        let resolved = project_root.join(env_file);
+        let file_env = load_env_file(&resolved)?;
+        let mut layer = EnvLayer::new("settings.env_vars.env_file");
+        for (k, v) in file_env {
+            layer.set(k, v);
+        }
+        stack.push(layer);
+    }
+
+    if !config.settings.env_vars.env.is_empty() {
+        let mut layer = EnvLayer::new("settings.env_vars.env");
+        for (k, v) in &config.settings.env_vars.env {
+            layer.set(k, v);
+        }
+        stack.push(layer);
+    }
+
+    if let Some(workflow) = config.workflows.get(workflow_name) {
+        if let Some(ref env_file) = workflow.env_file {
+            let resolved = project_root.join(env_file);
+            let file_env = load_env_file(&resolved)?;
+            let mut layer = EnvLayer::new(format!("workflows.{}.env_file", workflow_name));
+            for (k, v) in file_env {
+                layer.set(k, v);
+            }
+            stack.push(layer);
+        }
+
+        if !workflow.env.is_empty() {
+            let mut layer = EnvLayer::new(format!("workflows.{}.env", workflow_name));
+            for (k, v) in &workflow.env {
+                layer.set(k, v);
+            }
+            stack.push(layer);
+        }
+    }
+
+    Ok(stack)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -263,5 +334,193 @@ mod tests {
 
         assert_eq!(stack.get("KEY"), Some("value3"));
         assert_eq!(stack.source_of("KEY"), Some("layer3"));
+    }
+
+    mod build_yaml_env_stack {
+        use super::*;
+        use std::fs;
+        use tempfile::TempDir;
+
+        fn parse(yaml: &str) -> BivvyConfig {
+            serde_yaml::from_str(yaml).unwrap()
+        }
+
+        #[test]
+        fn empty_config_produces_empty_stack() {
+            let config = parse("app_name: test\n");
+            let temp = TempDir::new().unwrap();
+            let stack = build_yaml_env_stack(&config, "default", temp.path()).unwrap();
+            assert_eq!(stack.layer_count(), 0);
+        }
+
+        #[test]
+        fn settings_env_layer_is_pushed() {
+            let config = parse(
+                r#"
+app_name: test
+settings:
+  env:
+    GLOBAL_KEY: global_value
+"#,
+            );
+            let temp = TempDir::new().unwrap();
+            let stack = build_yaml_env_stack(&config, "default", temp.path()).unwrap();
+            assert_eq!(stack.get("GLOBAL_KEY"), Some("global_value"));
+            assert_eq!(stack.source_of("GLOBAL_KEY"), Some("settings.env_vars.env"));
+        }
+
+        #[test]
+        fn workflow_env_overrides_settings_env() {
+            let config = parse(
+                r#"
+app_name: test
+settings:
+  env:
+    DATABASE_URL: from_settings
+workflows:
+  default:
+    steps: []
+    env:
+      DATABASE_URL: from_workflow
+"#,
+            );
+            let temp = TempDir::new().unwrap();
+            let stack = build_yaml_env_stack(&config, "default", temp.path()).unwrap();
+            assert_eq!(stack.get("DATABASE_URL"), Some("from_workflow"));
+            assert_eq!(
+                stack.source_of("DATABASE_URL"),
+                Some("workflows.default.env")
+            );
+        }
+
+        #[test]
+        fn settings_env_file_layer_loads_from_disk() {
+            let temp = TempDir::new().unwrap();
+            fs::write(
+                temp.path().join(".env.global"),
+                "GLOBAL_URL=https://global\n",
+            )
+            .unwrap();
+            let config = parse(
+                r#"
+app_name: test
+settings:
+  env_file: .env.global
+"#,
+            );
+            let stack = build_yaml_env_stack(&config, "default", temp.path()).unwrap();
+            assert_eq!(stack.get("GLOBAL_URL"), Some("https://global"));
+            assert_eq!(
+                stack.source_of("GLOBAL_URL"),
+                Some("settings.env_vars.env_file"),
+            );
+        }
+
+        #[test]
+        fn settings_env_overrides_settings_env_file() {
+            let temp = TempDir::new().unwrap();
+            fs::write(temp.path().join(".env.global"), "PORT=8080\n").unwrap();
+            let config = parse(
+                r#"
+app_name: test
+settings:
+  env_file: .env.global
+  env:
+    PORT: "9090"
+"#,
+            );
+            let stack = build_yaml_env_stack(&config, "default", temp.path()).unwrap();
+            assert_eq!(stack.get("PORT"), Some("9090"));
+            assert_eq!(stack.source_of("PORT"), Some("settings.env_vars.env"));
+        }
+
+        #[test]
+        fn workflow_env_file_layer_loads_from_disk() {
+            let temp = TempDir::new().unwrap();
+            fs::write(temp.path().join(".env.ci"), "CI_TOKEN=abc123\n").unwrap();
+            let config = parse(
+                r#"
+app_name: test
+workflows:
+  ci:
+    steps: []
+    env_file: .env.ci
+"#,
+            );
+            let stack = build_yaml_env_stack(&config, "ci", temp.path()).unwrap();
+            assert_eq!(stack.get("CI_TOKEN"), Some("abc123"));
+            assert_eq!(stack.source_of("CI_TOKEN"), Some("workflows.ci.env_file"));
+        }
+
+        #[test]
+        fn workflow_env_overrides_workflow_env_file() {
+            let temp = TempDir::new().unwrap();
+            fs::write(temp.path().join(".env.ci"), "MODE=fast\n").unwrap();
+            let config = parse(
+                r#"
+app_name: test
+workflows:
+  ci:
+    steps: []
+    env_file: .env.ci
+    env:
+      MODE: thorough
+"#,
+            );
+            let stack = build_yaml_env_stack(&config, "ci", temp.path()).unwrap();
+            assert_eq!(stack.get("MODE"), Some("thorough"));
+            assert_eq!(stack.source_of("MODE"), Some("workflows.ci.env"));
+        }
+
+        #[test]
+        fn unknown_workflow_only_includes_global_layers() {
+            let config = parse(
+                r#"
+app_name: test
+settings:
+  env:
+    GLOBAL_KEY: global_value
+workflows:
+  ci:
+    steps: []
+    env:
+      CI_ONLY: ci_value
+"#,
+            );
+            let temp = TempDir::new().unwrap();
+            let stack = build_yaml_env_stack(&config, "default", temp.path()).unwrap();
+            assert_eq!(stack.get("GLOBAL_KEY"), Some("global_value"));
+            assert_eq!(stack.get("CI_ONLY"), None);
+        }
+
+        #[test]
+        fn missing_settings_env_file_is_an_error() {
+            let config = parse(
+                r#"
+app_name: test
+settings:
+  env_file: .env.does-not-exist
+"#,
+            );
+            let temp = TempDir::new().unwrap();
+            let result = build_yaml_env_stack(&config, "default", temp.path());
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn missing_workflow_env_file_is_an_error() {
+            let config = parse(
+                r#"
+app_name: test
+workflows:
+  ci:
+    steps: []
+    env_file: .env.missing
+"#,
+            );
+            let temp = TempDir::new().unwrap();
+            let result = build_yaml_env_stack(&config, "ci", temp.path());
+            assert!(result.is_err());
+        }
     }
 }
