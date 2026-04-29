@@ -174,6 +174,29 @@ fn deduce_connection_refused(
     step_ctx: &StepContext<'_>,
     workflow_state: &WorkflowState<'_>,
 ) {
+    // Docker daemon errors need special handling — they aren't a typical
+    // service dependency but a host-level runtime (Docker Desktop on macOS,
+    // systemd unit on Linux).
+    if is_docker_daemon_error(step_ctx) {
+        resolutions.push(ResolutionCandidate {
+            label: "open -a Docker".to_string(),
+            command: Some("open -a Docker".to_string()),
+            explanation: "Docker daemon is not running".to_string(),
+            confidence: 0.7,
+            source: ResolutionSource::Deduced,
+            platform: Some(Platform::MacOS),
+        });
+        resolutions.push(ResolutionCandidate {
+            label: "systemctl start docker".to_string(),
+            command: Some("systemctl start docker".to_string()),
+            explanation: "Docker daemon is not running".to_string(),
+            confidence: 0.7,
+            source: ResolutionSource::Deduced,
+            platform: Some(Platform::Linux),
+        });
+        return;
+    }
+
     let service = details.service.as_deref().or_else(|| {
         step_ctx
             .requires
@@ -230,6 +253,15 @@ fn deduce_connection_refused(
             platform: None,
         });
     }
+}
+
+/// Detect Docker daemon connection errors.
+///
+/// When a `docker` command hits `ConnectionRefused`, it's almost always because
+/// the Docker daemon isn't running. Port-in-use errors are classified as
+/// `PortConflict` by Stage 3, so they don't reach this path.
+fn is_docker_daemon_error(step_ctx: &StepContext<'_>) -> bool {
+    step_ctx.command.contains("docker")
 }
 
 fn deduce_version_mismatch(
@@ -610,6 +642,77 @@ mod tests {
                 .unwrap_or(false)
         });
         assert!(has_start);
+    }
+
+    #[test]
+    fn docker_daemon_connection_refused_suggests_open_docker() {
+        let details = DiagnosticDetails::default();
+        let cats = vec![CategoryMatch {
+            category: ErrorCategory::ConnectionRefused,
+            confidence: 0.3,
+        }];
+        let ctx = make_ctx("docker run -d --name myapp-db -p 5432:5432 postgres:16");
+        let outcomes = HashMap::new();
+        let ws = WorkflowState {
+            steps: &[],
+            outcomes: &outcomes,
+        };
+
+        let res = deduce_resolutions(&cats, &details, &ctx, &ws);
+        // On macOS, should suggest "open -a Docker"; on Linux, "systemctl start docker"
+        // Platform filtering happens in merge_resolutions, so both are present here.
+        assert!(res
+            .iter()
+            .any(|r| r.command.as_deref() == Some("open -a Docker")));
+        assert!(res
+            .iter()
+            .any(|r| r.command.as_deref() == Some("systemctl start docker")));
+        // Confidence should be high enough to show as a Fix option (>= 0.6)
+        let docker_res = res
+            .iter()
+            .find(|r| r.command.as_deref() == Some("open -a Docker"))
+            .unwrap();
+        assert!(docker_res.confidence >= 0.6);
+    }
+
+    #[test]
+    fn docker_compose_connection_refused_suggests_open_docker() {
+        let details = DiagnosticDetails::default();
+        let cats = vec![CategoryMatch {
+            category: ErrorCategory::ConnectionRefused,
+            confidence: 0.3,
+        }];
+        let ctx = make_ctx("docker compose up -d");
+        let outcomes = HashMap::new();
+        let ws = WorkflowState {
+            steps: &[],
+            outcomes: &outcomes,
+        };
+
+        let res = deduce_resolutions(&cats, &details, &ctx, &ws);
+        assert!(res
+            .iter()
+            .any(|r| r.command.as_deref() == Some("open -a Docker")));
+    }
+
+    #[test]
+    fn non_docker_connection_refused_does_not_suggest_docker() {
+        let details = DiagnosticDetails::default();
+        let cats = vec![CategoryMatch {
+            category: ErrorCategory::ConnectionRefused,
+            confidence: 0.3,
+        }];
+        let ctx = make_ctx("rails db:create");
+        let outcomes = HashMap::new();
+        let ws = WorkflowState {
+            steps: &[],
+            outcomes: &outcomes,
+        };
+
+        let res = deduce_resolutions(&cats, &details, &ctx, &ws);
+        assert!(!res
+            .iter()
+            .any(|r| r.command.as_deref() == Some("open -a Docker")));
     }
 
     #[test]

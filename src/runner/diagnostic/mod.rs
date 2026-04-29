@@ -184,7 +184,7 @@ pg_dump: error: server version: 16.13 (Homebrew); pg_dump version: 14.21 (Homebr
 pg_dump: error: aborting because of server version mismatch
 bin/rails aborted!
 failed to execute:
-pg_dump --schema-only --no-privileges --no-owner --file db/structure.sql qualify_development
+pg_dump --schema-only --no-privileges --no-owner --file db/structure.sql myapp_development
 
 Please check the output above for any errors and make sure that `pg_dump` is installed in your PATH and has proper permissions.
 
