@@ -11,7 +11,7 @@ expression: normalize_for_snapshot(&summary)
 [█████░░░░░░░░░░░] 1/3 steps · [TIME] elapsed
 
 [2/3] verify-repo — Verify repository
-      ✓ ✓ Satisfied (✓ git rev-parse --git-dir succeeded)
+      ✓ Satisfied (✓ git rev-parse --git-dir succeeded)
 [██████████░░░░░░] 2/3 steps · [TIME] elapsed
 
 [3/3] run-analysis — Run analysis
