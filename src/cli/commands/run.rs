@@ -173,7 +173,7 @@ impl RunCommand {
 /// Force is monotonic — any source can opt a step in — so the result is
 /// the union of `--force <steps>` / `workflow.force` and the OR of
 /// `--force-all` / `workflow.force_all`. Returns `(force_steps, force_all)`.
-fn merge_force_directives(
+pub(crate) fn merge_force_directives(
     args: &RunArgs,
     workflow: Option<&crate::config::WorkflowConfig>,
 ) -> (HashSet<String>, bool) {

@@ -760,6 +760,197 @@ fn run_options_should_force_returns_true_for_named_step() {
 }
 
 #[test]
+fn workflow_force_all_in_yaml_reruns_every_satisfied_step() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("a.marker"), "done").unwrap();
+    fs::write(temp.path().join("b.marker"), "done").unwrap();
+
+    // Workflow declares force_all: true. After merge_force_directives, this
+    // should land in RunOptions.force_all and the runner should bypass checks.
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [step_a, step_b]
+                force_all: true
+        "#,
+    )
+    .unwrap();
+
+    let args = crate::cli::args::RunArgs {
+        workflow: "default".to_string(),
+        ..Default::default()
+    };
+    let (force, force_all) =
+        crate::cli::commands::run::merge_force_directives(&args, config.workflows.get("default"));
+    assert!(force_all, "workflow.force_all should propagate");
+    assert!(force.is_empty());
+
+    let mut steps = HashMap::new();
+    steps.insert(
+        "step_a".to_string(),
+        make_step_with_check(
+            "step_a",
+            "echo a",
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("a.marker".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        ),
+    );
+    steps.insert(
+        "step_b".to_string(),
+        make_step_with_check(
+            "step_b",
+            "echo b",
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("b.marker".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        ),
+    );
+
+    let mut runner = WorkflowRunner::new(&config, steps);
+    let options = RunOptions {
+        force,
+        force_all,
+        ..RunOptions::default()
+    };
+    let ctx = InterpolationContext::new();
+
+    let mut ui = MockUI::new();
+    ui.set_interactive(true);
+
+    let result = runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            None,
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                "/tmp/bivvy_test_workflow_force_all_sat.json",
+            )),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
+
+    assert!(result.success);
+    assert_eq!(result.steps.len(), 2);
+    assert!(!result.steps[0].skipped);
+    assert!(!result.steps[1].skipped);
+}
+
+#[test]
+fn workflow_force_list_in_yaml_reruns_only_listed_steps() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("install.marker"), "done").unwrap();
+    fs::write(temp.path().join("build.marker"), "done").unwrap();
+
+    // Workflow declares force: [build]. After merging, only "build" is
+    // forced — "install" still skips when its check passes.
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [install, build]
+                force: [build]
+        "#,
+    )
+    .unwrap();
+
+    let args = crate::cli::args::RunArgs {
+        workflow: "default".to_string(),
+        ..Default::default()
+    };
+    let (force, force_all) =
+        crate::cli::commands::run::merge_force_directives(&args, config.workflows.get("default"));
+    assert!(!force_all);
+    assert!(force.contains("build"));
+    assert!(!force.contains("install"));
+
+    let mut steps = HashMap::new();
+    steps.insert(
+        "install".to_string(),
+        make_step_with_check(
+            "install",
+            "echo install",
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("install.marker".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        ),
+    );
+    steps.insert(
+        "build".to_string(),
+        make_step_with_check(
+            "build",
+            "echo build",
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("build.marker".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        ),
+    );
+
+    let mut runner = WorkflowRunner::new(&config, steps);
+    let options = RunOptions {
+        force,
+        force_all,
+        ..RunOptions::default()
+    };
+    let ctx = InterpolationContext::new();
+
+    let mut ui = MockUI::new();
+    ui.set_interactive(true);
+
+    let result = runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            None,
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                "/tmp/bivvy_test_workflow_force_list_sat.json",
+            )),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
+
+    assert!(result.success);
+    assert_eq!(result.steps.len(), 2);
+
+    // "install" should be check-passed (check satisfied, step not forced)
+    // — that path produces a result with check_result populated and the
+    // command never ran.
+    let install_result = result.steps.iter().find(|s| s.name == "install").unwrap();
+    assert!(install_result.check_result.is_some());
+    assert!(install_result.exit_code.is_none());
+
+    // "build" should have run (forced via workflow.force list).
+    let build_result = result.steps.iter().find(|s| s.name == "build").unwrap();
+    assert!(build_result.check_result.is_none());
+    assert!(build_result.exit_code.is_some());
+}
+
+#[test]
 fn run_options_should_force_returns_true_for_every_step_when_force_all() {
     let options = RunOptions {
         force_all: true,
