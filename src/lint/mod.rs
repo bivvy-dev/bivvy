@@ -47,5 +47,5 @@ pub use rules::{
     ServiceRequirementWithoutHintRule, TemplateInputsRule, UndefinedDependencyRule,
     UndefinedTemplateRule, UnknownRequirementRule,
 };
-pub use schema::{embedded_schema, SchemaGenerator, EMBEDDED_SCHEMA_JSON};
+pub use schema::{schema_json, schema_value, SchemaGenerator};
 pub use span::Span;

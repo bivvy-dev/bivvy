@@ -82,12 +82,14 @@ impl InitCommand {
              #     ci:\n\
              #       steps: [bundle-install, yarn-install]\n\
              #       settings:\n\
-             #         default_output: quiet\n\
+             #         defaults:\n\
+             #           output: quiet\n\
              \n\
              app_name: \"{project_name}\"\n\
              \n\
              settings:\n\
-             \x20 default_output: verbose  # verbose | quiet | silent\n"
+             \x20 defaults:\n\
+             \x20   output: verbose  # verbose | quiet | silent\n"
         );
 
         if !steps.is_empty() {
@@ -220,7 +222,7 @@ impl InitCommand {
     /// Write `.bivvy/schema.json` for offline IDE support.
     fn write_schema_file(&self, ui: &mut dyn OutputWriter) -> Result<()> {
         let schema_path = self.project_root.join(".bivvy/schema.json");
-        fs::write(&schema_path, crate::lint::EMBEDDED_SCHEMA_JSON)?;
+        fs::write(&schema_path, crate::lint::schema_json())?;
         ui.message("Generated .bivvy/schema.json for IDE support");
         Ok(())
     }
@@ -502,7 +504,7 @@ mod tests {
 
         assert!(config.contains("# Bivvy configuration for"));
         assert!(config.contains("# Docs: https://bivvy.dev/configuration"));
-        assert!(config.contains("default_output: verbose  # verbose | quiet | silent"));
+        assert!(config.contains("output: verbose  # verbose | quiet | silent"));
 
         // Customization guide should appear before app_name (in the header)
         let guide_pos = config.find("# Override any template field").unwrap();
