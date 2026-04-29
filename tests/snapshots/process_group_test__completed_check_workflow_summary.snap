@@ -5,19 +5,6 @@ expression: normalize_for_snapshot(&summary)
 ⛺ CompletedCheckTest v1.9.0 · default workflow · 3 steps
 
   Environment: development (default)
-[1/3] install-tools — Install tools
-[1/3] ✓ install-tools ([TIME])
-
-[█████░░░░░░░░░░░] 1/3 steps · [TIME] elapsed
-
-[2/3] verify-repo — Verify repository
-      ✓ Satisfied (✓ git rev-parse --git-dir succeeded)
-[██████████░░░░░░] 2/3 steps · [TIME] elapsed
-
-[3/3] run-analysis — Run analysis
-[3/3] ✓ run-analysis ([TIME])
-
-[████████████████] 3/3 steps · [TIME] elapsed
 
 ┌─ Summary ──────────────────────────
 │ ✓ install-tools        [TIME]

@@ -1,11 +1,9 @@
+
 ---
 source: tests/process_group_test.rs
-assertion_line: 597
 expression: normalize_for_snapshot(&summary)
 ---
   › Abort
-
-[██████████░░░░░░] 2/3 steps · [TIME] elapsed
 
 ┌─ Summary ──────────────────────────
 │ ✓ will-succeed         [TIME]

@@ -5,20 +5,6 @@ expression: normalize_for_snapshot(&summary)
 ⛺ ProcessGroupTest v1.9.0 · default workflow · 3 steps
 
   Environment: development (default)
-[1/3] check-toolchain — Check toolchain
-[1/3] ✓ check-toolchain ([TIME])
-
-[█████░░░░░░░░░░░] 1/3 steps · [TIME] elapsed
-
-[2/3] check-git — Check git
-[2/3] ✓ check-git ([TIME])
-
-[██████████░░░░░░] 2/3 steps · [TIME] elapsed
-
-[3/3] check-cargo — Check cargo
-[3/3] ✓ check-cargo ([TIME])
-
-[████████████████] 3/3 steps · [TIME] elapsed
 
 ┌─ Summary ──────────────────────────
 │ ✓ check-toolchain      [TIME]

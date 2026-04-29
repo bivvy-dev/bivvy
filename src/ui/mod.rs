@@ -136,6 +136,12 @@ pub trait WorkflowDisplay: OutputWriter + ProgressDisplay {
         self.show_header(app_name);
     }
 
+    /// Initialize a persistent workflow progress bar.
+    ///
+    /// Called once before the step loop begins. Implementations that support
+    /// a pinned progress bar (e.g., `TerminalUI`) create it here.
+    fn init_workflow_progress(&mut self, _total: usize) {}
+
     /// Show/update workflow progress bar.
     fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
         let _ = elapsed;

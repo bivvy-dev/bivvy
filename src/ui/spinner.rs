@@ -1,6 +1,6 @@
 //! Progress spinners.
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -24,16 +24,37 @@ impl ProgressSpinner {
 
     /// Create a new spinner with indentation.
     pub fn with_indent(message: &str, indent: usize) -> Self {
-        let bar = ProgressBar::new_spinner();
+        Self::create(message, indent, None)
+    }
+
+    /// Create a new spinner inside a [`MultiProgress`].
+    ///
+    /// The spinner bar is inserted *before* the last bar (the pinned
+    /// workflow progress bar), so it renders above it.
+    pub fn with_multi(message: &str, indent: usize, multi: &MultiProgress) -> Self {
+        Self::create(message, indent, Some(multi))
+    }
+
+    fn create(message: &str, indent: usize, multi: Option<&MultiProgress>) -> Self {
+        let raw_bar = ProgressBar::new_spinner();
         let prefix = " ".repeat(indent);
-        bar.set_style(
+        raw_bar.set_style(
             ProgressStyle::default_spinner()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .template(&format!("{}{{spinner:.magenta}} {{msg}}", prefix))
                 .unwrap(),
         );
-        bar.set_message(message.to_string());
-        bar.enable_steady_tick(Duration::from_millis(80));
+        raw_bar.set_message(message.to_string());
+        raw_bar.enable_steady_tick(Duration::from_millis(80));
+
+        // If a multi-progress is provided, insert the spinner above the
+        // last bar (the pinned workflow progress bar). `insert_from_back(1)`
+        // puts it just before the final bar.
+        let bar = if let Some(multi) = multi {
+            multi.insert_from_back(1, raw_bar)
+        } else {
+            raw_bar
+        };
 
         Self { bar, indent }
     }

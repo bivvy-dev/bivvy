@@ -112,6 +112,9 @@ impl<'a> WorkflowRunner<'a> {
         let mut named_check_results: HashMap<String, CheckResult> = HashMap::new();
         let mut workflow_aborted = false;
 
+        // Initialize the persistent progress bar (pinned at terminal bottom).
+        ui.init_workflow_progress(total);
+
         for (index, step_name) in plan.steps_to_run.iter().enumerate() {
             let step =
                 &self
@@ -672,9 +675,7 @@ impl<'a> WorkflowRunner<'a> {
                 event_bus,
             )?;
 
-            // Blank line before progress bar
-            ui.message("");
-            // Update progress bar
+            // Update the pinned progress bar
             ui.show_workflow_progress(index + 1, total, start.elapsed());
 
             // Emit step completion event
