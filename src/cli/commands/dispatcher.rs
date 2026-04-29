@@ -167,6 +167,10 @@ impl CommandDispatcher {
                 let cmd = super::completions::CompletionsCommand::new(args.clone());
                 cmd.execute(ui)
             }
+            Some(Commands::Schema(args)) => {
+                let cmd = super::schema::SchemaCommand::new(args.clone());
+                cmd.execute(ui)
+            }
             None => {
                 // Default to run command with default args
                 let cmd = super::run::RunCommand::new(

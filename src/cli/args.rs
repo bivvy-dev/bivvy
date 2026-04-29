@@ -97,6 +97,9 @@ pub enum Commands {
 
     /// Generate shell completions
     Completions(CompletionsArgs),
+
+    /// Print JSON Schema for config.yml
+    Schema(SchemaArgs),
 }
 
 /// Arguments for the `run` command.
@@ -315,6 +318,14 @@ pub struct ConfigArgs {
     /// Show fully merged config
     #[arg(long)]
     pub merged: bool,
+}
+
+/// Arguments for the `schema` command.
+#[derive(Debug, Clone, Default, clap::Args)]
+pub struct SchemaArgs {
+    /// Write schema to a file instead of stdout
+    #[arg(short, long)]
+    pub output: Option<PathBuf>,
 }
 
 /// Arguments for the `completions` command.

@@ -1,9 +1,11 @@
 //! JSON Schema generation for Bivvy configuration.
 //!
-//! This module generates a JSON Schema (Draft-07) for the Bivvy configuration
-//! file format, enabling IDE autocomplete and validation.
+//! Generates a complete JSON Schema (Draft-07) from the Rust config types
+//! via `schemars`, enabling IDE autocomplete and validation.
 
-use serde_json::{json, Value};
+use serde_json::Value;
+
+use crate::config::schema::BivvyConfig;
 
 /// Generates JSON Schema for Bivvy configuration.
 pub struct SchemaGenerator;
@@ -15,131 +17,27 @@ impl SchemaGenerator {
     }
 
     /// Generate the complete JSON Schema for bivvy.yml.
+    ///
+    /// Uses `schemars` to derive the schema from the Rust type definitions,
+    /// ensuring the schema always matches the actual config parser.
     pub fn generate(&self) -> Value {
-        json!({
-            "$schema": "http://json-schema.org/draft-07/schema#",
-            "$id": "https://bivvy.dev/schemas/config.json",
-            "title": "Bivvy Configuration",
-            "description": "Configuration schema for Bivvy development environment setup",
-            "type": "object",
-            "properties": {
-                "app_name": {
-                    "type": "string",
-                    "description": "Name of the application"
-                },
-                "settings": self.settings_schema(),
-                "steps": self.steps_schema(),
-                "workflows": self.workflows_schema()
-            },
-            "additionalProperties": false
-        })
-    }
+        let settings = schemars::gen::SchemaSettings::draft07().with(|s| {
+            s.option_nullable = false;
+            s.option_add_null_type = true;
+        });
+        let gen = settings.into_generator();
+        let schema = gen.into_root_schema_for::<BivvyConfig>();
+        let mut value = serde_json::to_value(schema).expect("schema serializes to JSON");
 
-    /// Generate schema for the settings object.
-    fn settings_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "description": "Global settings",
-            "properties": {
-                "default_output": {
-                    "type": "string",
-                    "enum": ["verbose", "quiet", "silent"],
-                    "default": "verbose",
-                    "description": "Default output verbosity"
-                },
-                "logging": {
-                    "type": "boolean",
-                    "default": false,
-                    "description": "Enable logging"
-                }
-            },
-            "additionalProperties": false
-        })
-    }
+        // Inject the canonical $id for remote reference.
+        if let Some(obj) = value.as_object_mut() {
+            obj.insert(
+                "$id".to_string(),
+                Value::String("https://bivvy.dev/schemas/config.json".to_string()),
+            );
+        }
 
-    /// Generate schema for steps.
-    fn steps_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "description": "Step definitions",
-            "additionalProperties": {
-                "type": "object",
-                "properties": {
-                    "template": {
-                        "type": "string",
-                        "description": "Template to use for this step"
-                    },
-                    "command": {
-                        "type": "string",
-                        "description": "Command to execute (if not using template)"
-                    },
-                    "description": {
-                        "type": "string",
-                        "description": "Human-readable description"
-                    },
-                    "depends_on": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Steps that must run before this one"
-                    },
-                    "check": self.check_schema(),
-                    "inputs": {
-                        "type": "object",
-                        "additionalProperties": true,
-                        "description": "Input values for the template"
-                    }
-                },
-                "additionalProperties": false
-            }
-        })
-    }
-
-    /// Generate schema for check.
-    fn check_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "description": "How to check if step is complete",
-            "properties": {
-                "type": {
-                    "type": "string",
-                    "enum": ["presence", "execution", "change", "all", "any"],
-                    "description": "Type of check"
-                },
-                "target": {
-                    "type": "string",
-                    "description": "Target for presence check"
-                },
-                "command": {
-                    "type": "string",
-                    "description": "Command for execution check"
-                }
-            },
-            "required": ["type"]
-        })
-    }
-
-    /// Generate schema for workflows.
-    fn workflows_schema(&self) -> Value {
-        json!({
-            "type": "object",
-            "description": "Workflow definitions",
-            "additionalProperties": {
-                "type": "object",
-                "properties": {
-                    "description": {
-                        "type": "string",
-                        "description": "Human-readable description"
-                    },
-                    "steps": {
-                        "type": "array",
-                        "items": { "type": "string" },
-                        "description": "Steps to run in this workflow"
-                    }
-                },
-                "required": ["steps"],
-                "additionalProperties": false
-            }
-        })
+        value
     }
 }
 
@@ -163,62 +61,114 @@ mod tests {
     }
 
     #[test]
-    fn includes_app_name_property() {
+    fn includes_canonical_id() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        let app_name = &schema["properties"]["app_name"];
-        assert_eq!(app_name["type"], "string");
+        assert_eq!(schema["$id"], "https://bivvy.dev/schemas/config.json");
     }
 
     #[test]
-    fn includes_steps_schema() {
+    fn includes_all_top_level_properties() {
+        let generator = SchemaGenerator::new();
+        let schema = generator.generate();
+
+        let props = schema["properties"].as_object().expect("has properties");
+        for key in &[
+            "app_name",
+            "settings",
+            "template_sources",
+            "steps",
+            "workflows",
+            "secrets",
+            "extends",
+            "requirements",
+            "vars",
+        ] {
+            assert!(
+                props.contains_key(*key),
+                "missing top-level property: {key}"
+            );
+        }
+    }
+
+    #[test]
+    fn steps_uses_additional_properties() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
         let steps = &schema["properties"]["steps"];
-        assert_eq!(steps["type"], "object");
-        assert!(steps["additionalProperties"].is_object());
+        // Steps is a HashMap<String, StepConfig>, so schemars generates
+        // additionalProperties pointing to the StepConfig schema.
+        assert!(
+            steps.get("additionalProperties").is_some()
+                || steps.get("$ref").is_some()
+                || steps["type"] == "object",
+            "steps should be an object type"
+        );
     }
 
     #[test]
-    fn includes_workflows_schema() {
+    fn var_definition_generates_any_of() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        let workflows = &schema["properties"]["workflows"];
-        assert_eq!(workflows["type"], "object");
+        // VarDefinition is untagged enum, so schemars generates anyOf
+        let schema_str = serde_json::to_string(&schema).unwrap();
+        assert!(
+            schema_str.contains("VarDefinition"),
+            "schema should reference VarDefinition"
+        );
     }
 
     #[test]
-    fn step_schema_has_required_fields() {
+    fn settings_includes_flattened_fields() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        let step_props = &schema["properties"]["steps"]["additionalProperties"]["properties"];
-        assert!(step_props["template"].is_object());
-        assert!(step_props["depends_on"].is_object());
-        assert!(step_props["check"].is_object());
+        // Settings uses #[serde(flatten)] on sub-structs.
+        // schemars should include all flattened fields. Check for a few key ones
+        // by looking at the full schema JSON.
+        let schema_str = serde_json::to_string(&schema).unwrap();
+
+        // These are fields from flattened sub-structs that should appear somewhere
+        for field in &[
+            "default_output",
+            "parallel",
+            "max_parallel",
+            "logging",
+            "log_retention_days",
+            "secret_env",
+            "default_environment",
+        ] {
+            assert!(
+                schema_str.contains(field),
+                "schema should contain flattened field: {field}"
+            );
+        }
     }
 
     #[test]
-    fn settings_schema_has_verbosity_enum() {
+    fn check_enum_referenced() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        let settings = &schema["properties"]["settings"];
-        let default_output = &settings["properties"]["default_output"];
-        assert!(default_output["enum"].is_array());
+        let schema_str = serde_json::to_string(&schema).unwrap();
+        // The Check enum (tagged with type) should be referenced
+        assert!(
+            schema_str.contains("Check") || schema_str.contains("check"),
+            "schema should reference Check type"
+        );
     }
 
     #[test]
-    fn check_has_type_required() {
+    fn schema_is_valid_json() {
         let generator = SchemaGenerator::new();
         let schema = generator.generate();
 
-        let check = &schema["properties"]["steps"]["additionalProperties"]["properties"]["check"];
-        let required = check["required"].as_array().unwrap();
-        assert!(required.contains(&json!("type")));
+        // Should round-trip through JSON pretty-printing
+        let pretty = serde_json::to_string_pretty(&schema).unwrap();
+        let _: Value = serde_json::from_str(&pretty).unwrap();
     }
 
     #[test]

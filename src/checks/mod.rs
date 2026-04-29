@@ -22,6 +22,7 @@ pub mod evaluator;
 pub mod execution;
 pub mod presence;
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
 /// A check that evaluates external-world state.
@@ -29,7 +30,7 @@ use serde::{Deserialize, Serialize};
 /// Checks are configured in step definitions via the `check`/`checks` fields.
 /// They report facts about the environment — they do not access bivvy's
 /// internal execution history.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Check {
     /// Confirms the existence of a file, binary, or other resource.
@@ -191,7 +192,7 @@ impl Check {
 }
 
 /// Subtype for presence checks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum PresenceKind {
     /// File or directory existence.
@@ -203,7 +204,7 @@ pub enum PresenceKind {
 }
 
 /// How to validate an execution check result.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ValidationMode {
     /// Command exits with code 0.
@@ -216,7 +217,7 @@ pub enum ValidationMode {
 }
 
 /// Target type for change checks.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum ChangeKind {
     /// Hash a single file.
@@ -239,7 +240,7 @@ pub enum ChangeKind {
 ///
 /// When `on_change: require`, the `require_step` field on the Change check
 /// specifies which step to flag. The check itself always passes.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OnChange {
     /// Change detected = check passes (step should run).
@@ -264,7 +265,7 @@ pub enum OnChange {
 ///
 /// For named snapshots or git refs, use `baseline_snapshot` or `baseline_git`
 /// fields on the Change check instead.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum BaselineConfig {
     /// Baseline updated after each successful run (default).
@@ -285,7 +286,8 @@ pub enum BaselineConfig {
 /// size_limit: null           # no limit
 /// # omitted → defaults to 50 MB
 /// ```
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, JsonSchema)]
+#[schemars(transparent)]
 pub struct SizeLimit {
     /// Maximum size in bytes. `None` means no limit.
     pub max_bytes: Option<u64>,
@@ -336,7 +338,7 @@ fn default_size_limit() -> SizeLimit {
 }
 
 /// Snapshot scope for change check baselines.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum SnapshotScope {
     /// Per-project, shared across workflows (default).
@@ -425,7 +427,7 @@ pub(crate) fn truncate_display(s: &str, max_len: usize) -> String {
 /// A satisfaction condition entry in `satisfied_when`.
 ///
 /// Can be either an inline check or a reference to a named check.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum SatisfactionCondition {
     /// Reference to a named check by name (same step or `step_name.check_name`).

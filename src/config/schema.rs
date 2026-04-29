@@ -4,12 +4,31 @@
 //! the YAML configuration file format.
 
 use crate::checks::{Check, SatisfactionCondition};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Helper for `serde_yaml::Value` fields — accepts any valid YAML/JSON value.
+fn any_value_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    schemars::schema::Schema::Bool(true)
+}
+
+/// Helper for `HashMap<String, serde_yaml::Value>` — object with any values.
+fn any_value_map_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema::Schema {
+    schemars::schema::SchemaObject {
+        instance_type: Some(schemars::schema::InstanceType::Object.into()),
+        object: Some(Box::new(schemars::schema::ObjectValidation {
+            additional_properties: Some(Box::new(schemars::schema::Schema::Bool(true))),
+            ..Default::default()
+        })),
+        ..Default::default()
+    }
+    .into()
+}
+
 /// Root configuration structure for bivvy.yml
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct BivvyConfig {
     /// Application name (for display purposes)
@@ -49,7 +68,7 @@ pub struct BivvyConfig {
 }
 
 /// Output-related settings (verbosity).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct OutputSettings {
     /// Default output mode: verbose, quiet, silent
@@ -69,7 +88,7 @@ impl Default for OutputSettings {
 ///
 /// Controls whether structured event logs are written to `~/.bivvy/logs/`
 /// and how long they are retained.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct LoggingSettings {
     /// Enable JSONL event logging. When false, no log files are written.
@@ -130,7 +149,7 @@ fn is_default_log_retention_mb(v: &u64) -> bool {
 }
 
 /// Execution-related settings (parallelism, history, updates).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ExecutionSettings {
     /// Enable parallel execution
@@ -189,7 +208,7 @@ impl Default for ExecutionSettings {
 }
 
 /// Environment variable settings (global env, env files, secret patterns).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EnvVarSettings {
     /// Global environment variables
@@ -206,7 +225,7 @@ pub struct EnvVarSettings {
 }
 
 /// Environment profile settings (named environments, default environment).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EnvironmentProfileSettings {
     /// Default environment name (used when no --env flag and no auto-detection)
@@ -222,7 +241,7 @@ pub struct EnvironmentProfileSettings {
 ///
 /// Uses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat
 /// (e.g., `settings.default_output` in YAML, not `settings.output.default_output`).
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Settings {
     /// Output-related settings (verbosity)
@@ -283,7 +302,7 @@ fn is_zero(v: &u32) -> bool {
 }
 
 /// Output verbosity mode
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum OutputMode {
     #[default]
@@ -293,7 +312,7 @@ pub enum OutputMode {
 }
 
 /// Fields related to what the step actually runs and how.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct ExecutionConfig {
     /// Shell command to execute
@@ -329,7 +348,7 @@ pub struct ExecutionConfig {
 }
 
 /// Fields related to environment variable management.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EnvironmentVarsConfig {
     /// Step-specific environment variables
@@ -350,7 +369,7 @@ pub struct EnvironmentVarsConfig {
 }
 
 /// Fields controlling step lifecycle behavior.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct BehaviorConfig {
     /// Whether user can skip this step via `--skip` on the CLI.
@@ -409,7 +428,7 @@ impl Default for BehaviorConfig {
 }
 
 /// Before/after lifecycle hooks.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct HookConfig {
     /// Commands to run before the step
@@ -422,7 +441,7 @@ pub struct HookConfig {
 }
 
 /// Step-specific output and prompt settings.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct StepOutputSettings {
     /// Step output settings
@@ -435,7 +454,7 @@ pub struct StepOutputSettings {
 }
 
 /// Environment-scoping and override settings.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EnvironmentScopingConfig {
     /// Per-environment overrides for this step.
@@ -449,7 +468,7 @@ pub struct EnvironmentScopingConfig {
 }
 
 /// Configuration for a single setup step
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct StepConfig {
     /// Reference to a template (mutually exclusive with inline config)
@@ -458,6 +477,7 @@ pub struct StepConfig {
 
     /// Template inputs (when using template)
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[schemars(schema_with = "any_value_map_schema")]
     pub inputs: HashMap<String, serde_yaml::Value>,
 
     /// Step title (for display)
@@ -525,7 +545,7 @@ fn default_true() -> bool {
 }
 
 /// Prompt configuration for interactive input
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PromptConfig {
     /// Unique key for this prompt (used in interpolation)
     pub key: String,
@@ -542,11 +562,12 @@ pub struct PromptConfig {
     pub options: Vec<PromptOption>,
 
     /// Default value
+    #[schemars(schema_with = "any_value_schema")]
     pub default: Option<serde_yaml::Value>,
 }
 
 /// Type of interactive prompt
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum PromptType {
     Select,
@@ -556,7 +577,7 @@ pub enum PromptType {
 }
 
 /// Option for select/multiselect prompts
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct PromptOption {
     /// Display label
     pub label: String,
@@ -565,14 +586,14 @@ pub struct PromptOption {
 }
 
 /// Step-specific output configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct StepOutputConfig {
     /// Output mode for this step
     pub default: Option<OutputMode>,
 }
 
 /// Configuration for a named workflow
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct WorkflowConfig {
     /// Human-readable description
@@ -601,7 +622,7 @@ pub struct WorkflowConfig {
 }
 
 /// Per-step overrides within a workflow
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct StepOverride {
     /// Skip prompts, just run
@@ -622,7 +643,7 @@ pub struct StepOverride {
 }
 
 /// Workflow-level settings overrides
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct WorkflowSettings {
     /// Force non-interactive mode for this workflow
@@ -631,7 +652,7 @@ pub struct WorkflowSettings {
 }
 
 /// Remote template source configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct TemplateSource {
     /// URL to template repository or file
     pub url: String,
@@ -660,7 +681,7 @@ fn default_timeout() -> u64 {
 }
 
 /// Cache configuration for remote templates
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CacheConfig {
     /// Time-to-live (e.g., "7d", "24h")
     pub ttl: String,
@@ -670,7 +691,7 @@ pub struct CacheConfig {
     pub strategy: CacheStrategy,
 }
 
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum CacheStrategy {
     #[default]
@@ -679,7 +700,7 @@ pub enum CacheStrategy {
 }
 
 /// Authentication for remote template sources
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct AuthConfig {
     /// Auth type: bearer, header
     #[serde(rename = "type")]
@@ -692,7 +713,7 @@ pub struct AuthConfig {
     pub header: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum AuthType {
     Bearer,
@@ -700,14 +721,14 @@ pub enum AuthType {
 }
 
 /// Config inheritance source
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct ExtendsConfig {
     /// URL to base config
     pub url: String,
 }
 
 /// Secret configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct SecretConfig {
     /// Command to fetch the secret
     pub command: String,
@@ -724,7 +745,7 @@ pub struct SecretConfig {
 ///   version:
 ///     command: "cat VERSION"                 # computed
 /// ```
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(untagged)]
 pub enum VarDefinition {
     /// Computed from a shell command's stdout (trimmed).
@@ -737,7 +758,7 @@ pub enum VarDefinition {
 }
 
 /// A project-specific requirement definition.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct CustomRequirement {
     /// How to check if this requirement is satisfied
     pub check: CustomRequirementCheck,
@@ -752,7 +773,7 @@ pub struct CustomRequirement {
 }
 
 /// Check type for a custom requirement.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum CustomRequirementCheck {
     /// Check if a command succeeds (exit code 0)
@@ -775,7 +796,7 @@ pub enum CustomRequirementCheck {
 }
 
 /// Configuration for a named environment.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct EnvironmentConfig {
     /// Rules for auto-detecting this environment.
@@ -793,7 +814,7 @@ pub struct EnvironmentConfig {
 }
 
 /// A rule for auto-detecting an environment.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct EnvironmentDetectRule {
     /// Environment variable name to check.
     pub env: String,
@@ -808,7 +829,7 @@ pub struct EnvironmentDetectRule {
 /// All fields are `Option` — only specified fields override the base step.
 /// The `env` field uses `HashMap<String, Option<String>>`:
 /// `Some(val)` = set/override, `None` = remove the key from the base env.
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct StepEnvironmentOverride {
     /// Override step title

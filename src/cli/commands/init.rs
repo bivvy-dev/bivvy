@@ -56,7 +56,9 @@ impl InitCommand {
             .unwrap_or("MyApp");
 
         let mut config = format!(
-            "# Bivvy configuration for {project_name}\n\
+            "# yaml-language-server: $schema=https://bivvy.dev/schemas/config.json\n\
+             \n\
+             # Bivvy configuration for {project_name}\n\
              # Docs: https://bivvy.dev/configuration\n\
              #\n\
              # Override any template field per-step:\n\
@@ -132,6 +134,7 @@ impl InitCommand {
         fs::create_dir_all(&bivvy_dir)?;
         fs::copy(&source, bivvy_dir.join("config.yml"))?;
 
+        self.write_schema_file(ui)?;
         self.update_gitignore(ui)?;
 
         ui.message("");
@@ -195,6 +198,7 @@ impl InitCommand {
         fs::create_dir_all(&bivvy_dir)?;
         fs::write(bivvy_dir.join("config.yml"), &config)?;
 
+        self.write_schema_file(ui)?;
         self.update_gitignore(ui)?;
 
         ui.message("");
@@ -213,23 +217,42 @@ impl InitCommand {
         Ok(CommandResult::success())
     }
 
-    /// Update gitignore to exclude local overrides.
+    /// Write `.bivvy/schema.json` for offline IDE support.
+    fn write_schema_file(&self, ui: &mut dyn OutputWriter) -> Result<()> {
+        let generator = crate::lint::SchemaGenerator::new();
+        let schema = generator.generate();
+        let json = serde_json::to_string_pretty(&schema)
+            .map_err(|e| anyhow::anyhow!("Failed to serialize schema: {}", e))?;
+        let schema_path = self.project_root.join(".bivvy/schema.json");
+        fs::write(&schema_path, json)?;
+        ui.message("Generated .bivvy/schema.json for IDE support");
+        Ok(())
+    }
+
+    /// Update gitignore to exclude local overrides and generated schema.
     ///
     /// Only requires `OutputWriter` — displays a message but does not prompt.
     fn update_gitignore(&self, ui: &mut dyn OutputWriter) -> Result<()> {
-        let gitignore_entry = ".bivvy/config.local.yml";
+        let entries = [".bivvy/config.local.yml", ".bivvy/schema.json"];
         let gitignore_path = self.project_root.join(".gitignore");
 
         if gitignore_path.exists() {
             let content = fs::read_to_string(&gitignore_path)?;
-            if !content.contains(gitignore_entry) {
-                let new_content = if content.ends_with('\n') {
-                    format!("{}{}\n", content, gitignore_entry)
-                } else {
-                    format!("{}\n{}\n", content, gitignore_entry)
-                };
+            let mut new_content = content.clone();
+
+            for entry in &entries {
+                if !new_content.contains(entry) {
+                    if !new_content.ends_with('\n') {
+                        new_content.push('\n');
+                    }
+                    new_content.push_str(entry);
+                    new_content.push('\n');
+                    ui.message(&format!("Added {} to .gitignore", entry));
+                }
+            }
+
+            if new_content != content {
                 fs::write(&gitignore_path, new_content)?;
-                ui.message("Added .bivvy/config.local.yml to .gitignore");
             }
         }
 
@@ -338,6 +361,9 @@ impl Command for InitCommand {
         let bivvy_dir = self.project_root.join(".bivvy");
         fs::create_dir_all(&bivvy_dir)?;
         fs::write(bivvy_dir.join("config.yml"), &config)?;
+
+        // Write schema for IDE support
+        self.write_schema_file(ui)?;
 
         // Update gitignore
         self.update_gitignore(ui)?;

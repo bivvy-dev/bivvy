@@ -24,6 +24,7 @@ pub mod last;
 pub mod lint;
 pub mod list;
 pub mod run;
+pub mod schema;
 pub mod snapshot;
 pub mod status;
 pub mod templates;
