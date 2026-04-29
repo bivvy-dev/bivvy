@@ -59,6 +59,11 @@ fi
 
 echo "Updated CHANGELOG.md"
 
+# Regenerate embedded schema from updated config types
+echo ""
+echo "Regenerating embedded schema..."
+"$SCRIPT_DIR/generate-schema.sh"
+
 # Verify build
 echo ""
 echo "Running verification..."

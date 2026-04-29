@@ -6,7 +6,7 @@ use std::fs;
 
 use crate::cli::args::SchemaArgs;
 use crate::error::Result;
-use crate::lint::SchemaGenerator;
+use crate::lint::EMBEDDED_SCHEMA_JSON;
 use crate::ui::UserInterface;
 
 use super::dispatcher::{Command, CommandResult};
@@ -25,10 +25,7 @@ impl SchemaCommand {
 
 impl Command for SchemaCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        let generator = SchemaGenerator::new();
-        let schema = generator.generate();
-        let json = serde_json::to_string_pretty(&schema)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize schema: {}", e))?;
+        let json = EMBEDDED_SCHEMA_JSON;
 
         if let Some(ref path) = self.args.output {
             if let Some(parent) = path.parent() {
@@ -36,10 +33,10 @@ impl Command for SchemaCommand {
                     fs::create_dir_all(parent)?;
                 }
             }
-            fs::write(path, &json)?;
+            fs::write(path, json)?;
             ui.success(&format!("Wrote schema to {}", path.display()));
         } else {
-            ui.message(&json);
+            ui.message(json);
         }
 
         Ok(CommandResult::success())

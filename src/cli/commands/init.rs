@@ -219,12 +219,8 @@ impl InitCommand {
 
     /// Write `.bivvy/schema.json` for offline IDE support.
     fn write_schema_file(&self, ui: &mut dyn OutputWriter) -> Result<()> {
-        let generator = crate::lint::SchemaGenerator::new();
-        let schema = generator.generate();
-        let json = serde_json::to_string_pretty(&schema)
-            .map_err(|e| anyhow::anyhow!("Failed to serialize schema: {}", e))?;
         let schema_path = self.project_root.join(".bivvy/schema.json");
-        fs::write(&schema_path, json)?;
+        fs::write(&schema_path, crate::lint::EMBEDDED_SCHEMA_JSON)?;
         ui.message("Generated .bivvy/schema.json for IDE support");
         Ok(())
     }

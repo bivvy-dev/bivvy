@@ -1,0 +1,1502 @@
+{
+  "$id": "https://bivvy.dev/schemas/config.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "AuthConfig": {
+      "description": "Authentication for remote template sources",
+      "properties": {
+        "header": {
+          "description": "Custom header name (for header auth type)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "token_env": {
+          "description": "Environment variable containing the token",
+          "type": "string"
+        },
+        "type": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/AuthType"
+            }
+          ],
+          "description": "Auth type: bearer, header"
+        }
+      },
+      "required": [
+        "token_env",
+        "type"
+      ],
+      "type": "object"
+    },
+    "AuthType": {
+      "enum": [
+        "bearer",
+        "header"
+      ],
+      "type": "string"
+    },
+    "BaselineConfig": {
+      "description": "When/how the change check baseline is established.\n\nIn YAML: ```yaml baseline: each_run       # updated after each successful run (default) baseline: first_run      # established once, never updated ```\n\nFor named snapshots or git refs, use `baseline_snapshot` or `baseline_git` fields on the Change check instead.",
+      "oneOf": [
+        {
+          "description": "Baseline updated after each successful run (default).",
+          "enum": [
+            "each_run"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Baseline established on first evaluation, never updated.",
+          "enum": [
+            "first_run"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "CacheConfig": {
+      "description": "Cache configuration for remote templates",
+      "properties": {
+        "strategy": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CacheStrategy"
+            }
+          ],
+          "default": "etag",
+          "description": "Cache strategy: etag, git"
+        },
+        "ttl": {
+          "description": "Time-to-live (e.g., \"7d\", \"24h\")",
+          "type": "string"
+        }
+      },
+      "required": [
+        "ttl"
+      ],
+      "type": "object"
+    },
+    "CacheStrategy": {
+      "enum": [
+        "etag",
+        "git"
+      ],
+      "type": "string"
+    },
+    "ChangeKind": {
+      "description": "Target type for change checks.",
+      "oneOf": [
+        {
+          "description": "Hash a single file.",
+          "enum": [
+            "file"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Hash all files matching a glob pattern.",
+          "enum": [
+            "glob"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Hash the stdout of a command.",
+          "enum": [
+            "command"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "Check": {
+      "description": "A check that evaluates external-world state.\n\nChecks are configured in step definitions via the `check`/`checks` fields. They report facts about the environment — they do not access bivvy's internal execution history.",
+      "oneOf": [
+        {
+          "description": "Confirms the existence of a file, binary, or other resource.\n\nAlso accepts the deprecated `type: file_exists` via serde alias.",
+          "properties": {
+            "command": {
+              "description": "Command for custom presence checks.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/PresenceKind"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Subtype: `file`, `binary`, or `custom`. Inferred from context if omitted."
+            },
+            "name": {
+              "description": "Optional name for referencing this check from `satisfied_when`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "description": "What to check for: a file path or binary name.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "presence"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Runs a command and validates the result.\n\nAlso accepts the deprecated `type: command_succeeds` via serde alias.",
+          "properties": {
+            "command": {
+              "description": "Shell command to execute.",
+              "type": "string"
+            },
+            "name": {
+              "description": "Optional name for referencing this check.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "execution"
+              ],
+              "type": "string"
+            },
+            "validation": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ValidationMode"
+                }
+              ],
+              "default": "success",
+              "description": "How to validate the result (default: `success`)."
+            }
+          },
+          "required": [
+            "command",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Detects whether a target has changed from a stored baseline.",
+          "properties": {
+            "baseline": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/BaselineConfig"
+                }
+              ],
+              "default": "each_run",
+              "description": "When/how the baseline is established: `each_run` (default) or `first_run`."
+            },
+            "baseline_git": {
+              "description": "Git ref baseline. When set, comparison is against the content at this git ref. Equivalent to the spec's `git:<ref>`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "baseline_snapshot": {
+              "description": "Named snapshot baseline. When set, comparison is against this named snapshot instead of the run-based baseline. Equivalent to the spec's `snapshot:<slug>`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "kind": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ChangeKind"
+                }
+              ],
+              "default": "file",
+              "description": "Target type: `file` (default), `glob`, or `command`."
+            },
+            "name": {
+              "description": "Optional name for referencing this check.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "on_change": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/OnChange"
+                }
+              ],
+              "default": "proceed",
+              "description": "What a detected change means: `proceed`, `fail`, or `require`."
+            },
+            "require_step": {
+              "description": "Step to flag as required when `on_change: require` and change is detected. Ignored unless `on_change` is `require`.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "scope": {
+              "allOf": [
+                {
+                  "$ref": "#/definitions/SnapshotScope"
+                }
+              ],
+              "default": "project",
+              "description": "Snapshot scope: project (default) or workflow."
+            },
+            "size_limit": {
+              "default": 52428800,
+              "description": "Max total size of target before bivvy refuses to hash. Integer in bytes, or `null` for no limit. Default: 50 MB.",
+              "format": "uint64",
+              "minimum": 0.0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "target": {
+              "description": "What to hash — a file path, glob pattern, or command.",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "change"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "target",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "All checks must pass.",
+          "properties": {
+            "checks": {
+              "description": "Checks that must all pass.",
+              "items": {
+                "$ref": "#/definitions/Check"
+              },
+              "type": "array"
+            },
+            "name": {
+              "description": "Optional name for the combinator.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "all"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "checks",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Any check passing is sufficient.",
+          "properties": {
+            "checks": {
+              "description": "Checks where at least one must pass.",
+              "items": {
+                "$ref": "#/definitions/Check"
+              },
+              "type": "array"
+            },
+            "name": {
+              "description": "Optional name for the combinator.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "enum": [
+                "any"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "checks",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "CustomRequirement": {
+      "description": "A project-specific requirement definition.",
+      "properties": {
+        "check": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/CustomRequirementCheck"
+            }
+          ],
+          "description": "How to check if this requirement is satisfied"
+        },
+        "install_hint": {
+          "description": "Human-readable install instructions",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "install_template": {
+          "description": "Template to use for installation",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "check"
+      ],
+      "type": "object"
+    },
+    "CustomRequirementCheck": {
+      "description": "Check type for a custom requirement.",
+      "oneOf": [
+        {
+          "description": "Check if a command succeeds (exit code 0)",
+          "properties": {
+            "command": {
+              "description": "Command to run",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "command_succeeds"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Check if a file or directory exists",
+          "properties": {
+            "path": {
+              "description": "Path to check",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "file_exists"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Check if a service is reachable",
+          "properties": {
+            "command": {
+              "description": "Command to check reachability (e.g., curl health endpoint)",
+              "type": "string"
+            },
+            "type": {
+              "enum": [
+                "service_reachable"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "command",
+            "type"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "DefaultsSettings": {
+      "description": "Default values for step behavior flags.\n\nThese serve as project-wide (or system-wide) defaults. Step-level settings override these, and workflow `step_overrides` override step-level settings.",
+      "properties": {
+        "auto_run": {
+          "description": "Whether steps auto-run when the pipeline determines they need to run. When false, the user is prompted before each step executes. Default: true.",
+          "type": "boolean"
+        },
+        "prompt_on_rerun": {
+          "description": "Whether to prompt the user before re-running a step that was recently completed (within the rerun window). When false, recently-completed steps are silently skipped. Default: true.",
+          "type": "boolean"
+        },
+        "rerun_window": {
+          "description": "Default rerun window for all steps. Steps can override this with their own `rerun_window` field. Accepts duration strings: `\"4h\"`, `\"30m\"`, `\"7d\"`, `\"0\"`/`\"never\"`, `\"forever\"`. Default: `\"4h\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "EnvironmentConfig": {
+      "description": "Configuration for a named environment.",
+      "properties": {
+        "default_workflow": {
+          "description": "Default workflow to run in this environment.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "detect": {
+          "description": "Rules for auto-detecting this environment.",
+          "items": {
+            "$ref": "#/definitions/EnvironmentDetectRule"
+          },
+          "type": "array"
+        },
+        "provided_requirements": {
+          "description": "Requirements that are assumed to be satisfied in this environment. These skip gap detection checks when this environment is active.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "EnvironmentDetectRule": {
+      "description": "A rule for auto-detecting an environment.",
+      "properties": {
+        "env": {
+          "description": "Environment variable name to check.",
+          "type": "string"
+        },
+        "value": {
+          "description": "If set, the variable must equal this value. If absent, just checks presence.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "env"
+      ],
+      "type": "object"
+    },
+    "ExtendsConfig": {
+      "description": "Config inheritance source",
+      "properties": {
+        "url": {
+          "description": "URL to base config",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "OnChange": {
+      "description": "What a detected change means for a change check.\n\nIn YAML: ```yaml on_change: proceed       # step should run when target changed on_change: fail          # check fails when target changed on_change: require       # flags require_step as needed when target changed ```\n\nWhen `on_change: require`, the `require_step` field on the Change check specifies which step to flag. The check itself always passes.",
+      "oneOf": [
+        {
+          "description": "Change detected = check passes (step should run). No change = check fails (step has no reason to run).",
+          "enum": [
+            "proceed"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Change detected = check fails (something unstable changed). No change = check passes (stability maintained).",
+          "enum": [
+            "fail"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Change detected = the step named in `require_step` is flagged as required. The check itself always passes regardless of change.",
+          "enum": [
+            "require"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "OutputMode": {
+      "description": "Output verbosity mode",
+      "enum": [
+        "verbose",
+        "quiet",
+        "silent"
+      ],
+      "type": "string"
+    },
+    "PresenceKind": {
+      "description": "Subtype for presence checks.",
+      "oneOf": [
+        {
+          "description": "File or directory existence.",
+          "enum": [
+            "file"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Binary on `$PATH`.",
+          "enum": [
+            "binary"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Custom command that exits 0 if present.",
+          "enum": [
+            "custom"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "PromptConfig": {
+      "description": "Prompt configuration for interactive input",
+      "properties": {
+        "default": {
+          "description": "Default value"
+        },
+        "key": {
+          "description": "Unique key for this prompt (used in interpolation)",
+          "type": "string"
+        },
+        "options": {
+          "default": [],
+          "description": "Options for select/multiselect",
+          "items": {
+            "$ref": "#/definitions/PromptOption"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "Question to display",
+          "type": "string"
+        },
+        "type": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/PromptType"
+            }
+          ],
+          "description": "Prompt type: select, multiselect, confirm, input"
+        }
+      },
+      "required": [
+        "default",
+        "key",
+        "question",
+        "type"
+      ],
+      "type": "object"
+    },
+    "PromptOption": {
+      "description": "Option for select/multiselect prompts",
+      "properties": {
+        "label": {
+          "description": "Display label",
+          "type": "string"
+        },
+        "value": {
+          "description": "Value to use when selected",
+          "type": "string"
+        }
+      },
+      "required": [
+        "label",
+        "value"
+      ],
+      "type": "object"
+    },
+    "PromptType": {
+      "description": "Type of interactive prompt",
+      "enum": [
+        "select",
+        "multiselect",
+        "confirm",
+        "input"
+      ],
+      "type": "string"
+    },
+    "SatisfactionCondition": {
+      "anyOf": [
+        {
+          "description": "Reference to a named check by name (same step or `step_name.check_name`).",
+          "properties": {
+            "ref": {
+              "description": "The referenced check name.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ref"
+          ],
+          "type": "object"
+        },
+        {
+          "allOf": [
+            {
+              "$ref": "#/definitions/Check"
+            }
+          ],
+          "description": "An inline check definition."
+        }
+      ],
+      "description": "A satisfaction condition entry in `satisfied_when`.\n\nCan be either an inline check or a reference to a named check."
+    },
+    "SecretConfig": {
+      "description": "Secret configuration",
+      "properties": {
+        "command": {
+          "description": "Command to fetch the secret",
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ],
+      "type": "object"
+    },
+    "Settings": {
+      "description": "Global settings that apply to all workflows and steps.\n\nUses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat (e.g., `settings.default_output` in YAML, not `settings.output.default_output`).",
+      "properties": {
+        "auto_update": {
+          "default": true,
+          "description": "Enable automatic background updates.\n\nWhen true, bivvy checks for new versions in the background after each run and automatically installs updates so the next invocation uses the latest version. Set to false to disable (users can still run `bivvy update`).",
+          "type": "boolean"
+        },
+        "default_environment": {
+          "description": "Default environment name (used when no --env flag and no auto-detection)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "default_output": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputMode"
+            }
+          ],
+          "default": "verbose",
+          "description": "Default output mode: verbose, quiet, silent"
+        },
+        "default_rerun_window": {
+          "description": "Global default rerun window for all steps. Steps can override this with their own `rerun_window` field. Accepts duration strings: `\"4h\"`, `\"30m\"`, `\"7d\"`, `\"0\"`/`\"never\"`, `\"forever\"`. Default: `\"4h\"`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "defaults": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/DefaultsSettings"
+            }
+          ],
+          "description": "Default values for step behavior flags."
+        },
+        "diagnostic_funnel": {
+          "description": "Use the diagnostic funnel pipeline for step failure recovery.\n\nWhen true, step failures are analyzed by a multi-stage pipeline that produces ranked resolution candidates. When false, the legacy pattern registry is used (single fix per error). Default: true.",
+          "type": "boolean"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Global environment variables",
+          "type": "object"
+        },
+        "env_file": {
+          "description": "Global env file to load",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "environments": {
+          "additionalProperties": {
+            "$ref": "#/definitions/EnvironmentConfig"
+          },
+          "description": "Named environment configurations",
+          "type": "object"
+        },
+        "history_retention": {
+          "description": "History retention count",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "log_retention_days": {
+          "description": "Maximum age of log files in days. Files older than this are deleted during cleanup. Default: 30.",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "log_retention_mb": {
+          "description": "Maximum total size of log files in megabytes. When exceeded, oldest files are deleted first. Default: 500.",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "logging": {
+          "description": "Enable JSONL event logging. When false, no log files are written.",
+          "type": "boolean"
+        },
+        "max_parallel": {
+          "description": "Maximum concurrent steps",
+          "format": "uint",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "parallel": {
+          "description": "Enable parallel execution",
+          "type": "boolean"
+        },
+        "secret_env": {
+          "description": "Additional secret patterns to mask",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "SnapshotScope": {
+      "description": "Snapshot scope for change check baselines.",
+      "oneOf": [
+        {
+          "description": "Per-project, shared across workflows (default).",
+          "enum": [
+            "project"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Per-workflow, isolated to the workflow this step runs in.",
+          "enum": [
+            "workflow"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "StepConfig": {
+      "description": "Configuration for a single setup step",
+      "properties": {
+        "after": {
+          "description": "Commands to run after the step succeeds",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "allow_failure": {
+          "description": "Continue workflow if this step fails",
+          "type": "boolean"
+        },
+        "auto_run": {
+          "description": "Whether this step auto-runs when the pipeline determines it needs to run. `None` means \"use the global default\" (`settings.defaults.auto_run`). `Some(true)` = auto-run, `Some(false)` = prompt user before running.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "before": {
+          "description": "Commands to run before the step",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Single check (new `Check` enum). Mutually exclusive with `checks`.\n\nAlso accepts the deprecated `completed_check` field name via serde alias."
+        },
+        "checks": {
+          "description": "Multiple checks (implicit `all`). Mutually exclusive with `check`.",
+          "items": {
+            "$ref": "#/definitions/Check"
+          },
+          "type": "array"
+        },
+        "command": {
+          "description": "Shell command to execute",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirm": {
+          "description": "Always prompt the user before running this step. Default: false. When true, the step will never auto-run — the user must explicitly confirm.",
+          "type": "boolean"
+        },
+        "depends_on": {
+          "description": "Steps that must complete before this one",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "description": {
+          "description": "Step description",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Step-specific environment variables",
+          "type": "object"
+        },
+        "env_file": {
+          "description": "Env file to load for this step",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env_file_optional": {
+          "description": "Don't fail if env_file is missing",
+          "type": "boolean"
+        },
+        "environments": {
+          "additionalProperties": {
+            "$ref": "#/definitions/StepEnvironmentOverride"
+          },
+          "description": "Per-environment overrides for this step.",
+          "type": "object"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "description": "Template inputs (when using template)",
+          "type": "object"
+        },
+        "only_environments": {
+          "description": "Restrict this step to specific environments. Empty list (default) means \"run in all environments\".",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "output": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/StepOutputConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Step output settings"
+        },
+        "precondition": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Precondition that must pass before the step runs. Unlike `check` (which skips when passing), a precondition *fails* the step when it does not pass. `--force` does not bypass preconditions. Uses the same check types as `check`/`checks` (presence, execution, change, combinators)."
+        },
+        "prompt_on_rerun": {
+          "description": "Ask before re-running completed steps. `None` means \"use the global default\" (`settings.defaults.prompt_on_rerun`). `Some(true)` = prompt before re-running, `Some(false)` = silently skip.\n\nAlso accepts the deprecated `prompt_if_complete` field name via serde alias.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "prompts": {
+          "description": "Interactive prompts within this step",
+          "items": {
+            "$ref": "#/definitions/PromptConfig"
+          },
+          "type": "array"
+        },
+        "required": {
+          "description": "Step must run, cannot be skipped",
+          "type": "boolean"
+        },
+        "required_env": {
+          "description": "Required environment variables (fail if missing)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "requires_sudo": {
+          "description": "Step requires sudo/elevated permissions",
+          "type": "boolean"
+        },
+        "rerun_window": {
+          "description": "How long a previous successful run counts as \"recent enough\" to consider this step satisfied by execution history alone. Accepts duration strings: `\"4h\"`, `\"30m\"`, `\"7d\"`, `\"0\"`/`\"never\"`, `\"forever\"`. If not set, uses the global `default_rerun_window` setting (default: `\"4h\"`).",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry": {
+          "description": "Number of retries on failure",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "satisfied_when": {
+          "description": "Declarative satisfaction conditions. If all conditions pass, the step's purpose is already fulfilled.",
+          "items": {
+            "$ref": "#/definitions/SatisfactionCondition"
+          },
+          "type": "array"
+        },
+        "sensitive": {
+          "description": "Mark step as handling sensitive data",
+          "type": "boolean"
+        },
+        "skippable": {
+          "description": "Whether user can skip this step via `--skip` on the CLI. Does NOT trigger interactive prompts — use `confirm` for that.",
+          "type": "boolean"
+        },
+        "template": {
+          "description": "Reference to a template (mutually exclusive with inline config)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Step title (for display)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tools": {
+          "description": "System-level prerequisites this step requires (e.g., ruby, node, postgres-server).\n\nThe canonical YAML field name is `tools`. The old name `requires` is accepted as an alias for backward compatibility.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "watches": {
+          "description": "Deprecated `watches` field. Accepted for backward compatibility and converted to change checks during config loading. Users should migrate to `check: { type: change, target: ... }`.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "StepEnvironmentOverride": {
+      "description": "Per-environment overrides for a step.\n\nAll fields are `Option` — only specified fields override the base step. The `env` field uses `HashMap<String, Option<String>>`: `Some(val)` = set/override, `None` = remove the key from the base env.",
+      "properties": {
+        "after": {
+          "description": "Override after hooks",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "allow_failure": {
+          "description": "Override allow_failure",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "auto_run": {
+          "description": "Override auto_run",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "before": {
+          "description": "Override before hooks",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "check": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Override check"
+        },
+        "command": {
+          "description": "Override step command",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirm": {
+          "description": "Override confirm",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "depends_on": {
+          "description": "Override dependencies",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "description": {
+          "description": "Override step description",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": "Override/remove env vars (None value = remove key)",
+          "type": "object"
+        },
+        "precondition": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Check"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Override precondition"
+        },
+        "requires_sudo": {
+          "description": "Override requires_sudo",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rerun_window": {
+          "description": "Override rerun_window",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "retry": {
+          "description": "Override retry count",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "sensitive": {
+          "description": "Override sensitive",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "skippable": {
+          "description": "Override skippable",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "title": {
+          "description": "Override step title",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "tools": {
+          "description": "Override requirements. The canonical YAML field name is `tools`. `requires` is accepted as an alias.",
+          "items": {
+            "type": "string"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "StepOutputConfig": {
+      "description": "Step-specific output configuration",
+      "properties": {
+        "default": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/OutputMode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Output mode for this step"
+        }
+      },
+      "type": "object"
+    },
+    "StepOverride": {
+      "description": "Per-step overrides within a workflow",
+      "properties": {
+        "auto_run": {
+          "description": "Override auto_run flag.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "prompt_on_rerun": {
+          "description": "Override prompt_on_rerun flag.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "required": {
+          "description": "Override required flag",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "rerun_window": {
+          "description": "Override rerun_window.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "skip_prompt": {
+          "description": "Skip prompts, just run",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
+    "TemplateSource": {
+      "description": "Remote template source configuration",
+      "properties": {
+        "auth": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AuthConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Authentication configuration"
+        },
+        "cache": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CacheConfig"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Cache configuration"
+        },
+        "priority": {
+          "default": 100,
+          "description": "Priority (lower = higher priority)",
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "timeout": {
+          "default": 30,
+          "description": "Network timeout in seconds",
+          "format": "uint64",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "url": {
+          "description": "URL to template repository or file",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "ValidationMode": {
+      "description": "How to validate an execution check result.",
+      "oneOf": [
+        {
+          "description": "Command exits with code 0.",
+          "enum": [
+            "success"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Command exits 0 AND produces non-empty stdout.",
+          "enum": [
+            "truthy"
+          ],
+          "type": "string"
+        },
+        {
+          "description": "Command exits 0 AND produces empty stdout (or exits non-zero).",
+          "enum": [
+            "falsy"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "VarDefinition": {
+      "anyOf": [
+        {
+          "description": "Computed from a shell command's stdout (trimmed).",
+          "properties": {
+            "command": {
+              "description": "Shell command to run",
+              "type": "string"
+            }
+          },
+          "required": [
+            "command"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A static string value.",
+          "type": "string"
+        }
+      ],
+      "description": "A variable definition: either a static value or a shell-computed value.\n\nIn YAML, static values are plain strings and computed values use `{ command: \"...\" }` syntax:\n\n```yaml vars: app_name: \"bivvy\"                       # static version: command: \"cat VERSION\"                 # computed ```"
+    },
+    "WorkflowConfig": {
+      "description": "Configuration for a named workflow",
+      "properties": {
+        "auto_run_steps": {
+          "description": "Override auto_run for all steps in this workflow. Individual step overrides take precedence.",
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "description": {
+          "description": "Human-readable description",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Workflow-level environment variables",
+          "type": "object"
+        },
+        "env_file": {
+          "description": "Workflow-level env file",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "overrides": {
+          "additionalProperties": {
+            "$ref": "#/definitions/StepOverride"
+          },
+          "description": "Step-specific overrides for this workflow",
+          "type": "object"
+        },
+        "settings": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/WorkflowSettings"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Workflow-level settings"
+        },
+        "steps": {
+          "default": [],
+          "description": "Ordered list of step names to execute",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "WorkflowSettings": {
+      "description": "Workflow-level settings overrides",
+      "properties": {
+        "non_interactive": {
+          "description": "Force non-interactive mode for this workflow",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "description": "Root configuration structure for bivvy.yml",
+  "properties": {
+    "app_name": {
+      "description": "Application name (for display purposes)",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "extends": {
+      "description": "Config inheritance",
+      "items": {
+        "$ref": "#/definitions/ExtendsConfig"
+      },
+      "type": [
+        "array",
+        "null"
+      ]
+    },
+    "requirements": {
+      "additionalProperties": {
+        "$ref": "#/definitions/CustomRequirement"
+      },
+      "description": "Custom requirement definitions",
+      "type": "object"
+    },
+    "secrets": {
+      "additionalProperties": {
+        "$ref": "#/definitions/SecretConfig"
+      },
+      "description": "Secrets configuration",
+      "type": "object"
+    },
+    "settings": {
+      "allOf": [
+        {
+          "$ref": "#/definitions/Settings"
+        }
+      ],
+      "default": {
+        "auto_update": true,
+        "default_output": "verbose"
+      },
+      "description": "Global settings"
+    },
+    "steps": {
+      "additionalProperties": {
+        "$ref": "#/definitions/StepConfig"
+      },
+      "default": {},
+      "description": "Step definitions",
+      "type": "object"
+    },
+    "template_sources": {
+      "description": "Remote template sources",
+      "items": {
+        "$ref": "#/definitions/TemplateSource"
+      },
+      "type": "array"
+    },
+    "vars": {
+      "additionalProperties": {
+        "$ref": "#/definitions/VarDefinition"
+      },
+      "description": "User-defined variables for interpolation.",
+      "type": "object"
+    },
+    "workflows": {
+      "additionalProperties": {
+        "$ref": "#/definitions/WorkflowConfig"
+      },
+      "default": {},
+      "description": "Workflow definitions",
+      "type": "object"
+    }
+  },
+  "title": "BivvyConfig",
+  "type": "object"
+}
