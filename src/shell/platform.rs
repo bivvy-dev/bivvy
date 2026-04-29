@@ -75,7 +75,7 @@ fn get_shell_executable() -> PathBuf {
 }
 
 fn get_config_files(shell_type: ShellType) -> Vec<PathBuf> {
-    let home = dirs::home_dir().unwrap_or_default();
+    let home = crate::sys::home_dir().unwrap_or_default();
 
     match shell_type {
         ShellType::Bash => vec![
@@ -90,7 +90,7 @@ fn get_config_files(shell_type: ShellType) -> Vec<PathBuf> {
         ],
         ShellType::Fish => vec![home.join(".config/fish/config.fish")],
         ShellType::PowerShell => {
-            if let Some(docs) = dirs::document_dir() {
+            if let Some(docs) = crate::sys::document_dir() {
                 vec![
                     docs.join("PowerShell/Microsoft.PowerShell_profile.ps1"),
                     docs.join("WindowsPowerShell/Microsoft.PowerShell_profile.ps1"),

@@ -29,7 +29,7 @@ pub struct ProjectEntry {
 impl ProjectIndex {
     /// Get the index file path.
     pub fn file_path() -> PathBuf {
-        dirs::home_dir()
+        crate::sys::home_dir()
             .unwrap_or_else(|| PathBuf::from("~"))
             .join(".bivvy")
             .join("projects")

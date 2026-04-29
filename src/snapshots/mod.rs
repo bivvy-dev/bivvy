@@ -169,7 +169,7 @@ impl SnapshotStore {
     /// Uses `~/.bivvy/projects/{project_hash}/snapshots/` as the storage
     /// directory, matching the state store's project isolation scheme.
     pub fn load_for_project(project_id: &crate::state::ProjectId) -> Self {
-        let dir = dirs::home_dir()
+        let dir = crate::sys::home_dir()
             .unwrap_or_else(|| PathBuf::from("~"))
             .join(".bivvy")
             .join("projects")

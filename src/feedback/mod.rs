@@ -11,7 +11,7 @@ pub use store::FeedbackStore;
 
 /// Get the default feedback store path.
 pub fn default_store_path() -> std::path::PathBuf {
-    dirs::data_local_dir()
+    crate::sys::data_local_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("bivvy")
         .join("feedback.jsonl")

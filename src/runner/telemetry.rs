@@ -202,7 +202,7 @@ pub fn prompt_telemetry(
 
 /// Get the failure reports directory path.
 pub fn reports_dir() -> PathBuf {
-    dirs::home_dir()
+    crate::sys::home_dir()
         .unwrap_or_else(|| PathBuf::from("~"))
         .join(".bivvy")
         .join("failure-reports")

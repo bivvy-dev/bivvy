@@ -52,6 +52,7 @@ pub mod shell;
 pub mod snapshots;
 pub mod state;
 pub mod steps;
+pub mod sys;
 pub mod ui;
 pub mod updates;
 

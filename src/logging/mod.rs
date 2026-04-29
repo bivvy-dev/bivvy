@@ -55,7 +55,7 @@ pub const DEFAULT_RETENTION_MB: u64 = 500;
 ///
 /// Returns `~/.bivvy/logs/`.
 pub fn default_log_dir() -> PathBuf {
-    dirs::home_dir()
+    crate::sys::home_dir()
         .unwrap_or_else(|| PathBuf::from("~"))
         .join(".bivvy")
         .join("logs")

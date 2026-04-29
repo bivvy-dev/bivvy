@@ -25,7 +25,7 @@ pub struct TrustStore {
 impl TrustStore {
     /// Get the default path for the trust store file.
     pub fn default_path() -> PathBuf {
-        dirs::home_dir()
+        crate::sys::home_dir()
             .unwrap_or_else(|| PathBuf::from("~"))
             .join(".bivvy")
             .join("trusted_urls.yml")

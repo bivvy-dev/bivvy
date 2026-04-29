@@ -33,7 +33,7 @@ impl LocalLoader {
 
     /// Get user templates directory.
     fn user_templates_dir() -> Option<PathBuf> {
-        dirs::home_dir().map(|h| h.join(".bivvy").join("templates"))
+        crate::sys::home_dir().map(|h| h.join(".bivvy").join("templates"))
     }
 
     /// Load templates from a directory (recursively).

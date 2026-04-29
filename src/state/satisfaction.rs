@@ -134,7 +134,7 @@ impl SatisfactionEvidence {
                 }
                 PresenceKind::Binary => {
                     // Check if binary is on PATH
-                    which::which(target).is_ok()
+                    crate::sys::find_on_path(target).is_some()
                 }
                 PresenceKind::Custom => {
                     // Custom presence checks can't be cheaply validated

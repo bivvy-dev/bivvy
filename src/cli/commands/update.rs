@@ -120,7 +120,7 @@ impl Command for UpdateCommand {
 ///
 /// Only requires `OutputWriter` — displays confirmation messages but does not prompt.
 fn set_auto_update(ui: &mut dyn OutputWriter, enabled: bool) -> Result<CommandResult> {
-    let home = dirs::home_dir().ok_or_else(|| {
+    let home = crate::sys::home_dir().ok_or_else(|| {
         crate::error::BivvyError::Other(anyhow::anyhow!("Could not determine home directory"))
     })?;
 

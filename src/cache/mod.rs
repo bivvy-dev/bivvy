@@ -15,7 +15,7 @@ pub use validation::{format_duration, parse_ttl, CacheValidator, ValidationResul
 
 /// Get the default cache directory.
 pub fn default_cache_dir() -> std::path::PathBuf {
-    dirs::cache_dir()
+    crate::sys::cache_dir()
         .unwrap_or_else(|| std::path::PathBuf::from("."))
         .join("bivvy")
         .join("templates")

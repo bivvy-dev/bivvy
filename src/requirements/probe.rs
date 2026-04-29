@@ -204,7 +204,7 @@ impl EnvironmentProbe {
     where
         F: Fn(&str) -> Result<String, std::env::VarError>,
     {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("/"));
+        let home = crate::sys::home_dir().unwrap_or_else(|| PathBuf::from("/"));
         let system_path = parse_system_path();
         let mut augmented_path = Vec::new();
         let mut inactive_managers = Vec::new();

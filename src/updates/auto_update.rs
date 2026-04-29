@@ -30,7 +30,7 @@ pub struct StagedUpdate {
 
 /// Get the staging directory for downloaded binaries.
 fn staging_dir() -> Option<PathBuf> {
-    dirs::data_dir().map(|d| d.join("bivvy").join("staged-update"))
+    crate::sys::data_dir().map(|d| d.join("bivvy").join("staged-update"))
 }
 
 /// Get the path to the staged binary.
@@ -51,7 +51,7 @@ fn staged_metadata_path() -> Option<PathBuf> {
 
 /// Get the path to the background update lock file.
 fn lock_path() -> Option<PathBuf> {
-    dirs::cache_dir().map(|d| d.join("bivvy").join("update.lock"))
+    crate::sys::cache_dir().map(|d| d.join("bivvy").join("update.lock"))
 }
 
 /// Check if a staged update is ready to apply.
@@ -190,7 +190,7 @@ fn remove_lock_file() {
 /// Returns the configured value, or `true` (the default) if the system
 /// config doesn't exist or doesn't contain the setting.
 pub fn is_auto_update_enabled() -> bool {
-    let path = match dirs::home_dir() {
+    let path = match crate::sys::home_dir() {
         Some(h) => h.join(".bivvy").join("config.yml"),
         None => return true,
     };
@@ -501,7 +501,7 @@ mod tests {
 
     #[test]
     fn staging_dir_returns_path() {
-        // On most systems dirs::data_dir() is Some
+        // On most systems crate::sys::data_dir() is Some
         if let Some(dir) = staging_dir() {
             assert!(dir.ends_with("staged-update"));
         }

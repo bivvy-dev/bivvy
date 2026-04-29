@@ -94,7 +94,7 @@ impl EnvironmentDetector {
 
     /// Get common shell config file paths.
     fn get_shell_config_files() -> Vec<PathBuf> {
-        let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("~"));
+        let home = crate::sys::home_dir().unwrap_or_else(|| PathBuf::from("~"));
 
         vec![
             home.join(".zshrc"),

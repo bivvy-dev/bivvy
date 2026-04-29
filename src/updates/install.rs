@@ -70,7 +70,7 @@ pub fn detect_install_method() -> InstallMethod {
 
 fn is_cargo_install(exe_path: &Path) -> bool {
     // Check if executable is in ~/.cargo/bin/
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = crate::sys::home_dir() {
         let cargo_bin = home.join(".cargo").join("bin");
         if exe_path.starts_with(&cargo_bin) {
             return true;
@@ -192,7 +192,7 @@ mod tests {
     #[test]
     fn is_cargo_install_with_cargo_bin() {
         // Test with a path that looks like cargo bin
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = crate::sys::home_dir() {
             let cargo_path = home.join(".cargo").join("bin").join("bivvy");
             assert!(is_cargo_install(&cargo_path));
         }

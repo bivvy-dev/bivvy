@@ -106,7 +106,7 @@ impl StateStore {
 
     /// Get the state directory for a project.
     pub fn state_dir(project_id: &ProjectId) -> PathBuf {
-        dirs::home_dir()
+        crate::sys::home_dir()
             .unwrap_or_else(|| PathBuf::from("~"))
             .join(".bivvy")
             .join("projects")

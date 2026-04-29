@@ -35,13 +35,9 @@ marked-yaml = "0.8.0"
 anyhow = "1.0.100"
 thiserror = "2.0.18"
 
-# File system
-dirs = "6.0.0"
-walkdir = "2.5.0"
-glob = "0.3.3"
+# File system (none — directory discovery and glob matching are in src/sys.rs)
 
-# Process execution
-which = "8.0.0"
+# Process execution (PATH lookup is in src/sys.rs)
 
 # HTTP client (for remote templates)
 reqwest = { version = "0.13.1", default-features = false, features = ["blocking", "json", "rustls"] }
@@ -53,8 +49,7 @@ chrono = { version = "0.4.43", features = ["serde"] }
 sha2 = "0.10"
 hex = "0.4.3"
 
-# Random number generation (for session IDs)
-getrandom = "0.2"
+# Random number generation (in src/sys.rs via /dev/urandom / BCryptGenRandom)
 
 # Regular expressions (for version extraction)
 regex = "1"
@@ -67,9 +62,7 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 include_dir = "0.7.4"
 clap_complete = "4.5.65"
 
-# URL handling (for feedback delivery)
-open = "5"
-urlencoding = "2"
+# URL handling (percent-encoding and browser opening are in src/sys.rs)
 
 [dev-dependencies]
 assert_cmd = "2.1.2"

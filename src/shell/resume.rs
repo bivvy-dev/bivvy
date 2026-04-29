@@ -93,7 +93,7 @@ impl ResumeState {
                 return path.clone();
             }
         }
-        dirs::data_local_dir()
+        crate::sys::data_local_dir()
             .unwrap_or_else(|| PathBuf::from("~/.local/share"))
             .join("bivvy")
             .join("resume-state.json")

@@ -210,9 +210,9 @@ pub fn build_email_body(entry: &FeedbackEntry, session: Option<&Session>) -> Str
 
 /// Build a pre-filled GitHub issue URL.
 pub fn build_github_url(title: &str, body: &str, labels: &[String]) -> String {
-    let encoded_title = urlencoding::encode(title);
+    let encoded_title = crate::sys::percent_encode(title);
     let encoded_labels = labels.join(",");
-    let encoded_labels = urlencoding::encode(&encoded_labels);
+    let encoded_labels = crate::sys::percent_encode(&encoded_labels);
 
     // Start with everything except body to measure remaining space
     let prefix = format!(
@@ -221,13 +221,13 @@ pub fn build_github_url(title: &str, body: &str, labels: &[String]) -> String {
     );
 
     let body_budget = MAX_URL_LEN.saturating_sub(prefix.len() + "&body=".len());
-    let encoded_body = urlencoding::encode(body);
+    let encoded_body = crate::sys::percent_encode(body);
 
     let final_body = if encoded_body.len() > body_budget {
         // Truncate the raw body, then re-encode
         let mut truncated = body.to_string();
         // Binary search for the right truncation point
-        while urlencoding::encode(&truncated).len() > body_budget {
+        while crate::sys::percent_encode(&truncated).len() > body_budget {
             // Remove roughly 10% or 100 chars, whichever is larger
             let remove = (truncated.len() / 10).max(100).min(truncated.len());
             truncated.truncate(truncated.len() - remove);
@@ -235,9 +235,9 @@ pub fn build_github_url(title: &str, body: &str, labels: &[String]) -> String {
         if truncated.len() < body.len() {
             truncated.push_str("\n\n(truncated)");
         }
-        urlencoding::encode(&truncated).into_owned()
+        crate::sys::percent_encode(&truncated)
     } else {
-        encoded_body.into_owned()
+        encoded_body
     };
 
     format!("{}&body={}", prefix, final_body)
@@ -245,8 +245,8 @@ pub fn build_github_url(title: &str, body: &str, labels: &[String]) -> String {
 
 /// Build a mailto URL.
 pub fn build_mailto_url(to: &str, subject: &str, body: &str) -> String {
-    let encoded_subject = urlencoding::encode(subject);
-    let encoded_body = urlencoding::encode(body);
+    let encoded_subject = crate::sys::percent_encode(subject);
+    let encoded_body = crate::sys::percent_encode(body);
     format!(
         "mailto:{}?subject={}&body={}",
         to, encoded_subject, encoded_body
@@ -277,7 +277,7 @@ pub fn scrub_payload(text: &str) -> String {
     let mut result = masker.mask(text);
 
     // Replace home directory
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = crate::sys::home_dir() {
         let home_str = home.display().to_string();
         if !home_str.is_empty() {
             result = result.replace(&home_str, "~");
@@ -285,7 +285,7 @@ pub fn scrub_payload(text: &str) -> String {
     }
 
     // Replace username in paths (e.g., /home/username/ or /Users/username/)
-    if let Some(home) = dirs::home_dir() {
+    if let Some(home) = crate::sys::home_dir() {
         if let Some(username) = home.file_name() {
             let username_str = username.to_string_lossy();
             // Only replace in path-like contexts
@@ -308,7 +308,7 @@ pub fn scrub_payload(text: &str) -> String {
 
 /// Open a URL in the default browser or mail client.
 pub fn open_url(url: &str) -> anyhow::Result<()> {
-    open::that(url).map_err(|e| {
+    crate::sys::open_in_browser(url).map_err(|e| {
         anyhow::anyhow!(
             "Failed to open URL. You can open it manually:\n  {}\n\nError: {}",
             url,
@@ -588,8 +588,8 @@ mod tests {
         let body = format!("## Feedback\n\n{}\n\n{}", message, padding);
 
         let url = build_github_url("title", &body, &[]);
-        let decoded =
-            urlencoding::decode(url.split("body=").nth(1).unwrap_or_default()).unwrap_or_default();
+        let decoded = crate::sys::percent_decode(url.split("body=").nth(1).unwrap_or_default())
+            .unwrap_or_default();
 
         // Message should survive truncation (it's at the start)
         assert!(decoded.contains(message));
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn scrub_replaces_home_dir() {
-        if let Some(home) = dirs::home_dir() {
+        if let Some(home) = crate::sys::home_dir() {
             let path = format!("{}/projects/myapp", home.display());
             let scrubbed = scrub_payload(&path);
             assert!(scrubbed.contains("~/projects/myapp"));

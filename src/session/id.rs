@@ -17,7 +17,7 @@ impl SessionId {
     /// Generate a new session ID.
     pub fn new() -> Self {
         let mut random = [0u8; 8];
-        getrandom::getrandom(&mut random).expect("Failed to generate random bytes");
+        crate::sys::random_bytes(&mut random);
 
         // Truncate to milliseconds for consistent serialization
         let now = Utc::now();

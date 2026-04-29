@@ -33,7 +33,7 @@ pub struct RemoteFetcher {
 impl RemoteFetcher {
     /// Create a fetcher with the specified timeout.
     pub fn new(timeout: Duration) -> Self {
-        let cache_dir = dirs::cache_dir()
+        let cache_dir = crate::sys::cache_dir()
             .unwrap_or_else(|| PathBuf::from("~/.cache"))
             .join("bivvy")
             .join("remote-configs");

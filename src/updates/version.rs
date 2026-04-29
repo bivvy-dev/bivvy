@@ -131,7 +131,7 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
 
 /// Get the cache file path.
 fn cache_path() -> Option<PathBuf> {
-    dirs::cache_dir().map(|d| d.join("bivvy").join("update_check.json"))
+    crate::sys::cache_dir().map(|d| d.join("bivvy").join("update_check.json"))
 }
 
 /// Load cached update info.

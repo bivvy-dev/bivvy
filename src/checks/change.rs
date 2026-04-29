@@ -44,22 +44,13 @@ pub fn hash_glob(pattern: &str, project_root: &Path, size_limit: &SizeLimit) -> 
         project_root.join(pattern).to_string_lossy().to_string()
     };
 
-    let paths = match glob::glob(&full_pattern) {
+    let all_paths = match crate::sys::glob(&full_pattern) {
         Ok(paths) => paths,
         Err(e) => return HashResult::Error(format!("Invalid glob pattern '{}': {}", pattern, e)),
     };
 
-    let mut file_paths: Vec<std::path::PathBuf> = Vec::new();
-    for entry in paths {
-        match entry {
-            Ok(path) => {
-                if path.is_file() {
-                    file_paths.push(path);
-                }
-            }
-            Err(e) => return HashResult::Error(format!("Glob error: {}", e)),
-        }
-    }
+    let file_paths: Vec<std::path::PathBuf> =
+        all_paths.into_iter().filter(|p| p.is_file()).collect();
 
     if file_paths.is_empty() {
         return HashResult::NotFound(format!("No files matched pattern '{}'", pattern));

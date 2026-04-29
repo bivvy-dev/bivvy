@@ -53,7 +53,7 @@ impl FeedbackEntry {
     /// Create a new feedback entry.
     pub fn new(message: impl Into<String>) -> Self {
         let mut id_bytes = [0u8; 6];
-        getrandom::getrandom(&mut id_bytes).expect("Failed to generate random bytes");
+        crate::sys::random_bytes(&mut id_bytes);
 
         Self {
             id: format!("fb_{}", hex::encode(id_bytes)),
