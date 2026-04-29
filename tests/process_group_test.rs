@@ -365,6 +365,8 @@ app_name: "ProcessGroupTest"
 
 settings:
   default_output: verbose
+  defaults:
+    prompt_on_rerun: false
 
 steps:
   check-toolchain:

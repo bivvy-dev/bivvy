@@ -263,6 +263,21 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
         return result;
     }
 
+    // auto_run: false → prompt before running
+    let effective_auto_run =
+        super::decision::effective_auto_run(step, step_name, ctx.step_overrides);
+    if !effective_auto_run {
+        let result = EvaluationResult {
+            decision: StepDecision::Prompt {
+                prompt_key: format!("autorun_{}", step_name),
+            },
+            reason: "auto_run disabled — awaiting user confirmation".to_string(),
+            satisfaction: Some(computed),
+        };
+        ctx.evaluated.insert(step_name.to_string(), result.clone());
+        return result;
+    }
+
     // Default: auto-run
     let result = EvaluationResult {
         decision: StepDecision::AutoRun,
@@ -796,5 +811,192 @@ mod tests {
                 reason: SkipReason::AutoSatisfied
             }
         ));
+    }
+
+    #[test]
+    fn auto_run_false_prompts_when_not_satisfied() {
+        let mut step = make_step("install", vec![]);
+        step.behavior.auto_run = false;
+        let mut steps = HashMap::new();
+        steps.insert("install".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+
+        let result = evaluate_step("install", &mut ctx);
+        assert!(
+            matches!(result.decision, StepDecision::Prompt { ref prompt_key } if prompt_key.starts_with("autorun_")),
+            "expected Prompt(autorun_*), got {:?}",
+            result.decision
+        );
+    }
+
+    #[test]
+    fn auto_run_true_auto_runs_when_not_satisfied() {
+        let mut step = make_step("install", vec![]);
+        step.behavior.auto_run = true;
+        let mut steps = HashMap::new();
+        steps.insert("install".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+
+        let result = evaluate_step("install", &mut ctx);
+        assert!(
+            matches!(result.decision, StepDecision::AutoRun),
+            "expected AutoRun, got {:?}",
+            result.decision
+        );
+    }
+
+    #[test]
+    fn sensitive_takes_priority_over_auto_run() {
+        let mut step = make_step("deploy", vec![]);
+        step.behavior.sensitive = true;
+        step.behavior.auto_run = false;
+        let mut steps = HashMap::new();
+        steps.insert("deploy".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+
+        let result = evaluate_step("deploy", &mut ctx);
+        // sensitive prompt takes priority over auto_run prompt
+        assert!(
+            matches!(result.decision, StepDecision::Prompt { ref prompt_key } if prompt_key.starts_with("sensitive_")),
+            "expected Prompt(sensitive_*), got {:?}",
+            result.decision
+        );
+    }
+
+    #[test]
+    fn confirm_takes_priority_over_auto_run() {
+        let mut step = make_step("deploy", vec![]);
+        step.behavior.confirm = true;
+        step.behavior.auto_run = false;
+        let mut steps = HashMap::new();
+        steps.insert("deploy".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+
+        let result = evaluate_step("deploy", &mut ctx);
+        // confirm prompt takes priority over auto_run prompt
+        assert!(
+            matches!(result.decision, StepDecision::Prompt { ref prompt_key } if prompt_key.starts_with("confirm_")),
+            "expected Prompt(confirm_*), got {:?}",
+            result.decision
+        );
+    }
+
+    #[test]
+    fn auto_run_false_does_not_affect_satisfied_steps() {
+        // When a step is satisfied, auto_run doesn't matter — prompt_on_rerun controls it
+        let mut step = make_step("build", vec![]);
+        step.behavior.auto_run = false;
+        step.behavior.prompt_on_rerun = false;
+        let mut steps = HashMap::new();
+        steps.insert("build".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut state = crate::state::StateStore::new(
+            &crate::state::ProjectId::from_path(temp.path()).unwrap(),
+        );
+        state.record_step_result(
+            "build",
+            crate::state::StepStatus::Success,
+            std::time::Duration::from_secs(1),
+        );
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+        ctx.state = Some(&state);
+
+        let result = evaluate_step("build", &mut ctx);
+        // Should auto-skip because satisfied, regardless of auto_run: false
+        assert!(
+            matches!(
+                result.decision,
+                StepDecision::Skip {
+                    reason: SkipReason::AutoSatisfied
+                }
+            ),
+            "expected AutoSatisfied skip, got {:?}",
+            result.decision
+        );
     }
 }

@@ -80,6 +80,9 @@ pub struct ResolvedBehavior {
     /// Always prompt the user before running this step.
     pub confirm: bool,
 
+    /// Whether this step auto-runs when the pipeline determines it needs to run.
+    pub auto_run: bool,
+
     /// Prompt before re-running completed.
     pub prompt_on_rerun: bool,
 
@@ -99,6 +102,7 @@ impl Default for ResolvedBehavior {
             skippable: true,
             required: false,
             confirm: false,
+            auto_run: true,
             prompt_on_rerun: true,
             allow_failure: false,
             sensitive: false,
@@ -230,7 +234,8 @@ impl ResolvedStep {
                 skippable: config.behavior.skippable,
                 required: config.behavior.required,
                 confirm: config.behavior.confirm,
-                prompt_on_rerun: config.behavior.prompt_on_rerun,
+                auto_run: config.behavior.auto_run.unwrap_or(true),
+                prompt_on_rerun: config.behavior.prompt_on_rerun.unwrap_or(true),
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
                 rerun_window: resolve_rerun_window(config.behavior.rerun_window.as_deref()),
@@ -290,7 +295,8 @@ impl ResolvedStep {
                 skippable: config.behavior.skippable,
                 required: config.behavior.required,
                 confirm: config.behavior.confirm,
-                prompt_on_rerun: config.behavior.prompt_on_rerun,
+                auto_run: config.behavior.auto_run.unwrap_or(true),
+                prompt_on_rerun: config.behavior.prompt_on_rerun.unwrap_or(true),
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
                 rerun_window: resolve_rerun_window(config.behavior.rerun_window.as_deref()),
@@ -375,6 +381,9 @@ impl ResolvedStep {
         }
         if let Some(v) = overrides.confirm {
             self.behavior.confirm = v;
+        }
+        if let Some(v) = overrides.auto_run {
+            self.behavior.auto_run = v;
         }
         if let Some(ref w) = overrides.rerun_window {
             self.behavior.rerun_window = resolve_rerun_window(Some(w));
@@ -1124,6 +1133,57 @@ mod tests {
         resolved.apply_environment_overrides(&overrides);
 
         assert!(resolved.behavior.skippable);
+    }
+
+    #[test]
+    fn from_config_auto_run_none_defaults_true() {
+        let config = StepConfig {
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.behavior.auto_run);
+    }
+
+    #[test]
+    fn from_config_auto_run_explicit_false() {
+        let config = StepConfig {
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            behavior: BehaviorConfig {
+                auto_run: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(!resolved.behavior.auto_run);
+    }
+
+    #[test]
+    fn resolved_step_env_overrides_auto_run() {
+        let config = StepConfig {
+            execution: ExecutionConfig {
+                command: Some("echo test".to_string()),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let mut resolved = ResolvedStep::from_config("test", &config, None);
+        assert!(resolved.behavior.auto_run);
+
+        let overrides = StepEnvironmentOverride {
+            auto_run: Some(false),
+            ..Default::default()
+        };
+        resolved.apply_environment_overrides(&overrides);
+
+        assert!(!resolved.behavior.auto_run);
     }
 
     #[test]

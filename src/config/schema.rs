@@ -237,6 +237,49 @@ pub struct EnvironmentProfileSettings {
     pub environments: HashMap<String, EnvironmentConfig>,
 }
 
+/// Default values for step behavior flags.
+///
+/// These serve as project-wide (or system-wide) defaults. Step-level settings
+/// override these, and workflow `step_overrides` override step-level settings.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[serde(default)]
+pub struct DefaultsSettings {
+    /// Whether steps auto-run when the pipeline determines they need to run.
+    /// When false, the user is prompted before each step executes.
+    /// Default: true.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub auto_run: bool,
+
+    /// Whether to prompt the user before re-running a step that was recently
+    /// completed (within the rerun window). When false, recently-completed
+    /// steps are silently skipped. Default: true.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub prompt_on_rerun: bool,
+
+    /// Default rerun window for all steps.
+    /// Steps can override this with their own `rerun_window` field.
+    /// Accepts duration strings: `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`.
+    /// Default: `"4h"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_window: Option<String>,
+}
+
+impl Default for DefaultsSettings {
+    fn default() -> Self {
+        Self {
+            auto_run: true,
+            prompt_on_rerun: true,
+            rerun_window: None,
+        }
+    }
+}
+
+impl DefaultsSettings {
+    fn is_default(&self) -> bool {
+        self.auto_run && self.prompt_on_rerun && self.rerun_window.is_none()
+    }
+}
+
 /// Global settings that apply to all workflows and steps.
 ///
 /// Uses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat
@@ -263,6 +306,10 @@ pub struct Settings {
     /// Environment profile settings (named environments, default)
     #[serde(flatten)]
     pub environment_profiles: EnvironmentProfileSettings,
+
+    /// Default values for step behavior flags.
+    #[serde(default, skip_serializing_if = "DefaultsSettings::is_default")]
+    pub defaults: DefaultsSettings,
 }
 
 fn default_output() -> OutputMode {
@@ -387,15 +434,23 @@ pub struct BehaviorConfig {
     #[serde(default, skip_serializing_if = "is_false")]
     pub confirm: bool,
 
+    /// Whether this step auto-runs when the pipeline determines it needs to run.
+    /// `None` means "use the global default" (`settings.defaults.auto_run`).
+    /// `Some(true)` = auto-run, `Some(false)` = prompt user before running.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_run: Option<bool>,
+
     /// Ask before re-running completed steps.
+    /// `None` means "use the global default" (`settings.defaults.prompt_on_rerun`).
+    /// `Some(true)` = prompt before re-running, `Some(false)` = silently skip.
     ///
     /// Also accepts the deprecated `prompt_if_complete` field name via serde alias.
     #[serde(
-        default = "default_true",
-        skip_serializing_if = "is_true",
+        default,
+        skip_serializing_if = "Option::is_none",
         alias = "prompt_if_complete"
     )]
-    pub prompt_on_rerun: bool,
+    pub prompt_on_rerun: Option<bool>,
 
     /// Continue workflow if this step fails
     #[serde(default, skip_serializing_if = "is_false")]
@@ -419,7 +474,8 @@ impl Default for BehaviorConfig {
             skippable: true,
             required: false,
             confirm: false,
-            prompt_on_rerun: true,
+            auto_run: None,
+            prompt_on_rerun: None,
             allow_failure: false,
             sensitive: false,
             rerun_window: None,
@@ -612,6 +668,11 @@ pub struct WorkflowConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub settings: Option<WorkflowSettings>,
 
+    /// Override auto_run for all steps in this workflow.
+    /// Individual step overrides take precedence.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_run_steps: Option<bool>,
+
     /// Workflow-level environment variables
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub env: HashMap<String, String>,
@@ -632,6 +693,10 @@ pub struct StepOverride {
     /// Override required flag
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required: Option<bool>,
+
+    /// Override auto_run flag.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_run: Option<bool>,
 
     /// Override prompt_on_rerun flag.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -901,6 +966,10 @@ pub struct StepEnvironmentOverride {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub confirm: Option<bool>,
 
+    /// Override auto_run
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auto_run: Option<bool>,
+
     /// Override rerun_window
     #[serde(skip_serializing_if = "Option::is_none")]
     pub rerun_window: Option<String>,
@@ -1117,7 +1186,7 @@ steps:
         let step = &config.steps["minimal"];
         assert!(step.behavior.skippable);
         assert!(!step.behavior.required);
-        assert!(step.behavior.prompt_on_rerun);
+        assert!(step.behavior.prompt_on_rerun.is_none());
         assert!(!step.behavior.allow_failure);
         assert_eq!(step.execution.retry, 0);
     }
@@ -1422,7 +1491,7 @@ workflows:
         );
         assert!(
             !yaml.contains("prompt_on_rerun"),
-            "default true prompt_on_rerun should be omitted"
+            "None prompt_on_rerun should be omitted"
         );
         assert!(
             !yaml.contains("required"),
@@ -1629,6 +1698,133 @@ settings:
             !yaml.contains("rerun_window"),
             "None rerun_window should be omitted"
         );
+    }
+
+    #[test]
+    fn behavior_config_auto_run_defaults_none() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.behavior.auto_run.is_none());
+    }
+
+    #[test]
+    fn behavior_config_auto_run_parses_false() {
+        let yaml = r#"
+            command: "yarn install"
+            auto_run: false
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.behavior.auto_run, Some(false));
+    }
+
+    #[test]
+    fn behavior_config_auto_run_parses_true() {
+        let yaml = r#"
+            command: "yarn install"
+            auto_run: true
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.behavior.auto_run, Some(true));
+    }
+
+    #[test]
+    fn behavior_config_auto_run_omitted_when_none() {
+        let config = BehaviorConfig::default();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(
+            !yaml.contains("auto_run"),
+            "None auto_run should be omitted"
+        );
+    }
+
+    #[test]
+    fn defaults_settings_parses() {
+        let yaml = r#"
+settings:
+  defaults:
+    auto_run: false
+    prompt_on_rerun: false
+    rerun_window: "8h"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!config.settings.defaults.auto_run);
+        assert!(!config.settings.defaults.prompt_on_rerun);
+        assert_eq!(
+            config.settings.defaults.rerun_window,
+            Some("8h".to_string())
+        );
+    }
+
+    #[test]
+    fn defaults_settings_has_correct_defaults() {
+        let yaml = r#"
+app_name: test
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.settings.defaults.auto_run);
+        assert!(config.settings.defaults.prompt_on_rerun);
+        assert!(config.settings.defaults.rerun_window.is_none());
+    }
+
+    #[test]
+    fn defaults_settings_omitted_when_default() {
+        let settings = Settings::default();
+        let yaml = serde_yaml::to_string(&settings).unwrap();
+        assert!(
+            !yaml.contains("defaults"),
+            "default DefaultsSettings should be omitted"
+        );
+    }
+
+    #[test]
+    fn workflow_auto_run_steps_parses() {
+        let yaml = r#"
+app_name: test
+steps:
+  build:
+    command: "cargo build"
+workflows:
+  ci:
+    steps: [build]
+    auto_run_steps: false
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.workflows["ci"].auto_run_steps, Some(false));
+    }
+
+    #[test]
+    fn workflow_auto_run_steps_defaults_none() {
+        let yaml = r#"
+app_name: test
+steps:
+  build:
+    command: "cargo build"
+workflows:
+  default:
+    steps: [build]
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.workflows["default"].auto_run_steps.is_none());
+    }
+
+    #[test]
+    fn step_override_auto_run_parses() {
+        let yaml = r#"
+auto_run: false
+"#;
+        let overrides: StepOverride = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(overrides.auto_run, Some(false));
+    }
+
+    #[test]
+    fn step_environment_override_auto_run_parses() {
+        let yaml = r#"
+auto_run: true
+"#;
+        let overrides: StepEnvironmentOverride = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(overrides.auto_run, Some(true));
     }
 
     #[test]
@@ -2086,7 +2282,7 @@ command: "cargo build"
 prompt_if_complete: false
 "#;
         let step: StepConfig = serde_yaml::from_str(yaml).unwrap();
-        assert!(!step.behavior.prompt_on_rerun);
+        assert_eq!(step.behavior.prompt_on_rerun, Some(false));
     }
 
     #[test]

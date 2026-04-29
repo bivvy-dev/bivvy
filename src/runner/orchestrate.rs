@@ -368,6 +368,60 @@ impl<'a> WorkflowRunner<'a> {
                             continue;
                         }
                         // User chose yes — fall through to execution
+                    } else if prompt_key.starts_with("autorun_") {
+                        // Auto-run prompt: "Run step_title?" (default Yes)
+                        let prompt_text = format!("Run {}?", step.title);
+                        let prompt = Prompt {
+                            key: prompt_key.clone(),
+                            question: format!("{}{}", step_pad, prompt_text),
+                            prompt_type: PromptType::Select {
+                                options: vec![
+                                    PromptOption {
+                                        label: "Yes (y)".to_string(),
+                                        value: "yes".to_string(),
+                                    },
+                                    PromptOption {
+                                        label: "No  (n)".to_string(),
+                                        value: "no".to_string(),
+                                    },
+                                ],
+                            },
+                            default: Some("yes".to_string()),
+                        };
+                        event_bus.emit(&BivvyEvent::UserPrompted {
+                            step: Some(step_name.clone()),
+                            prompt: prompt_text,
+                            options: vec!["Yes (y)".to_string(), "No  (n)".to_string()],
+                        });
+                        let answer = ui.prompt(&prompt)?;
+                        let answer_str = answer.as_string();
+                        event_bus.emit(&BivvyEvent::UserResponded {
+                            step: Some(step_name.clone()),
+                            input: answer_str.clone(),
+                            method: crate::logging::InputMethod::ArrowSelect,
+                        });
+                        if answer_str != "yes" {
+                            ui.clear_lines(2);
+                            event_bus.emit(&BivvyEvent::StepDecided {
+                                name: step_name.clone(),
+                                decision: "skip".to_string(),
+                                reason: Some("user_declined_auto_run".to_string()),
+                                trace: None,
+                            });
+                            event_bus.emit(&BivvyEvent::StepSkipped {
+                                name: step_name.clone(),
+                                reason: "user_declined_auto_run".to_string(),
+                            });
+                            ui.message(&format!("{}{}", step_pad, theme.format_skipped("Skipped")));
+                            user_skipped_steps.insert(step_name.clone());
+                            results.push(StepResult::skipped(
+                                &step.name,
+                                CheckResult::passed("User declined to run"),
+                            ));
+                            continue;
+                        }
+                        ui.clear_lines(2);
+                        // User chose yes — fall through to execution
                     } else if prompt_key.starts_with("confirm_") {
                         // Confirm prompt: "Step title?" (default Yes)
                         let prompt_text = format!("{}?", step.title);

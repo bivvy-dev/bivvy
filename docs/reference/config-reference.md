@@ -41,6 +41,17 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 | `history_retention` | int | `50` | Execution history entries to keep |
 | `default_environment` | string | — | Default environment when `--env` is not set |
 | `environments` | map of [EnvironmentConfig](#environment-config) | `{}` | Custom environment definitions |
+| `defaults` | [Defaults](#defaults) | `{}` | Default values for step behavior flags |
+
+### Defaults
+
+Project-wide (or system-wide) defaults for step behavior. Step-level settings override these, and workflow `step_overrides` override step-level settings.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `auto_run` | bool | `true` | Whether steps auto-run when the pipeline says they need to run. When `false`, the user is prompted before each step executes. |
+| `prompt_on_rerun` | bool | `true` | Whether to prompt before re-running a recently completed step. When `false`, recently-completed steps are silently skipped. |
+| `rerun_window` | string | `"4h"` | Default rerun window for all steps. Accepts duration strings: `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`. |
 
 ### Step
 
@@ -60,6 +71,7 @@ At minimum, a step needs either `command` or `template`.
 | `precondition` | [Check](#check) | — | Gate that must pass before step runs (not bypassed by `--force`) |
 | `skippable` | bool | `true` | User can skip interactively |
 | `required` | bool | `false` | Cannot be skipped |
+| `auto_run` | bool | — | Auto-run when pipeline says step needs to run. `None` = use global default. |
 | `prompt_on_rerun` | bool | `true` | Ask before re-running |
 | `allow_failure` | bool | `false` | Continue workflow on failure |
 | `retry` | int | `0` | Retry attempts on failure |
@@ -114,6 +126,7 @@ Tagged union — the `type` field determines which other fields apply.
 | `steps` | list | `[]` | Ordered step names to execute |
 | `overrides` | map of [StepOverride](#step-override) | `{}` | Per-step behavior overrides |
 | `settings` | [WorkflowSettings](#workflow-settings) | — | Workflow-level settings |
+| `auto_run_steps` | bool | — | Override `auto_run` for all steps in this workflow. Individual step overrides take precedence. |
 | `env` | map | `{}` | Workflow-level env vars |
 | `env_file` | path | — | Workflow-level env file |
 
@@ -125,6 +138,7 @@ Used inside `workflows.<name>.overrides.<step>` to tweak step behavior for a spe
 |-------|------|---------|-------------|
 | `skip_prompt` | bool | `false` | Skip prompts, just run |
 | `required` | bool | — | Override step's `required` flag |
+| `auto_run` | bool | — | Override step's `auto_run` flag |
 | `prompt_on_rerun` | bool | — | Override step's `prompt_on_rerun` flag |
 | `check` | [Check](#check) | — | Override step's check |
 

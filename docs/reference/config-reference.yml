@@ -104,6 +104,27 @@ settings:
   #     provided_requirements:
   #       - docker
 
+  # Default values for step behavior flags.
+  # Step-level settings override these; workflow step_overrides override step-level.
+  # Type: map (optional)
+  defaults:
+
+    # Whether steps auto-run when the pipeline determines they need to run.
+    # When false, the user is prompted "Run <step>?" before each step executes.
+    # Default: true
+    auto_run: true
+
+    # Whether to prompt before re-running a step completed within the rerun window.
+    # When false, recently-completed steps are silently skipped.
+    # Default: true
+    prompt_on_rerun: true
+
+    # Default rerun window for all steps (how long a previous success counts as recent).
+    # Steps override with their own rerun_window field.
+    # Accepts: "4h", "30m", "7d", "0"/"never", "forever"
+    # Default: "4h"
+    rerun_window: "4h"
+
 
 # --------------------------------------------------------------------------
 # Vars — user-defined variables for interpolation
@@ -257,6 +278,12 @@ steps:
     # Step must run — cannot be skipped
     # Default: false
     required: false
+
+    # Whether this step auto-runs when the pipeline says it needs to run.
+    # Omit to use the global default (settings.defaults.auto_run).
+    # Set to false to prompt "Run <step>?" before executing.
+    # Type: bool (optional — omit to use global default)
+    # auto_run: true
 
     # Ask before re-running a step that's already complete
     # Default: true
@@ -446,9 +473,17 @@ workflows:
         # Override the step's `required` flag
         # Type: bool (optional — omit to use step default)
         required: true
+        # Override the step's `auto_run` flag
+        # Type: bool (optional — omit to use step default)
+        # auto_run: true
         # Override the step's `prompt_on_rerun` flag
         # Type: bool (optional — omit to use step default)
         prompt_on_rerun: false
+
+    # Override auto_run for all steps in this workflow.
+    # Individual step overrides take precedence.
+    # Type: bool (optional)
+    # auto_run_steps: true
 
     # Workflow-level settings
     settings:

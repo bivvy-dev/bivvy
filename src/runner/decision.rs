@@ -104,6 +104,19 @@ pub fn blocked_by_user_skip(
         .any(|dep| user_skipped.contains(dep) && !satisfied_steps.contains(dep))
 }
 
+/// Resolve the effective `auto_run` value for a step, considering
+/// step-level overrides from workflow environments.
+pub fn effective_auto_run(
+    step: &ResolvedStep,
+    step_name: &str,
+    step_overrides: &std::collections::HashMap<String, StepOverride>,
+) -> bool {
+    step_overrides
+        .get(step_name)
+        .and_then(|o| o.auto_run)
+        .unwrap_or(step.behavior.auto_run)
+}
+
 /// Resolve the effective `prompt_on_rerun` value for a step, considering
 /// step-level overrides from workflow environments.
 pub fn effective_prompt_on_rerun(
@@ -187,6 +200,51 @@ mod tests {
         let skipped = HashSet::new();
         let satisfied = HashSet::new();
         assert!(!blocked_by_user_skip(&step, &skipped, &satisfied));
+    }
+
+    #[test]
+    fn effective_auto_run_uses_step_default() {
+        let step = make_step("a", vec![]);
+        let overrides = HashMap::new();
+        // Default ResolvedBehavior has auto_run: true
+        assert!(effective_auto_run(&step, "a", &overrides));
+    }
+
+    #[test]
+    fn effective_auto_run_override_takes_precedence() {
+        let step = make_step("a", vec![]);
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "a".to_string(),
+            StepOverride {
+                auto_run: Some(false),
+                ..Default::default()
+            },
+        );
+        assert!(!effective_auto_run(&step, "a", &overrides));
+    }
+
+    #[test]
+    fn effective_auto_run_step_false_no_override() {
+        let mut step = make_step("a", vec![]);
+        step.behavior.auto_run = false;
+        let overrides = HashMap::new();
+        assert!(!effective_auto_run(&step, "a", &overrides));
+    }
+
+    #[test]
+    fn effective_auto_run_step_false_override_true() {
+        let mut step = make_step("a", vec![]);
+        step.behavior.auto_run = false;
+        let mut overrides = HashMap::new();
+        overrides.insert(
+            "a".to_string(),
+            StepOverride {
+                auto_run: Some(true),
+                ..Default::default()
+            },
+        );
+        assert!(effective_auto_run(&step, "a", &overrides));
     }
 
     #[test]

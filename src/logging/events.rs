@@ -455,6 +455,8 @@ pub struct BehaviorFlags {
     pub required: bool,
     /// Whether --force was applied to this step.
     pub forced: bool,
+    /// Whether auto_run is active for this step.
+    pub auto_run: bool,
     /// Whether prompt_on_rerun is active.
     pub prompt_on_rerun: bool,
     /// Whether `confirm: true` is set (always prompt before running).
@@ -682,6 +684,7 @@ mod tests {
                 skippable: true,
                 required: false,
                 forced: false,
+                auto_run: true,
                 prompt_on_rerun: true,
                 confirm: false,
             },

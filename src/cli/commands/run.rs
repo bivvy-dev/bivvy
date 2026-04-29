@@ -119,9 +119,18 @@ impl RunCommand {
             Registry::with_remote_sources(Some(&self.project_root), &config.template_sources)?
         };
 
+        let defaults = &config.settings.defaults;
+        // Resolve the effective global rerun window: prefer defaults.rerun_window,
+        // fall back to execution.default_rerun_window for backward compatibility.
+        let global_rerun_window = defaults.rerun_window.as_deref().or(config
+            .settings
+            .execution
+            .default_rerun_window
+            .as_deref());
+
         let mut steps = HashMap::new();
         for (name, step_config) in &config.steps {
-            let resolved = if let Some(template_name) = &step_config.template {
+            let mut resolved = if let Some(template_name) = &step_config.template {
                 let (template, _source) = registry.resolve(template_name)?;
                 ResolvedStep::from_template(
                     name,
@@ -133,6 +142,22 @@ impl RunCommand {
             } else {
                 ResolvedStep::from_config(name, step_config, environment)
             };
+
+            // Apply global defaults for fields that weren't explicitly set at step level
+            if step_config.behavior.auto_run.is_none() {
+                resolved.behavior.auto_run = defaults.auto_run;
+            }
+            if step_config.behavior.prompt_on_rerun.is_none() {
+                resolved.behavior.prompt_on_rerun = defaults.prompt_on_rerun;
+            }
+            if step_config.behavior.rerun_window.is_none() {
+                if let Some(window_str) = global_rerun_window {
+                    if let Ok(w) = window_str.parse() {
+                        resolved.behavior.rerun_window = w;
+                    }
+                }
+            }
+
             steps.insert(name.clone(), resolved);
         }
         Ok(steps)
@@ -307,11 +332,22 @@ impl Command for RunCommand {
             .is_some_and(|s| s.non_interactive);
 
         // Extract step overrides from workflow config
-        let step_overrides = config
-            .workflows
-            .get(&workflow_name)
+        let workflow_config = config.workflows.get(&workflow_name);
+        let mut step_overrides = workflow_config
             .map(|w| w.overrides.clone())
             .unwrap_or_default();
+
+        // Apply workflow-level auto_run_steps to step overrides (individual overrides take precedence)
+        if let Some(wf) = workflow_config {
+            if let Some(wf_auto_run) = wf.auto_run_steps {
+                for step_name in &wf.steps {
+                    let entry = step_overrides.entry(step_name.clone()).or_default();
+                    if entry.auto_run.is_none() {
+                        entry.auto_run = Some(wf_auto_run);
+                    }
+                }
+            }
+        }
 
         // Build run options with resolved workflow and provided requirements
         let mut options = self.build_options(&config);
