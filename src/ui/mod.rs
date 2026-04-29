@@ -81,7 +81,12 @@ pub trait OutputWriter {
     }
 
     /// Show a bordered error block with command, output, and optional hint.
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+    ///
+    /// `indent` is the column at which the block should align (typically the
+    /// step number width, so error content lines up under the step name).
+    /// Implementations that don't render a visual box may ignore it.
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>, indent: usize) {
+        let _ = indent;
         self.error(command);
         if !output.is_empty() {
             self.message(output);

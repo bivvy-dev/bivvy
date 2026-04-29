@@ -48,7 +48,7 @@ pub struct MockUI {
     progress: Vec<(usize, usize)>,
     spinners: Vec<String>,
     run_headers: Vec<(String, String, usize, String, String)>,
-    error_blocks: Vec<(String, String, Option<String>)>,
+    error_blocks: Vec<(String, String, Option<String>, usize)>,
     summaries: Vec<RunSummary>,
     prompt_responses: HashMap<String, String>,
     prompt_queues: HashMap<String, VecDeque<String>>,
@@ -185,8 +185,8 @@ impl MockUI {
         &self.run_headers
     }
 
-    /// Get all captured error blocks as (command, output, hint).
-    pub fn error_blocks(&self) -> &[(String, String, Option<String>)] {
+    /// Get all captured error blocks as (command, output, hint, indent).
+    pub fn error_blocks(&self) -> &[(String, String, Option<String>, usize)] {
         &self.error_blocks
     }
 
@@ -238,11 +238,12 @@ impl OutputWriter for MockUI {
         self.hints.push(hint.to_string());
     }
 
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>, indent: usize) {
         self.error_blocks.push((
             command.to_string(),
             output.to_string(),
             hint.map(|h| h.to_string()),
+            indent,
         ));
         self.errors.push(command.to_string());
         if !output.is_empty() {
@@ -811,13 +812,15 @@ mod tests {
             "npm run build",
             "Cannot find module 'webpack'",
             Some("Run `npm install` first"),
+            6,
         );
 
         assert_eq!(ui.error_blocks().len(), 1);
-        let (cmd, output, hint) = &ui.error_blocks()[0];
+        let (cmd, output, hint, indent) = &ui.error_blocks()[0];
         assert_eq!(cmd, "npm run build");
         assert_eq!(output, "Cannot find module 'webpack'");
         assert_eq!(hint.as_deref(), Some("Run `npm install` first"));
+        assert_eq!(*indent, 6);
         // Delegates to errors, messages, hints
         assert!(ui.has_error("npm run build"));
         assert!(ui.has_message("Cannot find module"));
@@ -828,7 +831,7 @@ mod tests {
     fn mock_ui_error_block_without_hint() {
         let mut ui = MockUI::new();
 
-        ui.show_error_block("cargo build", "compilation error", None);
+        ui.show_error_block("cargo build", "compilation error", None, 6);
 
         assert_eq!(ui.error_blocks().len(), 1);
         assert!(ui.error_blocks()[0].2.is_none());
@@ -839,7 +842,7 @@ mod tests {
     fn mock_ui_error_block_empty_output_not_captured_as_message() {
         let mut ui = MockUI::new();
 
-        ui.show_error_block("failing_cmd", "", None);
+        ui.show_error_block("failing_cmd", "", None, 6);
 
         assert!(ui.messages().is_empty());
         assert!(ui.has_error("failing_cmd"));
@@ -914,7 +917,7 @@ mod tests {
         let mut ui = MockUI::new();
 
         ui.show_run_header("App", "default", 3, "1.0.0", "development");
-        ui.show_error_block("cmd", "err", Some("hint"));
+        ui.show_error_block("cmd", "err", Some("hint"), 6);
         let summary = RunSummary {
             step_results: vec![],
             total_duration: Duration::from_secs(1),

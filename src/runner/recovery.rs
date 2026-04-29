@@ -45,7 +45,9 @@ pub fn prompt_recovery(
     fix: Option<&FixSuggestion>,
     has_hint: bool,
     fix_history: &HashSet<String>,
+    step_indent: usize,
 ) -> Result<RecoveryAction> {
+    let pad = " ".repeat(step_indent);
     let mut options = vec![PromptOption {
         label: "Retry".to_string(),
         value: "retry".to_string(),
@@ -54,8 +56,8 @@ pub fn prompt_recovery(
     if let Some(f) = fix {
         if fix_history.contains(&f.command) {
             ui.warning(&format!(
-                "    Previous fix `{}` did not resolve this error.",
-                f.command
+                "{}Previous fix `{}` did not resolve this error.",
+                pad, f.command
             ));
         } else {
             options.push(PromptOption {
@@ -139,7 +141,9 @@ pub fn prompt_recovery_multi(
     step_name: &str,
     resolutions: &[ResolutionCandidate],
     fix_history: &HashSet<String>,
+    step_indent: usize,
 ) -> Result<RecoveryAction> {
+    let pad = " ".repeat(step_indent);
     let mut options = vec![PromptOption {
         label: "Retry".to_string(),
         value: "retry".to_string(),
@@ -158,8 +162,8 @@ pub fn prompt_recovery_multi(
 
         if fix_history.contains(cmd) {
             ui.warning(&format!(
-                "    Previous fix `{}` did not resolve this error.",
-                cmd
+                "{}Previous fix `{}` did not resolve this error.",
+                pad, cmd
             ));
             continue;
         }
@@ -296,7 +300,7 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         // No response set — falls back to default "retry"
-        let action = prompt_recovery(&mut ui, "bundler", None, false, &HashSet::new()).unwrap();
+        let action = prompt_recovery(&mut ui, "bundler", None, false, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Retry);
     }
 
@@ -314,7 +318,7 @@ mod tests {
         };
 
         let action =
-            prompt_recovery(&mut ui, "bundler", Some(&fix), false, &HashSet::new()).unwrap();
+            prompt_recovery(&mut ui, "bundler", Some(&fix), false, &HashSet::new(), 0).unwrap();
         assert_eq!(
             action,
             RecoveryAction::Fix("bundle update nokogiri".to_string())
@@ -327,7 +331,7 @@ mod tests {
         ui.set_interactive(true);
         ui.set_prompt_response("recovery_bundler", "skip");
 
-        let action = prompt_recovery(&mut ui, "bundler", None, false, &HashSet::new()).unwrap();
+        let action = prompt_recovery(&mut ui, "bundler", None, false, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Skip);
     }
 
@@ -337,7 +341,7 @@ mod tests {
         ui.set_interactive(true);
         ui.set_prompt_response("recovery_test", "abort");
 
-        let action = prompt_recovery(&mut ui, "test", None, false, &HashSet::new()).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, false, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Abort);
     }
 
@@ -347,7 +351,7 @@ mod tests {
         ui.set_interactive(true);
         ui.set_prompt_response("recovery_test", "shell");
 
-        let action = prompt_recovery(&mut ui, "test", None, false, &HashSet::new()).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, false, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Shell);
     }
 
@@ -358,7 +362,7 @@ mod tests {
         ui.queue_prompt_responses("recovery_test", vec!["custom_fix"]);
         ui.set_prompt_response("custom_fix_test", "chmod +x script.sh");
 
-        let action = prompt_recovery(&mut ui, "test", None, true, &HashSet::new()).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, true, &HashSet::new(), 0).unwrap();
         assert_eq!(
             action,
             RecoveryAction::CustomFix("chmod +x script.sh".to_string())
@@ -372,7 +376,7 @@ mod tests {
         ui.queue_prompt_responses("recovery_test", vec!["custom_fix"]);
         ui.set_prompt_response("custom_fix_test", "");
 
-        let action = prompt_recovery(&mut ui, "test", None, true, &HashSet::new()).unwrap();
+        let action = prompt_recovery(&mut ui, "test", None, true, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Retry);
     }
 
@@ -425,7 +429,7 @@ mod tests {
         let mut history = HashSet::new();
         history.insert("bundle update nokogiri".to_string());
 
-        let action = prompt_recovery(&mut ui, "bundler", Some(&fix), false, &history).unwrap();
+        let action = prompt_recovery(&mut ui, "bundler", Some(&fix), false, &history, 0).unwrap();
         // Fix was in history, so "fix" option was not offered and default "retry" is returned
         assert_eq!(action, RecoveryAction::Retry);
     }
@@ -447,7 +451,7 @@ mod tests {
     fn prompt_recovery_multi_default_is_retry() {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
-        let action = prompt_recovery_multi(&mut ui, "test_step", &[], &HashSet::new()).unwrap();
+        let action = prompt_recovery_multi(&mut ui, "test_step", &[], &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Retry);
     }
 
@@ -463,7 +467,7 @@ mod tests {
         ];
 
         let action =
-            prompt_recovery_multi(&mut ui, "db_prepare", &resolutions, &HashSet::new()).unwrap();
+            prompt_recovery_multi(&mut ui, "db_prepare", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(
             action,
             RecoveryAction::Fix("brew install postgresql@16".to_string())
@@ -486,7 +490,7 @@ mod tests {
         ];
 
         let action =
-            prompt_recovery_multi(&mut ui, "db_prepare", &resolutions, &HashSet::new()).unwrap();
+            prompt_recovery_multi(&mut ui, "db_prepare", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(
             action,
             RecoveryAction::Fix(
@@ -511,7 +515,8 @@ mod tests {
             make_resolution("fix4", "cmd4", 0.65), // 4th high-confidence → becomes suggestion
         ];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         // fix_3 maps to the overflowed suggestion
         assert_eq!(action, RecoveryAction::Fix("cmd4".to_string()));
     }
@@ -532,7 +537,8 @@ mod tests {
             make_resolution("sug3", "cmd6", 0.35), // Should be capped
         ];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         // fix_5 doesn't exist, falls through to Retry
         assert_eq!(action, RecoveryAction::Retry);
     }
@@ -550,7 +556,8 @@ mod tests {
             0.45,
         )];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(
             action,
             RecoveryAction::Fix("pip install -r requirements.txt".to_string())
@@ -569,7 +576,7 @@ mod tests {
         let mut history = HashSet::new();
         history.insert("apt install pkg".to_string());
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &history).unwrap();
+        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &history, 0).unwrap();
         assert_eq!(action, RecoveryAction::Retry);
     }
 
@@ -582,7 +589,8 @@ mod tests {
 
         let resolutions = vec![make_resolution("some fix", "some cmd", 0.7)];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(
             action,
             RecoveryAction::CustomFix("my custom command".to_string())
@@ -597,7 +605,8 @@ mod tests {
 
         let resolutions = vec![make_resolution("fix", "cmd", 0.7)];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Skip);
     }
 
@@ -609,7 +618,8 @@ mod tests {
 
         let resolutions = vec![make_resolution("fix", "cmd", 0.7)];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Abort);
     }
 
@@ -620,7 +630,7 @@ mod tests {
         // With no resolutions, "custom_fix" shouldn't be offered
         ui.set_prompt_response("recovery_test", "skip");
 
-        let action = prompt_recovery_multi(&mut ui, "test", &[], &HashSet::new()).unwrap();
+        let action = prompt_recovery_multi(&mut ui, "test", &[], &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::Skip);
     }
 
@@ -641,7 +651,8 @@ mod tests {
             platform: None,
         }];
 
-        let action = prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new()).unwrap();
+        let action =
+            prompt_recovery_multi(&mut ui, "test", &resolutions, &HashSet::new(), 0).unwrap();
         assert_eq!(action, RecoveryAction::CustomFix("manual fix".to_string()));
     }
 }

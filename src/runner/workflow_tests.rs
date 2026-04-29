@@ -1260,6 +1260,113 @@ fn run_with_ui_shows_error_output_on_failure() {
     assert!(ui.has_message("something went wrong"));
 }
 
+/// Error block indent is determined by the step number width. For a single-step
+/// workflow `[1/1]` — 5 chars + space — the indent is 6.
+#[test]
+fn run_with_ui_error_block_indent_single_step() {
+    let temp = TempDir::new().unwrap();
+
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [broken]
+        "#,
+    )
+    .unwrap();
+
+    let mut steps = HashMap::new();
+    steps.insert("broken".to_string(), make_step("broken", "exit 1", vec![]));
+
+    let mut runner = WorkflowRunner::new(&config, steps);
+    let options = RunOptions::default();
+    let ctx = InterpolationContext::new();
+
+    let mut ui = MockUI::new();
+
+    runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            None,
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
+
+    let blocks = ui.error_blocks();
+    assert!(
+        !blocks.is_empty(),
+        "expected an error block from failed step"
+    );
+    // [1/1] is 5 chars wide, plus one space → indent 6
+    assert_eq!(
+        blocks[0].3, 6,
+        "error block indent should match `[1/1] ` width"
+    );
+}
+
+/// In a 10-step workflow the step number rendering becomes `[1/10]` (6 chars +
+/// space = 7). Verify the error block indent tracks the wider numbering.
+#[test]
+fn run_with_ui_error_block_indent_two_digit_total() {
+    let temp = TempDir::new().unwrap();
+
+    // 10 steps: only the first one runs and fails; the rest are blocked.
+    let mut yaml = String::from("workflows:\n  default:\n    steps: [");
+    let names: Vec<String> = (1..=10).map(|i| format!("s{}", i)).collect();
+    yaml.push_str(&names.join(", "));
+    yaml.push_str("]\n");
+    let config: BivvyConfig = serde_yaml::from_str(&yaml).unwrap();
+
+    let mut steps = HashMap::new();
+    steps.insert("s1".to_string(), make_step("s1", "exit 1", vec![]));
+    for i in 2..=10 {
+        let name = format!("s{}", i);
+        let prev = format!("s{}", i - 1);
+        steps.insert(name.clone(), make_step(&name, "true", vec![prev]));
+    }
+
+    let mut runner = WorkflowRunner::new(&config, steps);
+    let options = RunOptions::default();
+    let ctx = InterpolationContext::new();
+
+    let mut ui = MockUI::new();
+
+    runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            None,
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
+
+    let blocks = ui.error_blocks();
+    assert!(
+        !blocks.is_empty(),
+        "expected an error block from failed step"
+    );
+    // [1/10] is 6 chars wide, plus one space → indent 7
+    assert_eq!(
+        blocks[0].3, 7,
+        "error block indent should match `[1/10] ` width"
+    );
+}
+
 #[test]
 fn allow_failure_lets_all_dependent_steps_run() {
     let temp = TempDir::new().unwrap();
@@ -2988,7 +3095,7 @@ fn hint_shown_on_low_confidence() {
     // Verify hint was passed to show_error_block
     let blocks = ui.error_blocks();
     assert!(!blocks.is_empty());
-    let (_, _, hint) = &blocks[0];
+    let (_, _, hint, _) = &blocks[0];
     assert!(
         hint.is_some(),
         "Expected a hint for 'command not found' pattern"

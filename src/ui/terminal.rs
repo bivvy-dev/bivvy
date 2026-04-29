@@ -91,16 +91,19 @@ impl OutputWriter for TerminalUI {
         }
     }
 
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>, indent: usize) {
         let b = &self.theme.border;
+        let pad = " ".repeat(indent);
         let mut lines = vec![
             format!(
-                "    {} {}",
+                "{}{} {}",
+                pad,
                 b.apply_to("┌─"),
                 b.apply_to("Command ──────────────────────────")
             ),
             format!(
-                "    {} {}",
+                "{}{} {}",
+                pad,
                 b.apply_to("│"),
                 self.theme.command.apply_to(command)
             ),
@@ -108,24 +111,27 @@ impl OutputWriter for TerminalUI {
 
         if !output.is_empty() {
             lines.push(format!(
-                "    {} {}",
+                "{}{} {}",
+                pad,
                 b.apply_to("├─"),
                 b.apply_to("Output ───────────────────────────")
             ));
             for line in output.lines() {
-                lines.push(format!("    {} {}", b.apply_to("│"), line));
+                lines.push(format!("{}{} {}", pad, b.apply_to("│"), line));
             }
         }
 
         lines.push(format!(
-            "    {}",
+            "{}{}",
+            pad,
             b.apply_to("└────────────────────────────────────")
         ));
 
         if let Some(h) = hint {
             lines.push(String::new());
             lines.push(format!(
-                "    {} {}",
+                "{}{} {}",
+                pad,
                 self.theme.hint.apply_to("Hint:"),
                 self.theme.hint.apply_to(h)
             ));

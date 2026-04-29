@@ -65,20 +65,21 @@ impl OutputWriter for NonInteractiveUI {
         }
     }
 
-    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>) {
+    fn show_error_block(&mut self, command: &str, output: &str, hint: Option<&str>, indent: usize) {
+        let pad = " ".repeat(indent);
         eprintln!();
-        eprintln!("    ┌─ Command ──────────────────────────");
-        eprintln!("    │ {}", command);
+        eprintln!("{}┌─ Command ──────────────────────────", pad);
+        eprintln!("{}│ {}", pad, command);
         if !output.is_empty() {
-            eprintln!("    ├─ Output ───────────────────────────");
+            eprintln!("{}├─ Output ───────────────────────────", pad);
             for line in output.lines() {
-                eprintln!("    │ {}", line);
+                eprintln!("{}│ {}", pad, line);
             }
         }
-        eprintln!("    └────────────────────────────────────");
+        eprintln!("{}└────────────────────────────────────", pad);
         if let Some(h) = hint {
             eprintln!();
-            eprintln!("    Hint: {}", h);
+            eprintln!("{}Hint: {}", pad, h);
         }
     }
 }

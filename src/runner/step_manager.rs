@@ -851,3 +851,61 @@ fn make_behavior_flags(step: &ResolvedStep, forced: bool) -> BehaviorFlags {
         confirm: step.behavior.confirm,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::steps::{
+        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks,
+        ResolvedOutput, ResolvedScoping,
+    };
+
+    fn dummy_step(name: &str) -> ResolvedStep {
+        ResolvedStep {
+            name: name.to_string(),
+            title: name.to_string(),
+            description: None,
+            depends_on: vec![],
+            requires: vec![],
+            inputs: HashMap::new(),
+            satisfied_when: vec![],
+            execution: ResolvedExecution::default(),
+            env_vars: ResolvedEnvironmentVars::default(),
+            behavior: ResolvedBehavior::default(),
+            hooks: ResolvedHooks::default(),
+            output: ResolvedOutput::default(),
+            scoping: ResolvedScoping::default(),
+        }
+    }
+
+    /// `step_indent` must match the rendered step number width plus a single
+    /// space — so error blocks, status lines, and recovery prompts align under
+    /// the step name.
+    #[test]
+    fn step_indent_matches_step_number_width() {
+        let step = dummy_step("setup");
+        let theme = BivvyTheme::new();
+
+        // [1/3] = 5 chars + space = 6
+        let mgr = StepManager::new(&step, "setup", 0, 3, &theme);
+        assert_eq!(mgr.step_number(), "[1/3]");
+        assert_eq!(mgr.step_indent(), 6);
+        assert_eq!(mgr.step_pad(), "      ");
+
+        // [10/15] = 7 chars + space = 8
+        let mgr = StepManager::new(&step, "setup", 9, 15, &theme);
+        assert_eq!(mgr.step_number(), "[10/15]");
+        assert_eq!(mgr.step_indent(), 8);
+        assert_eq!(mgr.step_pad(), "        ");
+
+        // [1/1] = 5 chars + space = 6
+        let mgr = StepManager::new(&step, "setup", 0, 1, &theme);
+        assert_eq!(mgr.step_number(), "[1/1]");
+        assert_eq!(mgr.step_indent(), 6);
+
+        // [100/100] = 9 chars + space = 10
+        let mgr = StepManager::new(&step, "setup", 99, 100, &theme);
+        assert_eq!(mgr.step_number(), "[100/100]");
+        assert_eq!(mgr.step_indent(), 10);
+    }
+}

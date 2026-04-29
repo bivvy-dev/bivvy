@@ -225,7 +225,12 @@ pub(super) fn execute_step_with_recovery(
                 let output_was_streamed =
                     !ui.is_interactive() && output_mode == OutputMode::Verbose;
                 if !output_was_streamed {
-                    ui.show_error_block(&step.execution.command, &combined_output, hint.as_deref());
+                    ui.show_error_block(
+                        &step.execution.command,
+                        &combined_output,
+                        hint.as_deref(),
+                        step_indent,
+                    );
                 }
 
                 // allow_failure: record and move on, no recovery menu
@@ -238,7 +243,8 @@ pub(super) fn execute_step_with_recovery(
                 if retry_count < step.execution.retry {
                     retry_count += 1;
                     ui.message(&format!(
-                        "    Retrying... (attempt {}/{})",
+                        "{}Retrying... (attempt {}/{})",
+                        " ".repeat(step_indent),
                         retry_count + 1,
                         step.execution.retry + 1
                     ));
@@ -266,6 +272,7 @@ pub(super) fn execute_step_with_recovery(
                 handle_recovery_menu(
                     step,
                     step_name,
+                    step_indent,
                     result,
                     &combined_output,
                     fix,
@@ -310,6 +317,7 @@ pub(super) fn execute_step_with_recovery(
 fn handle_recovery_menu(
     step: &ResolvedStep,
     step_name: &str,
+    step_indent: usize,
     result: StepResult,
     combined_output: &str,
     fix: Option<FixSuggestion>,
@@ -326,6 +334,7 @@ fn handle_recovery_menu(
     ui: &mut dyn UserInterface,
     event_bus: &mut EventBus,
 ) -> Result<()> {
+    let pad = " ".repeat(step_indent);
     event_bus.emit(&BivvyEvent::RecoveryStarted {
         step: step_name.to_string(),
         error: combined_output.to_string(),
@@ -333,9 +342,16 @@ fn handle_recovery_menu(
     let has_hint = hint.is_some();
     loop {
         let action = if diagnostic_funnel {
-            recovery::prompt_recovery_multi(ui, step_name, resolutions, fix_history)?
+            recovery::prompt_recovery_multi(ui, step_name, resolutions, fix_history, step_indent)?
         } else {
-            recovery::prompt_recovery(ui, step_name, fix.as_ref(), has_hint, fix_history)?
+            recovery::prompt_recovery(
+                ui,
+                step_name,
+                fix.as_ref(),
+                has_hint,
+                fix_history,
+                step_indent,
+            )?
         };
 
         match action {
@@ -364,9 +380,9 @@ fn handle_recovery_menu(
                     let fix_ok = recovery::run_fix(&cmd, project_root, &step.env_vars.env)?;
                     fix_history.insert(cmd.clone());
                     if fix_ok {
-                        ui.message("    Fix command succeeded.");
+                        ui.message(&format!("{}Fix command succeeded.", pad));
                     } else {
-                        ui.message("    Fix command failed.");
+                        ui.message(&format!("{}Fix command failed.", pad));
                     }
                     *retry_count += 1;
                     return Ok(());
@@ -379,7 +395,10 @@ fn handle_recovery_menu(
                     action: "shell".to_string(),
                     command: None,
                 });
-                ui.message("    Dropping to debug shell (exit to return)...");
+                ui.message(&format!(
+                    "{}Dropping to debug shell (exit to return)...",
+                    pad
+                ));
                 crate::shell::debug::spawn_debug_shell(
                     step_name,
                     project_root,
