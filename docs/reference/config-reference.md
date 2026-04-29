@@ -183,6 +183,8 @@ All conditions must pass for the step to be satisfied. When `satisfied_when` is 
 | `auto_run_steps` | bool | — | Override `auto_run` for all steps in this workflow. Individual step overrides take precedence. |
 | `env` | map | `{}` | Workflow-level env vars |
 | `env_file` | path | — | Workflow-level env file |
+| `force` | list | `[]` | Steps to always force when this workflow runs (unioned with CLI `--force`); each entry must reference a defined step |
+| `force_all` | bool | `false` | Force every step in this workflow, equivalent to `--force-all` (preconditions still apply) |
 
 ### Step Override
 

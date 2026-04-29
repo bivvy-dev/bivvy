@@ -1308,6 +1308,17 @@
             "null"
           ]
         },
+        "force": {
+          "description": "Steps to always force when this workflow runs. Same effect as\npassing `--force <step>` on the CLI for each entry. Step names\nmust reference steps defined in the configuration.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "force_all": {
+          "description": "Force every step in this workflow, bypassing all checks and\nstep-level configuration. Equivalent to passing `--force-all`\nevery time this workflow runs.",
+          "type": "boolean"
+        },
         "overrides": {
           "additionalProperties": {
             "$ref": "#/$defs/StepOverride"

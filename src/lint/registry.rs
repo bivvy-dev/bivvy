@@ -12,8 +12,8 @@ use super::rules::{
     EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
     InstallTemplateMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
     RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
-    UndefinedDependencyRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
-    UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
+    UndefinedDependencyRule, UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule,
+    UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -45,6 +45,7 @@ impl RuleRegistry {
         registry.register(Box::new(CircularDependencyRule));
         registry.register(Box::new(SelfDependencyRule));
         registry.register(Box::new(UndefinedDependencyRule));
+        registry.register(Box::new(UndefinedWorkflowForceRule));
         registry.register(Box::new(UnknownEnvironmentInStepRule));
         registry.register(Box::new(UnknownEnvironmentInOnlyRule));
         registry.register(Box::new(EnvironmentDefaultWorkflowMissingRule));
@@ -178,8 +179,8 @@ mod tests {
     fn registry_with_builtins_has_rules() {
         let registry = RuleRegistry::with_builtins();
         assert!(!registry.is_empty());
-        // Should have at least 19 built-in rules (13 original + 4 requirement + 1 check-fields + 1 deprecated-fields)
-        assert!(registry.len() >= 19);
+        // Should have at least 20 built-in rules
+        assert!(registry.len() >= 20);
         // Verify some specific rules are registered
         assert!(registry.get(&RuleId::new("app-name-format")).is_some());
         assert!(registry.get(&RuleId::new("required-fields")).is_some());

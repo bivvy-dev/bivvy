@@ -690,6 +690,18 @@ pub struct WorkflowConfig {
     /// Workflow-level env file
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env_file: Option<PathBuf>,
+
+    /// Steps to always force when this workflow runs. Same effect as
+    /// passing `--force <step>` on the CLI for each entry. Step names
+    /// must reference steps defined in the configuration.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub force: Vec<String>,
+
+    /// Force every step in this workflow, bypassing all checks and
+    /// step-level configuration. Equivalent to passing `--force-all`
+    /// every time this workflow runs.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub force_all: bool,
 }
 
 /// Per-step overrides within a workflow
@@ -1840,6 +1852,61 @@ workflows:
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.workflows["ci"].auto_run_steps, Some(false));
+    }
+
+    #[test]
+    fn workflow_force_list_parses() {
+        let yaml = r#"
+app_name: test
+steps:
+  install:
+    command: "yarn install"
+  build:
+    command: "yarn build"
+workflows:
+  refresh:
+    steps: [install, build]
+    force: [install]
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(
+            config.workflows["refresh"].force,
+            vec!["install".to_string()]
+        );
+        assert!(!config.workflows["refresh"].force_all);
+    }
+
+    #[test]
+    fn workflow_force_all_parses_true() {
+        let yaml = r#"
+app_name: test
+steps:
+  install:
+    command: "yarn install"
+workflows:
+  fresh:
+    steps: [install]
+    force_all: true
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.workflows["fresh"].force_all);
+        assert!(config.workflows["fresh"].force.is_empty());
+    }
+
+    #[test]
+    fn workflow_force_defaults_empty() {
+        let yaml = r#"
+app_name: test
+steps:
+  install:
+    command: "yarn install"
+workflows:
+  default:
+    steps: [install]
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.workflows["default"].force.is_empty());
+        assert!(!config.workflows["default"].force_all);
     }
 
     #[test]

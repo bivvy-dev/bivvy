@@ -106,3 +106,35 @@ workflows:
         output: quiet
       fail_fast: true
 ```
+
+## Forcing Steps in a Workflow
+
+Workflows can opt specific steps — or every step — out of check
+evaluation, the same way `--force` and `--force-all` do on the CLI.
+Useful when a workflow exists specifically to refresh state (a
+`fresh-start` workflow that always reinstalls, a `migrate` workflow
+that should never trust the satisfaction cache, etc.).
+
+Force specific steps every time the workflow runs:
+
+```yaml
+workflows:
+  partial-refresh:
+    steps: [install, build, migrate]
+    force: [migrate]
+```
+
+Force every step in the workflow:
+
+```yaml
+workflows:
+  fresh-start:
+    steps: [install, build, migrate]
+    force_all: true
+```
+
+Force is monotonic — workflow-level directives are unioned with CLI
+flags and step-level `force: true`. Any source can opt a step in;
+nothing turns force off. Preconditions are still never bypassed. See
+[Forcing Re-run](completed-checks.md#forcing-re-run) for the full
+matrix.

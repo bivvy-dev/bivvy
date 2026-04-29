@@ -84,13 +84,16 @@ impl RunCommand {
             config.settings.execution.diagnostic_funnel
         };
 
+        let (force, force_all) =
+            merge_force_directives(&self.args, config.workflows.get(&self.args.workflow));
+
         RunOptions {
             workflow: Some(self.args.workflow.clone()),
             only: self.args.only.iter().cloned().collect(),
             skip: self.args.skip.iter().cloned().collect(),
             skip_behavior,
-            force: self.args.force.iter().cloned().collect(),
-            force_all: self.args.force_all,
+            force,
+            force_all,
             dry_run: self.args.dry_run,
             provided_requirements: HashSet::new(),
             active_environment: None,
@@ -163,6 +166,24 @@ impl RunCommand {
         }
         Ok(steps)
     }
+}
+
+/// Combine CLI force flags with the matching workflow's force directives.
+///
+/// Force is monotonic — any source can opt a step in — so the result is
+/// the union of `--force <steps>` / `workflow.force` and the OR of
+/// `--force-all` / `workflow.force_all`. Returns `(force_steps, force_all)`.
+fn merge_force_directives(
+    args: &RunArgs,
+    workflow: Option<&crate::config::WorkflowConfig>,
+) -> (HashSet<String>, bool) {
+    let mut force: HashSet<String> = args.force.iter().cloned().collect();
+    let mut force_all = args.force_all;
+    if let Some(workflow) = workflow {
+        force.extend(workflow.force.iter().cloned());
+        force_all = force_all || workflow.force_all;
+    }
+    (force, force_all)
 }
 
 impl Command for RunCommand {
@@ -1506,6 +1527,63 @@ workflows:
         let config = crate::config::BivvyConfig::default();
         let options = cmd.build_options(&config);
         assert!(!options.diagnostic_funnel);
+    }
+
+    #[test]
+    fn merge_force_directives_no_workflow_uses_cli_only() {
+        let args = RunArgs {
+            force: vec!["a".to_string()],
+            force_all: false,
+            ..Default::default()
+        };
+        let (force, force_all) = merge_force_directives(&args, None);
+        assert_eq!(force, ["a".to_string()].into_iter().collect());
+        assert!(!force_all);
+    }
+
+    #[test]
+    fn merge_force_directives_unions_force_lists() {
+        let args = RunArgs {
+            force: vec!["cli_step".to_string()],
+            ..Default::default()
+        };
+        let workflow = crate::config::WorkflowConfig {
+            force: vec!["workflow_step".to_string()],
+            ..Default::default()
+        };
+        let (force, force_all) = merge_force_directives(&args, Some(&workflow));
+        assert!(force.contains("cli_step"));
+        assert!(force.contains("workflow_step"));
+        assert_eq!(force.len(), 2);
+        assert!(!force_all);
+    }
+
+    #[test]
+    fn merge_force_directives_workflow_force_all_propagates() {
+        let args = RunArgs {
+            force_all: false,
+            ..Default::default()
+        };
+        let workflow = crate::config::WorkflowConfig {
+            force_all: true,
+            ..Default::default()
+        };
+        let (_force, force_all) = merge_force_directives(&args, Some(&workflow));
+        assert!(force_all);
+    }
+
+    #[test]
+    fn merge_force_directives_cli_force_all_overrides_workflow_default() {
+        let args = RunArgs {
+            force_all: true,
+            ..Default::default()
+        };
+        let workflow = crate::config::WorkflowConfig {
+            force_all: false,
+            ..Default::default()
+        };
+        let (_force, force_all) = merge_force_directives(&args, Some(&workflow));
+        assert!(force_all);
     }
 
     #[test]

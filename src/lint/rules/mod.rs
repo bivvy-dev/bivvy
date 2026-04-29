@@ -11,6 +11,7 @@ pub mod self_dependency;
 pub mod template_inputs;
 pub mod undefined_dependency;
 pub mod undefined_template;
+pub mod undefined_workflow_force;
 pub mod valid_environments;
 pub mod valid_requires;
 
@@ -23,6 +24,7 @@ pub use self_dependency::SelfDependencyRule;
 pub use template_inputs::TemplateInputsRule;
 pub use undefined_dependency::UndefinedDependencyRule;
 pub use undefined_template::UndefinedTemplateRule;
+pub use undefined_workflow_force::UndefinedWorkflowForceRule;
 pub use valid_environments::{
     CustomEnvironmentShadowsBuiltinRule, EnvironmentCircularDependencyRule,
     EnvironmentDefaultWorkflowMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
