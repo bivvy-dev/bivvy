@@ -39,8 +39,10 @@ app_name: my-app
 Generate a local schema file for offline use:
 
 ```bash
-bivvy lint --schema > bivvy-schema.json
+bivvy schema --output bivvy-schema.json
 ```
+
+See [`bivvy schema`](/commands/schema/) for more options.
 
 Then reference the local file in your IDE settings:
 

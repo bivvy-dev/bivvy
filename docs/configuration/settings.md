@@ -7,8 +7,9 @@ Global settings control Bivvy's behavior across all workflows.
 ```yaml
 settings:
   default_output: verbose  # verbose | quiet | silent
-  logging: false
-  log_path: "logs/bivvy.log"
+  logging: true            # Enable JSONL event logging (default: true)
+  log_retention_days: 30   # Max age of log files in days (default: 30)
+  log_retention_mb: 500    # Max total size of log files in MB (default: 500)
 ```
 
 ## Output Modes
@@ -59,24 +60,18 @@ settings:
   history_retention: 50  # Keep last 50 runs (default)
 ```
 
-## Fail Fast
+## Diagnostic Funnel
 
-Stop workflow on first failure:
-
-```yaml
-settings:
-  fail_fast: true  # Stop on first error (default: true)
-```
-
-## Skip Behavior
-
-How to handle dependencies of skipped steps:
+Control the step failure recovery pipeline:
 
 ```yaml
 settings:
-  skip_behavior: skip_with_dependents  # Also skip dependent steps
-  # skip_behavior: run_dependents      # Still try to run dependents
+  diagnostic_funnel: true  # Use diagnostic funnel for failure recovery (default: true)
 ```
+
+When enabled, step failures are analyzed by a multi-stage pipeline that
+produces ranked resolution candidates. When disabled, the legacy pattern
+registry is used (single fix per error).
 
 ## Default Environment
 
@@ -124,6 +119,21 @@ Each detect rule checks a single env var. Omit `value` to match on
 presence alone.
 
 See [Environments](environments.md) for the full guide.
+
+## Step Defaults
+
+Set default behavior for all steps:
+
+```yaml
+settings:
+  defaults:
+    auto_run: true          # Auto-run unsatisfied steps (default: true)
+    prompt_on_rerun: true   # Ask before re-running satisfied steps (default: true)
+    rerun_window: "4h"      # How long a successful run counts as satisfied (default: "4h")
+```
+
+See [Auto-Run and the Decision Engine](../guides/auto-run.md) for details
+on how these settings interact.
 
 ## Auto-Update
 

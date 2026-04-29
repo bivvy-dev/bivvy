@@ -31,14 +31,18 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `default_output` | `verbose` \| `quiet` \| `silent` | `verbose` | Output verbosity |
-| `logging` | bool | `false` | Write logs to file |
-| `log_path` | path | — | Log file path (relative to project root) |
+| `logging` | bool | `true` | Enable JSONL event logging to `~/.bivvy/logs/` |
+| `log_retention_days` | int | `30` | Max age of log files in days |
+| `log_retention_mb` | int | `500` | Max total size of log files in MB |
 | `env` | map | `{}` | Global environment variables |
 | `env_file` | path | — | Global env file to load |
 | `secret_env` | list | `[]` | Additional patterns to mask in output |
 | `parallel` | bool | `false` | Enable parallel execution |
 | `max_parallel` | int | `4` | Max concurrent steps |
 | `history_retention` | int | `50` | Execution history entries to keep |
+| `diagnostic_funnel` | bool | `true` | Use diagnostic funnel pipeline for step failure recovery |
+| `auto_update` | bool | `true` | Enable automatic background updates |
+| `default_rerun_window` | string | — | Global default rerun window for all steps (e.g., `"4h"`, `"30m"`, `"7d"`) |
 | `default_environment` | string | — | Default environment when `--env` is not set |
 | `environments` | map of [EnvironmentConfig](#environment-config) | `{}` | Custom environment definitions |
 | `defaults` | [Defaults](#defaults) | `{}` | Default values for step behavior flags |
@@ -67,11 +71,12 @@ At minimum, a step needs either `command` or `template`.
 | `depends_on` | list | `[]` | Steps that must run first |
 | `check` | [Check](#check) | — | Single check (presence, execution, change) |
 | `checks` | list of [Check](#check) | `[]` | Multiple checks (implicit all) |
-| `satisfied_when` | list | `[]` | Conditions declaring step fulfilled |
+| `satisfied_when` | list of [SatisfactionCondition](#satisfaction-condition) | `[]` | Conditions declaring step fulfilled (inline checks or refs to named checks). All must pass. Takes priority over `check`. |
 | `precondition` | [Check](#check) | — | Gate that must pass before step runs (not bypassed by `--force`) |
 | `skippable` | bool | `true` | User can skip interactively |
 | `required` | bool | `false` | Cannot be skipped |
 | `auto_run` | bool | — | Auto-run when pipeline says step needs to run. `None` = use global default. |
+| `confirm` | bool | `false` | Always prompt user before running (never auto-runs) |
 | `prompt_on_rerun` | bool | `true` | Ask before re-running |
 | `allow_failure` | bool | `false` | Continue workflow on failure |
 | `retry` | int | `0` | Retry attempts on failure |
@@ -81,25 +86,74 @@ At minimum, a step needs either `command` or `template`.
 | `required_env` | list | `[]` | Env vars that must be set |
 | `prompts` | list of [Prompt](#prompt) | `[]` | Interactive prompts |
 | `output` | [StepOutput](#step-output) | — | Output settings override |
+| `rerun_window` | string | — | How long a previous run counts as "recent enough" (e.g., `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`) |
 | `sensitive` | bool | `false` | Hide command and suppress output |
 | `requires_sudo` | bool | `false` | Needs elevated permissions |
 | `before` | list | `[]` | Commands to run before step |
 | `after` | list | `[]` | Commands to run after step |
-| `requires` | list | `[]` | System-level prerequisites |
+| `tools` | list | `[]` | System-level prerequisites (alias: `requires`) |
 | `only_environments` | list | `[]` | Limit step to these environments (empty = all) |
 | `environments` | map of [StepEnvironmentOverride](#step-environment-override) | `{}` | Per-environment field overrides |
 
 ### Check
 
-Tagged union — the `type` field determines which other fields apply.
+Tagged union — the `type` field determines which other fields apply. All check types accept an optional `name` field for referencing from [`satisfied_when`](#satisfaction-condition).
 
-| Type | Fields | Description |
+#### Presence Check
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `"presence"` | — | **Required** |
+| `name` | string | — | Optional name for `satisfied_when` refs |
+| `target` | string | — | File path or binary name |
+| `kind` | `file` \| `binary` \| `custom` | inferred | Inferred from `target` if omitted: paths with `/`, `.`, or `~` are `file`; simple names are `binary` |
+| `command` | string | — | Command for `kind: custom` (exits 0 = present) |
+
+#### Execution Check
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `"execution"` | — | **Required** |
+| `name` | string | — | Optional name for `satisfied_when` refs |
+| `command` | string | — | **Required.** Shell command to run |
+| `validation` | `success` \| `truthy` \| `falsy` | `success` | How to interpret the result. `success` = exit 0; `truthy` = exit 0 with non-empty stdout; `falsy` = exit 0 with empty stdout, or exit non-zero |
+
+#### Change Check
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `"change"` | — | **Required** |
+| `name` | string | — | Optional name for `satisfied_when` refs |
+| `target` | string | — | **Required.** File path, glob pattern, or command to hash |
+| `kind` | `file` \| `glob` \| `command` | `file` | Target type |
+| `on_change` | `proceed` \| `fail` \| `require` | `proceed` | What a detected change means: `proceed` = step should run; `fail` = unexpected drift; `require` = flags `require_step` as needed |
+| `require_step` | string | — | Step to flag when `on_change: require` and change is detected |
+| `baseline` | `each_run` \| `first_run` | `each_run` | When the baseline hash is updated |
+| `baseline_snapshot` | string | — | Compare against a named snapshot instead of run-based baseline |
+| `baseline_git` | string | — | Compare against content at a git ref |
+| `size_limit` | int \| `null` | `52428800` (50 MB) | Max total bytes before refusing to hash. `null` = no limit |
+| `scope` | `project` \| `workflow` | `project` | Baseline isolation scope |
+
+#### Combinator Checks
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `type` | `"all"` or `"any"` | — | **Required** |
+| `name` | string | — | Optional name for `satisfied_when` refs |
+| `checks` | list of [Check](#check) | — | **Required.** Sub-checks to evaluate |
+
+`all`: every sub-check must pass. `any`: at least one sub-check must pass.
+
+### Satisfaction Condition
+
+Used in the step's `satisfied_when` list. Each entry is one of:
+
+| Form | Fields | Description |
 |------|--------|-------------|
-| `presence` | `target`, `kind` (optional) | Check if file/directory exists |
-| `execution` | `command`, `validation` | Check if command exits 0 |
-| `change` | `target`, `on_change`, `kind`, `baseline` | Detect changes to a file or directory |
-| `all` | `checks` (list) | Every sub-check must pass |
-| `any` | `checks` (list) | At least one sub-check must pass |
+| Inline check | Same fields as [Check](#check) | Evaluated directly |
+| Named ref | `ref: <name>` | Reference a named check. Unqualified names resolve on the same step; `step_name.check_name` references another step's check |
+
+All conditions must pass for the step to be satisfied. When `satisfied_when` is present, it takes priority over `check` -- a failing `satisfied_when` prevents the step from being skipped even if `check` would pass.
 
 ### Prompt
 
@@ -116,7 +170,6 @@ Tagged union — the `type` field determines which other fields apply.
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `default` | `verbose` \| `quiet` \| `silent` | — | Output mode for this step |
-| `logging` | bool | — | Override logging for this step |
 
 ### Workflow
 
@@ -140,7 +193,7 @@ Used inside `workflows.<name>.overrides.<step>` to tweak step behavior for a spe
 | `required` | bool | — | Override step's `required` flag |
 | `auto_run` | bool | — | Override step's `auto_run` flag |
 | `prompt_on_rerun` | bool | — | Override step's `prompt_on_rerun` flag |
-| `check` | [Check](#check) | — | Override step's check |
+| `rerun_window` | string | — | Override step's `rerun_window` |
 
 ### Workflow Settings
 
@@ -215,8 +268,11 @@ Used inside `steps.<name>.environments.<env>`. All fields are optional — only 
 | `before` | list | Override pre-step hooks |
 | `after` | list | Override post-step hooks |
 | `depends_on` | list | Override dependencies |
-| `requires` | list | Override system requirements |
+| `tools` | list | Override system requirements (alias: `requires`) |
 | `retry` | int | Override retry attempts |
+| `confirm` | bool | Override confirm flag |
+| `auto_run` | bool | Override auto_run flag |
+| `rerun_window` | string | Override rerun window |
 
 ### Var Definition
 

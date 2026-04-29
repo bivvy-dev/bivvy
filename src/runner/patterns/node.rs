@@ -1,25 +1,37 @@
 use super::{Confidence, ErrorPattern, FixTemplate, PatternContext};
 
+// Matches `Cannot find module` or `MODULE_NOT_FOUND` errors from npm/Node.
 lazy_regex!(
     RE_NPM_MODULE_NOT_FOUND,
     r"Cannot find module|MODULE_NOT_FOUND"
 );
+// Matches Yarn integrity check failures.
 lazy_regex!(RE_YARN_INTEGRITY, r"integrity check failed");
+// Matches npm `ERESOLVE` peer dependency resolution failures.
 lazy_regex!(RE_NPM_ERESOLVE, r"ERESOLVE unable to resolve");
+// Matches Node.js OpenSSL provider incompatibility (`ERR_OSSL_EVP_UNSUPPORTED`).
 lazy_regex!(RE_NODE_OPENSSL_UNSUPPORTED, r"ERR_OSSL_EVP_UNSUPPORTED");
+// Matches `ENOSPC` file watcher limit errors and `inotify_add_watch` failures.
 lazy_regex!(
     RE_NPM_ENOSPC_WATCHERS,
     r"ENOSPC.*System limit for number of file watchers|inotify_add_watch"
 );
+// Matches Node.js engine version mismatch errors from npm or Yarn.
 lazy_regex!(
     RE_NODE_ENGINE_MISMATCH,
     r#"engine "node" is incompatible|The engines\.node"#
 );
+// Matches errors when a project defines `packageManager` in package.json
+// but Corepack is not enabled to manage it.
 lazy_regex!(
     RE_NODE_COREPACK_NOT_ENABLED,
     r#"defines "packageManager".*Corepack"#
 );
 
+/// Return error patterns for the Node.js/npm/Yarn ecosystem.
+///
+/// Covers missing modules, dependency conflicts, OpenSSL incompatibilities,
+/// file watcher limits, engine version mismatches, and Corepack enablement.
 pub fn patterns() -> Vec<ErrorPattern> {
     vec![
         ErrorPattern {

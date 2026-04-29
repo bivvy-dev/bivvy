@@ -34,6 +34,8 @@ bivvy run -w ci
 | `--save-preferences` | | Save prompt answers |
 | `--dry-run` | | Preview without executing |
 | `--env` | `-e` | Set active environment (e.g., `ci`, `staging`) |
+| `--diagnostic-funnel` | | Force diagnostic analysis on (overrides config) |
+| `--no-diagnostic-funnel` | | Disable diagnostic analysis, use legacy pattern matching |
 | `--non-interactive` | | Use defaults, no prompts |
 | `--ci` | | Deprecated: use `--non-interactive` and `--env ci` instead |
 
@@ -88,6 +90,13 @@ Run with a specific workflow:
 ```bash
 bivvy run --workflow=production
 ```
+
+## Failure Recovery
+
+When a step fails, Bivvy analyzes the error output and presents an interactive
+recovery menu with fix suggestions, retry, skip, shell, and abort options. See
+the [Failure Diagnostics guide](/guides/diagnostics/) for details on how Bivvy
+identifies errors and generates fix suggestions.
 
 ## Exit Codes
 

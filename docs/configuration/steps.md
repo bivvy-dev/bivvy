@@ -44,6 +44,30 @@ Sensitive steps receive special treatment:
 4. **No history**: Sensitive commands are not recorded in execution
    history
 
+## Auto-Run Behavior
+
+By default, steps that need to run execute automatically. Steps that are
+already satisfied (via checks, `satisfied_when`, or recent execution
+history) prompt you before re-running. You can control this per-step:
+
+```yaml
+steps:
+  install_deps:
+    command: npm install
+    auto_run: true           # run without asking (default)
+    confirm: false           # always prompt before running (default: false)
+    prompt_on_rerun: false   # skip silently if already satisfied
+    rerun_window: "24h"      # trust a successful run for 24 hours
+```
+
+Setting `confirm: true` forces the step to always prompt before running,
+regardless of `auto_run`. This is useful for destructive or irreversible
+operations.
+
+See [Auto-Run and the Decision Engine](../guides/auto-run.md) for the
+full explanation of how Bivvy decides whether to run, skip, or prompt for
+each step.
+
 ## Completed Checks
 
 Determine if a step is already complete:
@@ -71,6 +95,28 @@ steps:
 - `change`: Detect if a target has changed from baseline
 - `all`: All sub-checks must pass
 - `any`: At least one sub-check must pass
+
+## Satisfaction Conditions
+
+Use `satisfied_when` to declare when a step's purpose is already fulfilled,
+based on multiple conditions or checks from other steps. All conditions
+must pass for the step to be skipped.
+
+```yaml
+steps:
+  build:
+    command: "yarn build"
+    depends_on: [install_deps]
+    satisfied_when:
+      - ref: install_deps.deps_present
+      - type: presence
+        target: "dist"
+```
+
+When `satisfied_when` is present, it takes priority over `check` -- if
+the conditions fail, the step runs even if `check` alone would have
+passed. See [Checks](completed-checks.md#satisfied_when) for the full
+syntax and evaluation rules.
 
 ## Preconditions
 
@@ -164,13 +210,14 @@ steps:
 ## Requirements
 
 Declare system-level prerequisites that must be available before a step
-runs:
+runs. The canonical field name is `tools`; the old name `requires` is
+accepted as an alias:
 
 ```yaml
 steps:
   bundle_install:
     command: bundle install
-    requires:
+    tools:
       - ruby
       - postgres-server
 ```

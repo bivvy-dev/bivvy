@@ -23,6 +23,8 @@ Bivvy provides the following commands:
 | [`bivvy feedback`](./feedback.md) | Capture feedback |
 | [`bivvy update`](./update.md) | Check for and install updates |
 | [`bivvy completions`](./completions.md) | Generate shell completions |
+| [`bivvy snapshot`](./snapshot.md) | Manage change check snapshots |
+| [`bivvy schema`](./schema.md) | Print JSON Schema for config validation |
 
 ## Global Flags
 

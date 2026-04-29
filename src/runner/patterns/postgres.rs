@@ -1,22 +1,30 @@
 use super::{Confidence, ErrorPattern, FixTemplate, PatternContext};
 
+// Matches PostgreSQL connection refused errors indicating the server is not running.
 lazy_regex!(
     RE_POSTGRES_CONN_REFUSED,
     r"could not connect to server.*Is the server running"
 );
+// Matches `FATAL: database "..." does not exist` errors, capturing the database name.
 lazy_regex!(
     RE_POSTGRES_DB_NOT_EXIST,
     r#"FATAL:.*database "([^"]+)" does not exist"#
 );
+// Matches `FATAL: role "..." does not exist` errors, capturing the role name.
 lazy_regex!(
     RE_POSTGRES_ROLE_NOT_EXIST,
     r#"FATAL:.*role "([^"]+)" does not exist"#
 );
+// Matches `pg_dump` version mismatch errors when the client and server versions differ.
 lazy_regex!(
     RE_POSTGRES_PGDUMP_VERSION_MISMATCH,
     r"pg_dump: error:.*aborting because of server version mismatch"
 );
 
+/// Return error patterns for the PostgreSQL ecosystem.
+///
+/// Covers connection failures, missing databases, missing roles, and
+/// `pg_dump` client/server version mismatches.
 pub fn patterns() -> Vec<ErrorPattern> {
     vec![
         ErrorPattern {
