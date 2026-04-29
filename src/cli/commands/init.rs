@@ -47,15 +47,41 @@ impl InitCommand {
         self.project_root.join(".bivvy/config.yml").exists()
     }
 
+    /// Resolve the absolute path to the user's local schema file.
+    ///
+    /// Returns `~/.bivvy/schema.json` if the home directory is discoverable.
+    /// `main` runs `ensure_global_config()` before any command dispatches,
+    /// so this file is guaranteed to exist by the time `init` is invoked.
+    fn schema_path() -> Option<PathBuf> {
+        crate::sys::home_dir().map(|h| h.join(".bivvy/schema.json"))
+    }
+
     /// Create configuration content from selected steps with template info.
-    fn create_config(&self, steps: &[(&str, Option<&Template>)]) -> String {
+    ///
+    /// When `schema_path` is `Some`, prepends a `# yaml-language-server:`
+    /// directive so editors with the YAML language server pick up completion
+    /// and validation against the locally installed schema.
+    fn create_config(
+        &self,
+        steps: &[(&str, Option<&Template>)],
+        schema_path: Option<&Path>,
+    ) -> String {
         let project_name = self
             .project_root
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("MyApp");
 
-        let mut config = format!(
+        let mut config = String::new();
+
+        if let Some(path) = schema_path {
+            config.push_str(&format!(
+                "# yaml-language-server: $schema={}\n",
+                path.display()
+            ));
+        }
+
+        config.push_str(&format!(
             "# Bivvy configuration for {project_name}\n\
              # Docs: https://bivvy.dev/configuration\n\
              #\n\
@@ -88,7 +114,7 @@ impl InitCommand {
              settings:\n\
              \x20 defaults:\n\
              \x20   output: verbose  # verbose | quiet | silent\n"
-        );
+        ));
 
         if !steps.is_empty() {
             config.push_str("\nsteps:\n");
@@ -191,7 +217,8 @@ impl InitCommand {
             .map(|(name, tmpl)| (name.as_str(), *tmpl))
             .collect();
 
-        let config = self.create_config(&steps_with_templates);
+        let schema = Self::schema_path();
+        let config = self.create_config(&steps_with_templates, schema.as_deref());
 
         let bivvy_dir = self.project_root.join(".bivvy");
         fs::create_dir_all(&bivvy_dir)?;
@@ -341,7 +368,8 @@ impl Command for InitCommand {
             .collect();
 
         // Generate config
-        let config = self.create_config(&steps_with_templates);
+        let schema = Self::schema_path();
+        let config = self.create_config(&steps_with_templates, schema.as_deref());
 
         // Write config
         let bivvy_dir = self.project_root.join(".bivvy");
@@ -428,7 +456,7 @@ mod tests {
 
         let steps: Vec<(&str, Option<&Template>)> =
             vec![("bundle-install", None), ("yarn-install", None)];
-        let config = cmd.create_config(&steps);
+        let config = cmd.create_config(&steps, None);
 
         assert!(config.contains("bundle-install"));
         assert!(config.contains("yarn-install"));
@@ -451,7 +479,7 @@ mod tests {
 
         let steps: Vec<(&str, Option<&Template>)> =
             vec![("bundle-install", bundler), ("yarn-install", yarn)];
-        let config = cmd.create_config(&steps);
+        let config = cmd.create_config(&steps, None);
 
         // Should contain template references
         assert!(config.contains("template: bundle-install"));
@@ -475,7 +503,46 @@ mod tests {
         let npm = loader.get("npm-install");
 
         let steps: Vec<(&str, Option<&Template>)> = vec![("npm-install", npm)];
-        let _config = cmd.create_config(&steps);
+        let _config = cmd.create_config(&steps, None);
+    }
+
+    #[test]
+    fn create_config_includes_schema_line_when_path_provided() {
+        let temp = TempDir::new().unwrap();
+        let args = InitArgs::default();
+        let cmd = InitCommand::new(temp.path(), args);
+
+        let schema = PathBuf::from("/home/alice/.bivvy/schema.json");
+        let steps: Vec<(&str, Option<&Template>)> = vec![("bundle-install", None)];
+        let config = cmd.create_config(&steps, Some(&schema));
+
+        assert!(
+            config.starts_with("# yaml-language-server: $schema=/home/alice/.bivvy/schema.json\n")
+        );
+        let schema_pos = config.find("yaml-language-server").unwrap();
+        let header_pos = config.find("# Bivvy configuration for").unwrap();
+        assert!(schema_pos < header_pos);
+    }
+
+    #[test]
+    fn create_config_omits_schema_line_when_path_none() {
+        let temp = TempDir::new().unwrap();
+        let args = InitArgs::default();
+        let cmd = InitCommand::new(temp.path(), args);
+
+        let steps: Vec<(&str, Option<&Template>)> = vec![("bundle-install", None)];
+        let config = cmd.create_config(&steps, None);
+
+        assert!(!config.contains("yaml-language-server"));
+        assert!(config.starts_with("# Bivvy configuration for"));
+    }
+
+    #[test]
+    fn schema_path_resolves_under_home() {
+        // home_dir() reads $HOME, which is set in normal test environments.
+        let path = InitCommand::schema_path().unwrap();
+        assert!(path.ends_with(".bivvy/schema.json"));
+        assert!(path.is_absolute());
     }
 
     #[test]
@@ -485,7 +552,7 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
 
         let steps: Vec<(&str, Option<&Template>)> = vec![("bundle-install", None)];
-        let config = cmd.create_config(&steps);
+        let config = cmd.create_config(&steps, None);
 
         assert!(config.contains("# Bivvy configuration for"));
         assert!(config.contains("# Docs: https://bivvy.dev/configuration"));
@@ -504,7 +571,7 @@ mod tests {
         let cmd = InitCommand::new(temp.path(), args);
 
         let steps: Vec<(&str, Option<&Template>)> = vec![];
-        let config = cmd.create_config(&steps);
+        let config = cmd.create_config(&steps, None);
 
         assert!(config.contains("app_name:"));
         assert!(config.contains("settings:"));

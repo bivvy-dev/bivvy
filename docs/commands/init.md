@@ -125,9 +125,10 @@ Bivvy automatically detects technologies and maps them to built-in templates:
 
 ## Enriched Output
 
-The generated config includes commented-out template details so you can see what Bivvy will do and how to customize it:
+The generated config includes commented-out template details so you can see what Bivvy will do and how to customize it. The first line is a `yaml-language-server` directive pointing at the schema Bivvy installs locally, so editors with the YAML language server (VS Code, Neovim) get completion and validation out of the box:
 
 ```yaml
+# yaml-language-server: $schema=/Users/you/.bivvy/schema.json
 # Bivvy configuration for my-app
 # Docs: https://bivvy.dev/configuration
 #
