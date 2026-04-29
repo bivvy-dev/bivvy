@@ -18,7 +18,9 @@ use std::path::{Path, PathBuf};
 /// 1. Remote base configs (from `extends:`)
 /// 2. User global config (`~/.bivvy/config.yml`)
 /// 3. Project config (`.bivvy/config.yml`)
-/// 4. Local overrides (`.bivvy/config.local.yml`)
+/// 4. Split-file steps (`.bivvy/steps/*.yml`)
+/// 5. Split-file workflows (`.bivvy/workflows/*.yml`)
+/// 6. Local overrides (`.bivvy/config.local.yml`)
 #[derive(Debug, Clone)]
 pub struct ConfigPaths {
     /// Remote base config (if extends: is used)
@@ -29,6 +31,12 @@ pub struct ConfigPaths {
 
     /// Project config: .bivvy/config.yml
     pub project: Option<PathBuf>,
+
+    /// Split-file step definitions: .bivvy/steps/*.yml
+    pub split_steps: Vec<PathBuf>,
+
+    /// Split-file workflow definitions: .bivvy/workflows/*.yml
+    pub split_workflows: Vec<PathBuf>,
 
     /// Local overrides: .bivvy/config.local.yml
     pub project_local: Option<PathBuf>,
@@ -41,13 +49,15 @@ impl ConfigPaths {
             extends: Vec::new(), // Populated later after parsing project config
             user_global: Self::find_user_global(),
             project: Self::find_project_config(project_root),
+            split_steps: Self::find_split_files(project_root, "steps"),
+            split_workflows: Self::find_split_files(project_root, "workflows"),
             project_local: Self::find_project_local(project_root),
         }
     }
 
     /// Find user's global config at ~/.bivvy/config.yml
     fn find_user_global() -> Option<PathBuf> {
-        let path = dirs::home_dir()?.join(".bivvy").join("config.yml");
+        let path = crate::sys::home_dir()?.join(".bivvy").join("config.yml");
         if path.exists() {
             Some(path)
         } else {
@@ -75,7 +85,31 @@ impl ConfigPaths {
         }
     }
 
-    /// Returns all existing config paths in merge order.
+    /// Find YAML files in `.bivvy/<subdir>/`.
+    ///
+    /// Returns sorted paths for deterministic merge order.
+    fn find_split_files(project_root: &Path, subdir: &str) -> Vec<PathBuf> {
+        let dir = project_root.join(".bivvy").join(subdir);
+        if !dir.is_dir() {
+            return Vec::new();
+        }
+
+        let mut files: Vec<PathBuf> = fs::read_dir(&dir)
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.extension()
+                    .is_some_and(|ext| ext == "yml" || ext == "yaml")
+            })
+            .collect();
+
+        files.sort();
+        files
+    }
+
+    /// Returns all existing config paths in merge order (excludes split files).
     pub fn all_existing(&self) -> Vec<&PathBuf> {
         let mut paths = Vec::new();
 
@@ -99,8 +133,16 @@ impl ConfigPaths {
     }
 
     /// Check if any project config exists.
+    ///
+    /// Returns true if `.bivvy/config.yml` exists OR if any split-file
+    /// steps/workflows are present.
     pub fn has_project_config(&self) -> bool {
-        self.project.is_some()
+        self.project.is_some() || !self.split_steps.is_empty() || !self.split_workflows.is_empty()
+    }
+
+    /// Whether any split files were discovered.
+    pub fn has_split_files(&self) -> bool {
+        !self.split_steps.is_empty() || !self.split_workflows.is_empty()
     }
 }
 
@@ -188,13 +230,98 @@ pub fn load_config_value(path: &Path) -> Result<serde_yaml::Value> {
     })
 }
 
+/// Load split-file definitions and return a synthetic YAML value.
+///
+/// Reads each file in `paths`, wraps its content under `top_key.<stem>`,
+/// and merges them all into one value. For example, `.bivvy/steps/database.yml`
+/// becomes `{ steps: { database: <file content> } }`.
+///
+/// # Errors
+///
+/// Returns `ConfigParseError` if any file cannot be read or parsed.
+fn load_split_files(paths: &[PathBuf], top_key: &str) -> Result<Option<serde_yaml::Value>> {
+    if paths.is_empty() {
+        return Ok(None);
+    }
+
+    let mut entries = serde_yaml::Mapping::new();
+
+    for path in paths {
+        let stem = path.file_stem().and_then(|s| s.to_str()).ok_or_else(|| {
+            BivvyError::ConfigParseError {
+                path: path.clone(),
+                message: "Could not determine name from filename".to_string(),
+            }
+        })?;
+
+        let value = load_config_value(path)?;
+
+        entries.insert(serde_yaml::Value::String(stem.to_string()), value);
+    }
+
+    let mut wrapper = serde_yaml::Mapping::new();
+    wrapper.insert(
+        serde_yaml::Value::String(top_key.to_string()),
+        serde_yaml::Value::Mapping(entries),
+    );
+
+    Ok(Some(serde_yaml::Value::Mapping(wrapper)))
+}
+
+/// Collect config values in merge order, including split files.
+///
+/// Merge order:
+/// 1. Remote base configs (from `extends:`)
+/// 2. User global config (`~/.bivvy/config.yml`)
+/// 3. Project config (`.bivvy/config.yml`)
+/// 4. Split-file steps (`.bivvy/steps/*.yml`)
+/// 5. Split-file workflows (`.bivvy/workflows/*.yml`)
+/// 6. Local overrides (`.bivvy/config.local.yml`)
+fn collect_config_values(paths: &ConfigPaths) -> Result<Vec<serde_yaml::Value>> {
+    let mut configs = Vec::new();
+
+    // 1. Remote extends (populated later by resolver)
+    for p in &paths.extends {
+        configs.push(load_config_value(p)?);
+    }
+
+    // 2. User global
+    if let Some(p) = &paths.user_global {
+        configs.push(load_config_value(p)?);
+    }
+
+    // 3. Project config
+    if let Some(p) = &paths.project {
+        configs.push(load_config_value(p)?);
+    }
+
+    // 4. Split-file steps
+    if let Some(v) = load_split_files(&paths.split_steps, "steps")? {
+        configs.push(v);
+    }
+
+    // 5. Split-file workflows
+    if let Some(v) = load_split_files(&paths.split_workflows, "workflows")? {
+        configs.push(v);
+    }
+
+    // 6. Local overrides
+    if let Some(p) = &paths.project_local {
+        configs.push(load_config_value(p)?);
+    }
+
+    Ok(configs)
+}
+
 /// Load and merge all config files for a project.
 ///
 /// Discovers and merges configs in this order:
 /// 1. Remote base configs (from `extends:`)
 /// 2. User global config (`~/.bivvy/config.yml`)
 /// 3. Project config (`.bivvy/config.yml`)
-/// 4. Local overrides (`.bivvy/config.local.yml`)
+/// 4. Split-file steps (`.bivvy/steps/*.yml`)
+/// 5. Split-file workflows (`.bivvy/workflows/*.yml`)
+/// 6. Local overrides (`.bivvy/config.local.yml`)
 ///
 /// # Errors
 ///
@@ -220,13 +347,7 @@ pub fn load_merged_config_with_resolver(
         });
     }
 
-    let mut configs = Vec::new();
-
-    // Load in merge order
-    for path in paths.all_existing() {
-        let value = load_config_value(path)?;
-        configs.push(value);
-    }
+    let configs = collect_config_values(&paths)?;
 
     // Merge all configs
     let merged = merge_configs(&configs);
@@ -275,12 +396,7 @@ pub fn load_merged_config_with_trust(
         });
     }
 
-    let mut configs = Vec::new();
-
-    for path in paths.all_existing() {
-        let value = load_config_value(path)?;
-        configs.push(value);
-    }
+    let configs = collect_config_values(&paths)?;
 
     let merged = merge_configs(&configs);
 
@@ -1065,5 +1181,333 @@ app_name: ProjectApp
         .unwrap();
 
         assert_eq!(config.app_name, Some("NoExtends".to_string()));
+    }
+
+    // --- Split-file config tests ---
+
+    #[test]
+    fn discover_finds_split_steps() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let steps_dir = bivvy_dir.join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: test").unwrap();
+        fs::write(steps_dir.join("database.yml"), "command: rails db:setup").unwrap();
+        fs::write(steps_dir.join("deps.yml"), "command: yarn install").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        assert_eq!(paths.split_steps.len(), 2);
+        assert!(paths.has_split_files());
+    }
+
+    #[test]
+    fn discover_finds_split_workflows() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let workflows_dir = bivvy_dir.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: test").unwrap();
+        fs::write(workflows_dir.join("ci.yml"), "steps: [deps, test]").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        assert_eq!(paths.split_workflows.len(), 1);
+        assert!(paths.has_split_files());
+    }
+
+    #[test]
+    fn discover_ignores_non_yaml_in_split_dirs() {
+        let temp = TempDir::new().unwrap();
+        let steps_dir = temp.path().join(".bivvy").join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(
+            temp.path().join(".bivvy").join("config.yml"),
+            "app_name: test",
+        )
+        .unwrap();
+        fs::write(steps_dir.join("database.yml"), "command: rails db:setup").unwrap();
+        fs::write(steps_dir.join("README.md"), "# Steps").unwrap();
+        fs::write(steps_dir.join(".gitkeep"), "").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        assert_eq!(paths.split_steps.len(), 1);
+    }
+
+    #[test]
+    fn discover_accepts_yaml_extension() {
+        let temp = TempDir::new().unwrap();
+        let steps_dir = temp.path().join(".bivvy").join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(
+            temp.path().join(".bivvy").join("config.yml"),
+            "app_name: test",
+        )
+        .unwrap();
+        fs::write(steps_dir.join("database.yaml"), "command: rails db:setup").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        assert_eq!(paths.split_steps.len(), 1);
+    }
+
+    #[test]
+    fn split_steps_only_counts_as_project_config() {
+        let temp = TempDir::new().unwrap();
+        let steps_dir = temp.path().join(".bivvy").join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(steps_dir.join("database.yml"), "command: rails db:setup").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        // No config.yml, but split files exist
+        assert!(paths.project.is_none());
+        assert!(paths.has_project_config());
+    }
+
+    #[test]
+    fn load_merged_config_loads_split_steps() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let steps_dir = bivvy_dir.join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: SplitApp").unwrap();
+        fs::write(
+            steps_dir.join("database.yml"),
+            r#"
+command: "rails db:setup"
+title: "Setup database"
+"#,
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        assert_eq!(config.app_name, Some("SplitApp".to_string()));
+        assert!(config.steps.contains_key("database"));
+        assert_eq!(
+            config.steps["database"].execution.command,
+            Some("rails db:setup".to_string())
+        );
+        assert_eq!(
+            config.steps["database"].title,
+            Some("Setup database".to_string())
+        );
+    }
+
+    #[test]
+    fn load_merged_config_loads_split_workflows() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let workflows_dir = bivvy_dir.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            r#"
+app_name: SplitApp
+steps:
+  deps:
+    command: "yarn install"
+  test:
+    command: "yarn test"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            workflows_dir.join("ci.yml"),
+            r#"
+description: "CI pipeline"
+steps: [deps, test]
+settings:
+  non_interactive: true
+"#,
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        assert!(config.workflows.contains_key("ci"));
+        assert_eq!(
+            config.workflows["ci"].description,
+            Some("CI pipeline".to_string())
+        );
+        assert_eq!(config.workflows["ci"].steps, vec!["deps", "test"]);
+    }
+
+    #[test]
+    fn split_steps_override_inline_steps() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let steps_dir = bivvy_dir.join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            r#"
+steps:
+  database:
+    command: "rails db:setup"
+    title: "Original title"
+"#,
+        )
+        .unwrap();
+        // Split file overrides the command
+        fs::write(
+            steps_dir.join("database.yml"),
+            r#"
+command: "rails db:prepare"
+title: "Overridden title"
+"#,
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        assert_eq!(
+            config.steps["database"].execution.command,
+            Some("rails db:prepare".to_string())
+        );
+        assert_eq!(
+            config.steps["database"].title,
+            Some("Overridden title".to_string())
+        );
+    }
+
+    #[test]
+    fn local_overrides_override_split_files() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let steps_dir = bivvy_dir.join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: Test").unwrap();
+        fs::write(
+            steps_dir.join("database.yml"),
+            r#"
+command: "rails db:setup"
+title: "From split file"
+"#,
+        )
+        .unwrap();
+        // config.local.yml overrides the split file
+        fs::write(
+            bivvy_dir.join("config.local.yml"),
+            r#"
+steps:
+  database:
+    command: "rails db:prepare"
+"#,
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        assert_eq!(
+            config.steps["database"].execution.command,
+            Some("rails db:prepare".to_string())
+        );
+        // title from split file should be preserved (deep merge)
+        assert_eq!(
+            config.steps["database"].title,
+            Some("From split file".to_string())
+        );
+    }
+
+    #[test]
+    fn split_steps_and_inline_steps_coexist() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let steps_dir = bivvy_dir.join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(
+            bivvy_dir.join("config.yml"),
+            r#"
+steps:
+  deps:
+    command: "yarn install"
+"#,
+        )
+        .unwrap();
+        fs::write(
+            steps_dir.join("database.yml"),
+            "command: \"rails db:setup\"",
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        assert!(config.steps.contains_key("deps"));
+        assert!(config.steps.contains_key("database"));
+    }
+
+    #[test]
+    fn split_files_work_without_config_yml() {
+        let temp = TempDir::new().unwrap();
+        let steps_dir = temp.path().join(".bivvy").join("steps");
+        let workflows_dir = temp.path().join(".bivvy").join("workflows");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::create_dir_all(&workflows_dir).unwrap();
+        fs::write(steps_dir.join("deps.yml"), "command: \"yarn install\"").unwrap();
+        fs::write(workflows_dir.join("default.yml"), "steps: [deps]").unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        assert!(config.steps.contains_key("deps"));
+        assert!(config.workflows.contains_key("default"));
+    }
+
+    #[test]
+    fn empty_split_dirs_are_ignored() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        fs::create_dir_all(bivvy_dir.join("steps")).unwrap();
+        fs::create_dir_all(bivvy_dir.join("workflows")).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: Test").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        assert!(paths.split_steps.is_empty());
+        assert!(paths.split_workflows.is_empty());
+        assert!(!paths.has_split_files());
+    }
+
+    #[test]
+    fn split_files_sorted_for_deterministic_order() {
+        let temp = TempDir::new().unwrap();
+        let steps_dir = temp.path().join(".bivvy").join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(
+            temp.path().join(".bivvy").join("config.yml"),
+            "app_name: test",
+        )
+        .unwrap();
+        fs::write(steps_dir.join("zebra.yml"), "command: echo z").unwrap();
+        fs::write(steps_dir.join("alpha.yml"), "command: echo a").unwrap();
+        fs::write(steps_dir.join("middle.yml"), "command: echo m").unwrap();
+
+        let paths = ConfigPaths::discover(temp.path());
+        let names: Vec<&str> = paths
+            .split_steps
+            .iter()
+            .filter_map(|p| p.file_stem().and_then(|s| s.to_str()))
+            .collect();
+        assert_eq!(names, vec!["alpha", "middle", "zebra"]);
+    }
+
+    #[test]
+    fn split_step_with_full_config() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let steps_dir = bivvy_dir.join("steps");
+        fs::create_dir_all(&steps_dir).unwrap();
+        fs::write(bivvy_dir.join("config.yml"), "app_name: Test").unwrap();
+        fs::write(
+            steps_dir.join("database.yml"),
+            r#"
+title: "Setup database"
+command: "rails db:setup"
+depends_on: [deps]
+check:
+  type: execution
+  command: "rails db:version"
+retry: 2
+"#,
+        )
+        .unwrap();
+
+        let config = load_merged_config(temp.path()).unwrap();
+        let step = &config.steps["database"];
+        assert_eq!(step.title, Some("Setup database".to_string()));
+        assert_eq!(step.execution.command, Some("rails db:setup".to_string()));
+        assert_eq!(step.depends_on, vec!["deps"]);
+        assert!(step.execution.check.is_some());
+        assert_eq!(step.execution.retry, 2);
     }
 }

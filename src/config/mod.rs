@@ -31,7 +31,9 @@
 //! 1. Remote base configs (from `extends:`)
 //! 2. User global config (`~/.bivvy/config.yml`)
 //! 3. Project config (`.bivvy/config.yml`)
-//! 4. Local overrides (`.bivvy/config.local.yml`)
+//! 4. Split-file steps (`.bivvy/steps/*.yml`)
+//! 5. Split-file workflows (`.bivvy/workflows/*.yml`)
+//! 6. Local overrides (`.bivvy/config.local.yml`)
 
 pub mod env_file;
 pub mod env_layer;
