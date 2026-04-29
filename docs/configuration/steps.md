@@ -141,7 +141,7 @@ opposite semantics:
 |---|---|---|
 | **When check passes** | Step is skipped (already done) | Step proceeds normally |
 | **When check fails** | Step runs | Step fails (hard stop) |
-| **`--force` behavior** | Bypasses the check | No effect (never bypassed) |
+| **`--force` / `--force-all` behavior** | Bypasses the check | No effect (never bypassed) |
 
 ### Combining with Completed Checks
 

@@ -131,6 +131,7 @@ impl<'a> WorkflowRunner<'a> {
                 project_root,
                 global_env,
                 force_steps: &options.force,
+                force_all: options.force_all,
                 provided_requirements: &options.provided_requirements,
             };
 

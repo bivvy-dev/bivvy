@@ -46,6 +46,8 @@ pub struct EngineContext<'a> {
     pub step_overrides: &'a HashMap<String, StepOverride>,
     /// Steps forced to re-run via --force flag.
     pub force: &'a HashSet<String>,
+    /// Whether every step in this workflow should be forced (--force-all).
+    pub force_all: bool,
     /// Pre-evaluated named check results for cross-step refs.
     pub named_check_results: &'a HashMap<String, CheckResult>,
     /// Satisfaction cache (two-layer).
@@ -160,7 +162,7 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
     }
 
     // 4. Force override
-    if ctx.force.contains(step_name) {
+    if ctx.force_all || ctx.force.contains(step_name) {
         let result = EvaluationResult {
             decision: StepDecision::Run,
             reason: "forced".to_string(),
@@ -362,6 +364,7 @@ mod tests {
             state: None,
             step_overrides: &EMPTY_OVERRIDES,
             force: &EMPTY_FORCE,
+            force_all: false,
             named_check_results: &EMPTY_NAMED_CHECKS,
             satisfaction_cache,
             evaluated: HashMap::new(),
@@ -464,6 +467,35 @@ mod tests {
     }
 
     #[test]
+    fn force_all_bypasses_satisfaction_for_unnamed_step() {
+        let mut steps = HashMap::new();
+        steps.insert("build".to_string(), make_step("build", vec![]));
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+        // Empty force set — force_all alone should run the step.
+        ctx.force_all = true;
+
+        let result = evaluate_step("build", &mut ctx);
+        assert_eq!(result.decision, StepDecision::Run);
+    }
+
+    #[test]
     fn sensitive_step_prompts() {
         let mut step = make_step("deploy", vec![]);
         step.behavior.sensitive = true;
@@ -553,6 +585,7 @@ mod tests {
             state: None,
             step_overrides: &HashMap::new(),
             force: &HashSet::new(),
+            force_all: false,
             named_check_results: &HashMap::new(),
             satisfaction_cache: &mut cache,
             evaluated: HashMap::new(),

@@ -75,6 +75,8 @@ pub struct RunOptions {
     pub skip_behavior: SkipBehavior,
     /// Force re-run these steps even if complete.
     pub force: HashSet<String>,
+    /// Force re-run every step in the workflow, bypassing all checks.
+    pub force_all: bool,
     /// Dry run mode.
     pub dry_run: bool,
     /// Requirements that are provided by the environment and should skip gap checks.
@@ -85,6 +87,17 @@ pub struct RunOptions {
     pub diagnostic_funnel: bool,
     /// Discard all persisted satisfaction records and evaluate everything fresh.
     pub fresh: bool,
+}
+
+impl RunOptions {
+    /// Whether the named step should be forced to run, bypassing checks.
+    ///
+    /// A step is forced if `force_all` is set, or if its name appears in the
+    /// `force` set. Step- and workflow-level force directives are merged into
+    /// these fields by the caller before the runner is invoked.
+    pub fn should_force(&self, step_name: &str) -> bool {
+        self.force_all || self.force.contains(step_name)
+    }
 }
 
 impl<'a> WorkflowRunner<'a> {
@@ -226,7 +239,7 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             // Evaluate completed check using the new CheckEvaluator
-            if !options.force.contains(step_name) {
+            if !options.should_force(step_name) {
                 if let Some(check) = step.execution.effective_check() {
                     let config_hash = check.config_hash();
                     let mut evaluator =
@@ -253,7 +266,7 @@ impl<'a> WorkflowRunner<'a> {
             });
 
             let exec_options = ExecutionOptions {
-                force: options.force.contains(step_name),
+                force: options.should_force(step_name),
                 dry_run: options.dry_run,
                 capture_output: true,
                 ..Default::default()

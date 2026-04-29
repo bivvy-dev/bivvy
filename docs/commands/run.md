@@ -30,6 +30,7 @@ bivvy run -w ci
 | `--skip` | | Skip specified steps (comma-separated) |
 | `--skip-behavior` | | How to handle skipped dependencies |
 | `--force` | `-f` | Force re-run of specified steps (comma-separated) |
+| `--force-all` | | Force re-run of every step, bypassing all checks and step-level configuration |
 | `--resume` | | Resume interrupted run |
 | `--save-preferences` | | Save prompt answers |
 | `--dry-run` | | Preview without executing |
@@ -65,6 +66,13 @@ Force re-run of node_deps:
 
 ```bash
 bivvy run --force=node_deps
+```
+
+Force re-run of every step in the workflow, bypassing checks and any
+step-level configuration:
+
+```bash
+bivvy run --force-all
 ```
 
 Preview what would run:

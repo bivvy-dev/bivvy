@@ -147,14 +147,27 @@ Shows execution history for a specific step across all runs.
 
 ## Clearing State
 
-To reset state and force all steps to re-run:
+To discard all persisted satisfaction records so every step is
+re-evaluated from scratch:
 
 ```bash
-bivvy run --force
+bivvy run --fresh
 ```
 
-Or clear state for a specific step:
+Note that `--fresh` resets state but does not bypass `check:` blocks —
+if a check still passes, the step is still skipped. To also bypass
+checks and force every step in the workflow to run, combine `--fresh`
+with `--force-all`:
 
 ```bash
-bivvy run --force --step dependencies
+bivvy run --fresh --force-all
 ```
+
+To force only specific steps to re-run regardless of their checks:
+
+```bash
+bivvy run --force dependencies,build
+```
+
+See [Forcing Re-run](completed-checks.md#forcing-re-run) for the full
+set of force directives.

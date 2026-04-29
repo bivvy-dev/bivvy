@@ -614,6 +614,103 @@ fn run_with_ui_force_reruns_satisfied_step() {
 }
 
 #[test]
+fn run_with_ui_force_all_reruns_every_satisfied_step() {
+    let temp = TempDir::new().unwrap();
+    fs::write(temp.path().join("a.marker"), "done").unwrap();
+    fs::write(temp.path().join("b.marker"), "done").unwrap();
+
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [step_a, step_b]
+        "#,
+    )
+    .unwrap();
+
+    let mut steps = HashMap::new();
+    steps.insert(
+        "step_a".to_string(),
+        make_step_with_check(
+            "step_a",
+            "echo a",
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("a.marker".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        ),
+    );
+    steps.insert(
+        "step_b".to_string(),
+        make_step_with_check(
+            "step_b",
+            "echo b",
+            Some(crate::checks::Check::Presence {
+                name: None,
+                target: Some("b.marker".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        ),
+    );
+
+    let mut runner = WorkflowRunner::new(&config, steps);
+    let options = RunOptions {
+        force_all: true,
+        ..RunOptions::default()
+    };
+    let ctx = InterpolationContext::new();
+
+    let mut ui = MockUI::new();
+    ui.set_interactive(true);
+
+    let result = runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            None,
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                "/tmp/bivvy_test_force_all_sat.json",
+            )),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
+
+    assert!(result.success);
+    assert!(ui.prompts_shown().is_empty());
+    assert_eq!(result.steps.len(), 2);
+    // Both steps ran despite their checks passing.
+    assert!(!result.steps[0].skipped);
+    assert!(!result.steps[1].skipped);
+}
+
+#[test]
+fn run_options_should_force_returns_true_for_named_step() {
+    let mut options = RunOptions::default();
+    options.force.insert("install".to_string());
+    assert!(options.should_force("install"));
+    assert!(!options.should_force("build"));
+}
+
+#[test]
+fn run_options_should_force_returns_true_for_every_step_when_force_all() {
+    let options = RunOptions {
+        force_all: true,
+        ..RunOptions::default()
+    };
+    assert!(options.should_force("anything"));
+    assert!(options.should_force("else"));
+}
+
+#[test]
 fn run_with_ui_silent_skip_when_not_interactive() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("marker.txt"), "done").unwrap();

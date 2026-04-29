@@ -37,7 +37,15 @@ pub(super) struct StepExecutionOptions<'a> {
     pub project_root: &'a Path,
     pub global_env: &'a HashMap<String, String>,
     pub force_steps: &'a HashSet<String>,
+    pub force_all: bool,
     pub provided_requirements: &'a HashSet<String>,
+}
+
+impl StepExecutionOptions<'_> {
+    /// Whether the named step should be forced (workflow-wide or by name).
+    pub(super) fn should_force(&self, step_name: &str) -> bool {
+        self.force_all || self.force_steps.contains(step_name)
+    }
 }
 
 /// Why a step was skipped at runtime.
@@ -214,7 +222,7 @@ impl<'a> StepManager<'a> {
             }
         }
 
-        let needs_force = opts.force_steps.contains(self.step_name);
+        let needs_force = opts.should_force(self.step_name);
 
         // ── Pre-engine: collect named check results for cross-step refs ──
         if !opts.dry_run {
@@ -248,6 +256,7 @@ impl<'a> StepManager<'a> {
                 state,
                 step_overrides,
                 force: opts.force_steps,
+                force_all: opts.force_all,
                 named_check_results,
                 satisfaction_cache,
                 evaluated: HashMap::new(),

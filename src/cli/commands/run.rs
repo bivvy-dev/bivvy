@@ -90,6 +90,7 @@ impl RunCommand {
             skip: self.args.skip.iter().cloned().collect(),
             skip_behavior,
             force: self.args.force.iter().cloned().collect(),
+            force_all: self.args.force_all,
             dry_run: self.args.dry_run,
             provided_requirements: HashSet::new(),
             active_environment: None,

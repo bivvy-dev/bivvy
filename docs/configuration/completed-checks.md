@@ -229,15 +229,25 @@ steps:
 
 ## Forcing Re-run
 
-Skip checks and always run:
+Bypass `check:` and `satisfied_when` evaluation for one or more steps.
+Preconditions are not bypassed by either flag.
+
+Force specific steps (comma-separated):
 
 ```bash
-bivvy --force deps
+bivvy run --force deps,build
 ```
 
+Force every step in the workflow:
+
 ```bash
-bivvy --force-all
+bivvy run --force-all
 ```
+
+`--force-all` also overrides any step-level configuration that would
+otherwise prompt or skip — it means "run it all, don't bother me about
+it." `--force` and `--force-all` can be passed together; `--force-all`
+is a superset.
 
 ## Named Checks
 

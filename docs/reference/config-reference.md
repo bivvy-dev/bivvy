@@ -72,7 +72,7 @@ At minimum, a step needs either `command` or `template`.
 | `check` | [Check](#check) | — | Single check (presence, execution, change) |
 | `checks` | list of [Check](#check) | `[]` | Multiple checks (implicit all) |
 | `satisfied_when` | list of [SatisfactionCondition](#satisfaction-condition) | `[]` | Conditions declaring step fulfilled (inline checks or refs to named checks). All must pass. Takes priority over `check`. |
-| `precondition` | [Check](#check) | — | Gate that must pass before step runs (not bypassed by `--force`) |
+| `precondition` | [Check](#check) | — | Gate that must pass before step runs (not bypassed by `--force` or `--force-all`) |
 | `skippable` | bool | `true` | User can skip interactively |
 | `required` | bool | `false` | Cannot be skipped |
 | `auto_run` | bool | — | Auto-run when pipeline says step needs to run. `None` = use global default. |

@@ -125,6 +125,11 @@ pub struct RunArgs {
     #[arg(short, long, value_delimiter = ',')]
     pub force: Vec<String>,
 
+    /// Force re-run of every step in the workflow, bypassing all checks
+    /// and step-level configuration
+    #[arg(long)]
+    pub force_all: bool,
+
     /// Resume an interrupted run
     #[arg(long)]
     pub resume: bool,
@@ -174,6 +179,7 @@ impl Default for RunArgs {
             skip: Vec::new(),
             skip_behavior: "skip_with_dependents".to_string(),
             force: Vec::new(),
+            force_all: false,
             resume: false,
             save_preferences: false,
             dry_run: false,
@@ -374,4 +380,44 @@ pub struct AddArgs {
     /// Don't add to any workflow
     #[arg(long)]
     pub no_workflow: bool,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+
+    #[derive(Debug, Parser)]
+    struct TestRun {
+        #[command(flatten)]
+        args: RunArgs,
+    }
+
+    #[test]
+    fn run_args_force_parses_step_list() {
+        let cli = TestRun::parse_from(["test", "--force", "install,build"]);
+        assert_eq!(cli.args.force, vec!["install", "build"]);
+        assert!(!cli.args.force_all);
+    }
+
+    #[test]
+    fn run_args_force_all_is_false_by_default() {
+        let cli = TestRun::parse_from(["test"]);
+        assert!(!cli.args.force_all);
+        assert!(cli.args.force.is_empty());
+    }
+
+    #[test]
+    fn run_args_force_all_flag_sets_field_true() {
+        let cli = TestRun::parse_from(["test", "--force-all"]);
+        assert!(cli.args.force_all);
+        assert!(cli.args.force.is_empty());
+    }
+
+    #[test]
+    fn run_args_force_and_force_all_can_coexist() {
+        let cli = TestRun::parse_from(["test", "--force", "install", "--force-all"]);
+        assert!(cli.args.force_all);
+        assert_eq!(cli.args.force, vec!["install"]);
+    }
 }
