@@ -122,17 +122,18 @@ struct LogRunRecord {
     log_file: Option<String>,
 }
 
-/// Scan JSONL log files for `WorkflowCompleted` events.
+/// Scan a log directory for `WorkflowCompleted` events belonging to
+/// `canonical_project`.
 ///
-/// Returns records sorted by timestamp (most recent first).
-fn scan_log_files(limit: usize) -> Vec<LogRunRecord> {
-    let log_dir = crate::logging::default_log_dir();
+/// Returns records sorted by timestamp (most recent first). Logs from other
+/// projects (or logs without a recognizable working directory) are skipped.
+fn scan_log_dir(log_dir: &Path, limit: usize, canonical_project: &Path) -> Vec<LogRunRecord> {
     if !log_dir.exists() {
         return Vec::new();
     }
 
     // Collect and sort JSONL files by name (descending = most recent first)
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&log_dir)
+    let mut files: Vec<PathBuf> = std::fs::read_dir(log_dir)
         .ok()
         .into_iter()
         .flatten()
@@ -147,6 +148,9 @@ fn scan_log_files(limit: usize) -> Vec<LogRunRecord> {
     for path in &files {
         if records.len() >= limit {
             break;
+        }
+        if !crate::logging::log_belongs_to_project(path, canonical_project) {
+            continue;
         }
         if let Ok(content) = std::fs::read_to_string(path) {
             for line in content.lines() {
@@ -198,6 +202,11 @@ fn scan_log_files(limit: usize) -> Vec<LogRunRecord> {
     records
 }
 
+/// Scan the default log directory, scoped to `canonical_project`.
+fn scan_log_files(limit: usize, canonical_project: &Path) -> Vec<LogRunRecord> {
+    scan_log_dir(&crate::logging::default_log_dir(), limit, canonical_project)
+}
+
 /// Parse a timestamp from a log filename like `2026-04-25T10-00-00_hash.jsonl`.
 fn parse_log_filename_timestamp(path: &Path) -> Option<chrono::DateTime<chrono::Utc>> {
     let stem = path.file_stem()?.to_str()?;
@@ -213,7 +222,8 @@ fn parse_log_filename_timestamp(path: &Path) -> Option<chrono::DateTime<chrono::
 impl Command for HistoryCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         let limit = self.args.limit.unwrap_or(10);
-        let mut records = scan_log_files(limit.max(100)); // scan more, filter later
+        let project_id = crate::state::ProjectId::from_path(&self.project_root)?;
+        let mut records = scan_log_files(limit.max(100), project_id.path()); // scan more, filter later
 
         // Apply --since filter
         if let Some(ref since_str) = self.args.since {
@@ -401,5 +411,118 @@ mod tests {
         assert_eq!(value["success"], true);
         // log_file should be skipped in serialization
         assert!(value.get("log_file").is_none());
+    }
+
+    /// Helper: write a log file with `session_started` + `workflow_completed`.
+    fn write_run_log(log_dir: &Path, name: &str, project: &Path, workflow: &str) {
+        let session_started = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [workflow],
+            "version": "1.9.0",
+            "working_directory": project.display().to_string()
+        });
+        let workflow_completed = serde_json::json!({
+            "ts": "2026-04-25T10:00:02.000Z",
+            "session": "sess_test",
+            "type": "workflow_completed",
+            "name": workflow,
+            "success": true,
+            "aborted": false,
+            "steps_run": 1,
+            "steps_skipped": 0,
+            "duration_ms": 1000
+        });
+        std::fs::write(
+            log_dir.join(name),
+            format!("{}\n{}\n", session_started, workflow_completed),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn scan_log_dir_filters_other_projects() {
+        let project_a = TempDir::new().unwrap();
+        let project_b = TempDir::new().unwrap();
+        let canonical_a = project_a.path().canonicalize().unwrap();
+        let canonical_b = project_b.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-03_aaaa.jsonl",
+            &canonical_a,
+            "default",
+        );
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-04_bbbb.jsonl",
+            &canonical_b,
+            "default",
+        );
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-05_cccc.jsonl",
+            &canonical_a,
+            "quick",
+        );
+
+        let records_a = scan_log_dir(log_dir.path(), 100, &canonical_a);
+        assert_eq!(records_a.len(), 2);
+        let workflows: Vec<&str> = records_a.iter().map(|r| r.workflow.as_str()).collect();
+        assert!(workflows.contains(&"default"));
+        assert!(workflows.contains(&"quick"));
+
+        let records_b = scan_log_dir(log_dir.path(), 100, &canonical_b);
+        assert_eq!(records_b.len(), 1);
+    }
+
+    #[test]
+    fn scan_log_dir_respects_limit() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        for i in 0..5 {
+            write_run_log(
+                log_dir.path(),
+                &format!("2026-04-28T22-26-0{}_aaaa.jsonl", i),
+                &canonical,
+                "default",
+            );
+        }
+
+        let records = scan_log_dir(log_dir.path(), 3, &canonical);
+        assert_eq!(records.len(), 3);
+    }
+
+    #[test]
+    fn scan_log_dir_skips_logs_without_working_directory() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        // Log without working_directory — must be excluded under project scoping.
+        let event_line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_old",
+            "type": "workflow_completed",
+            "name": "default",
+            "success": true,
+            "aborted": false,
+            "steps_run": 1,
+            "steps_skipped": 0,
+            "duration_ms": 1000
+        });
+        std::fs::write(
+            log_dir.path().join("2026-04-28T22-26-00_old.jsonl"),
+            format!("{}\n", event_line),
+        )
+        .unwrap();
+
+        let records = scan_log_dir(log_dir.path(), 100, &canonical);
+        assert!(records.is_empty());
     }
 }

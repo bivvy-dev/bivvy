@@ -68,19 +68,23 @@ struct LogLastRun {
     error: Option<String>,
 }
 
-/// Read the most recent JSONL log file and extract run information.
+/// Scan a log directory for runs belonging to `canonical_project`.
 ///
-/// When `all` is true, scans all log files. Otherwise returns only the
-/// most recent.
-fn read_last_runs(all: bool) -> Vec<LogLastRun> {
-    let log_dir = crate::logging::default_log_dir();
+/// Iterates JSONL files newest-first (by filename) and returns runs
+/// reconstructed from `WorkflowCompleted` events. Logs from other projects
+/// (or logs without a recognizable working directory) are skipped.
+///
+/// When `all` is false, returns at most one run — the most recent one
+/// containing a `WorkflowCompleted` event. The previous implementation
+/// truncated the file list to a single entry up front, which caused
+/// `bivvy last` to silently report "No runs recorded" whenever the
+/// most recent log was from a non-`run` command (e.g. `bivvy status`).
+fn scan_log_dir(log_dir: &Path, all: bool, canonical_project: &Path) -> Vec<LogLastRun> {
     if !log_dir.exists() {
         return Vec::new();
     }
 
-    // Collect and sort JSONL files by name (ascending for chronological,
-    // then we'll reverse for most-recent-first)
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&log_dir)
+    let mut files: Vec<PathBuf> = std::fs::read_dir(log_dir)
         .ok()
         .into_iter()
         .flatten()
@@ -89,20 +93,27 @@ fn read_last_runs(all: bool) -> Vec<LogLastRun> {
         .filter(|p| p.extension().is_some_and(|ext| ext == "jsonl"))
         .collect();
     files.sort();
-    files.reverse(); // most recent first
-
-    if !all {
-        files.truncate(1);
-    }
+    files.reverse();
 
     let mut runs = Vec::new();
     for path in &files {
+        if !crate::logging::log_belongs_to_project(path, canonical_project) {
+            continue;
+        }
         if let Some(run) = parse_log_file(path) {
             runs.push(run);
+            if !all {
+                break;
+            }
         }
     }
 
     runs
+}
+
+/// Read runs from the default log directory, scoped to `canonical_project`.
+fn read_last_runs(all: bool, canonical_project: &Path) -> Vec<LogLastRun> {
+    scan_log_dir(&crate::logging::default_log_dir(), all, canonical_project)
 }
 
 /// Parse a single JSONL log file into a run record.
@@ -335,10 +346,11 @@ impl Command for LastCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         let project_id = ProjectId::from_path(&self.project_root)?;
         let (state, _) = StateStore::load(&project_id)?;
+        let canonical_project = project_id.path();
 
         // --all: show all runs instead of just the last one
         if self.args.all {
-            let runs = read_last_runs(true);
+            let runs = read_last_runs(true, canonical_project);
 
             if runs.is_empty() {
                 ui.message("No runs recorded for this project.");
@@ -362,7 +374,7 @@ impl Command for LastCommand {
             return Ok(CommandResult::success());
         }
 
-        let runs = read_last_runs(false);
+        let runs = read_last_runs(false, canonical_project);
         let last_run = match runs.first() {
             Some(r) => r,
             None => {
@@ -571,5 +583,153 @@ mod tests {
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["workflow"], "default");
         assert_eq!(parsed["success"], true);
+    }
+
+    /// Helper: write a `session_started` + `workflow_completed` log file for `project`.
+    fn write_run_log(log_dir: &Path, name: &str, project: &Path, workflow: &str, success: bool) {
+        let session_started = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [workflow],
+            "version": "1.9.0",
+            "working_directory": project.display().to_string()
+        });
+        let workflow_completed = serde_json::json!({
+            "ts": "2026-04-25T10:00:02.000Z",
+            "session": "sess_test",
+            "type": "workflow_completed",
+            "name": workflow,
+            "success": success,
+            "aborted": false,
+            "steps_run": 1,
+            "steps_skipped": 0,
+            "duration_ms": 1000
+        });
+        std::fs::write(
+            log_dir.join(name),
+            format!("{}\n{}\n", session_started, workflow_completed),
+        )
+        .unwrap();
+    }
+
+    /// Helper: write a status-style log (session_started only, no workflow_completed).
+    fn write_status_log(log_dir: &Path, name: &str, project: &Path) {
+        let session = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "status",
+            "args": [],
+            "version": "1.9.0",
+            "working_directory": project.display().to_string()
+        });
+        std::fs::write(log_dir.join(name), format!("{}\n", session)).unwrap();
+    }
+
+    #[test]
+    fn scan_log_dir_skips_logs_without_workflow_completed() {
+        // Reproduces the bug: when the most recent log (by filename) is from
+        // a non-`run` command like `bivvy status`, `bivvy last` should still
+        // surface the most recent actual run rather than reporting "no runs".
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-03_aaaaaaaa.jsonl",
+            &canonical,
+            "default",
+            true,
+        );
+        write_status_log(
+            log_dir.path(),
+            "2026-04-28T22-26-03_status.jsonl",
+            &canonical,
+        );
+
+        let runs = scan_log_dir(log_dir.path(), false, &canonical);
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].workflow, "default");
+        assert!(runs[0].success);
+    }
+
+    #[test]
+    fn scan_log_dir_filters_other_projects() {
+        let project_a = TempDir::new().unwrap();
+        let project_b = TempDir::new().unwrap();
+        let canonical_a = project_a.path().canonicalize().unwrap();
+        let canonical_b = project_b.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-03_aaaa.jsonl",
+            &canonical_a,
+            "default",
+            true,
+        );
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-04_bbbb.jsonl",
+            &canonical_b,
+            "default",
+            true,
+        );
+
+        let runs_a = scan_log_dir(log_dir.path(), true, &canonical_a);
+        assert_eq!(runs_a.len(), 1);
+
+        let runs_b = scan_log_dir(log_dir.path(), true, &canonical_b);
+        assert_eq!(runs_b.len(), 1);
+    }
+
+    #[test]
+    fn scan_log_dir_returns_empty_when_no_logs_match_project() {
+        let project = TempDir::new().unwrap();
+        let other = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let canonical_other = other.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-03_aaaa.jsonl",
+            &canonical_other,
+            "default",
+            true,
+        );
+
+        let runs = scan_log_dir(log_dir.path(), false, &canonical);
+        assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn scan_log_dir_with_all_returns_runs_newest_first() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+        let log_dir = TempDir::new().unwrap();
+
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-01_aaaa.jsonl",
+            &canonical,
+            "first",
+            true,
+        );
+        write_run_log(
+            log_dir.path(),
+            "2026-04-28T22-26-05_bbbb.jsonl",
+            &canonical,
+            "second",
+            true,
+        );
+
+        let runs = scan_log_dir(log_dir.path(), true, &canonical);
+        assert_eq!(runs.len(), 2);
+        assert_eq!(runs[0].workflow, "second");
+        assert_eq!(runs[1].workflow, "first");
     }
 }

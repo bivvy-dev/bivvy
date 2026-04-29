@@ -61,6 +61,47 @@ pub fn default_log_dir() -> PathBuf {
         .join("logs")
 }
 
+/// Extract the `working_directory` recorded in a log file's
+/// `session_started` event.
+///
+/// Returns `None` if the file cannot be read, contains no `session_started`
+/// event, or that event does not carry a `working_directory` field. Used by
+/// `bivvy last` and `bivvy history` to scope log scanning to the current
+/// project.
+pub fn log_working_directory(log_path: &Path) -> Option<PathBuf> {
+    let content = std::fs::read_to_string(log_path).ok()?;
+    for line in content.lines() {
+        let value: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+        if value.get("type").and_then(|t| t.as_str()) == Some("session_started") {
+            return value
+                .get("working_directory")
+                .and_then(|w| w.as_str())
+                .map(PathBuf::from);
+        }
+    }
+    None
+}
+
+/// Test whether a log file belongs to the project rooted at `canonical_project`.
+///
+/// Compares the canonical project path against the `working_directory`
+/// recorded in the log's `session_started` event. Falls back to a literal
+/// path comparison when the recorded directory no longer exists (e.g. logs
+/// from temp-dir tests or moved projects).
+pub fn log_belongs_to_project(log_path: &Path, canonical_project: &Path) -> bool {
+    let wd = match log_working_directory(log_path) {
+        Some(p) => p,
+        None => return false,
+    };
+    if wd == canonical_project {
+        return true;
+    }
+    matches!(wd.canonicalize(), Ok(canon) if canon == canonical_project)
+}
+
 /// A single JSONL log entry.
 #[derive(Debug, Serialize)]
 struct LogEntry<'a> {
@@ -713,5 +754,121 @@ mod tests {
 
         let content = fs::read_to_string(logger.log_path()).unwrap();
         assert!(content.contains("hello world"));
+    }
+
+    #[test]
+    fn log_working_directory_extracts_from_session_started() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("test.jsonl");
+        let line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [],
+            "version": "1.9.0",
+            "working_directory": "/some/project"
+        });
+        fs::write(&log_path, format!("{}\n", line)).unwrap();
+
+        let wd = log_working_directory(&log_path).unwrap();
+        assert_eq!(wd, PathBuf::from("/some/project"));
+    }
+
+    #[test]
+    fn log_working_directory_returns_none_without_session_started() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("no_session.jsonl");
+        let line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "step_planned",
+            "name": "x",
+            "index": 0,
+            "total": 1
+        });
+        fs::write(&log_path, format!("{}\n", line)).unwrap();
+
+        assert!(log_working_directory(&log_path).is_none());
+    }
+
+    #[test]
+    fn log_working_directory_returns_none_when_field_missing() {
+        let dir = TempDir::new().unwrap();
+        let log_path = dir.path().join("no_wd.jsonl");
+        let line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [],
+            "version": "1.9.0"
+        });
+        fs::write(&log_path, format!("{}\n", line)).unwrap();
+
+        assert!(log_working_directory(&log_path).is_none());
+    }
+
+    #[test]
+    fn log_belongs_to_project_matches_canonical_path() {
+        let project = TempDir::new().unwrap();
+        let canonical = project.path().canonicalize().unwrap();
+
+        let logs = TempDir::new().unwrap();
+        let log_path = logs.path().join("match.jsonl");
+        let line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [],
+            "version": "1.9.0",
+            "working_directory": project.path().display().to_string()
+        });
+        fs::write(&log_path, format!("{}\n", line)).unwrap();
+
+        assert!(log_belongs_to_project(&log_path, &canonical));
+    }
+
+    #[test]
+    fn log_belongs_to_project_rejects_other_project() {
+        let project_a = TempDir::new().unwrap();
+        let project_b = TempDir::new().unwrap();
+        let canonical_a = project_a.path().canonicalize().unwrap();
+
+        let logs = TempDir::new().unwrap();
+        let log_path = logs.path().join("other.jsonl");
+        let line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [],
+            "version": "1.9.0",
+            "working_directory": project_b.path().display().to_string()
+        });
+        fs::write(&log_path, format!("{}\n", line)).unwrap();
+
+        assert!(!log_belongs_to_project(&log_path, &canonical_a));
+    }
+
+    #[test]
+    fn log_belongs_to_project_falls_back_to_literal_match_for_missing_dir() {
+        let canonical = PathBuf::from("/no/longer/exists");
+
+        let logs = TempDir::new().unwrap();
+        let log_path = logs.path().join("gone.jsonl");
+        let line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": [],
+            "version": "1.9.0",
+            "working_directory": "/no/longer/exists"
+        });
+        fs::write(&log_path, format!("{}\n", line)).unwrap();
+
+        assert!(log_belongs_to_project(&log_path, &canonical));
     }
 }
