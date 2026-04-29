@@ -166,6 +166,13 @@ pub struct ExecutionSettings {
     /// latest version. Set to false to disable (users can still run `bivvy update`).
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
+
+    /// Global default rerun window for all steps.
+    /// Steps can override this with their own `rerun_window` field.
+    /// Accepts duration strings: `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`.
+    /// Default: `"4h"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_rerun_window: Option<String>,
 }
 
 impl Default for ExecutionSettings {
@@ -176,6 +183,7 @@ impl Default for ExecutionSettings {
             history_retention: default_history_retention(),
             diagnostic_funnel: true,
             auto_update: default_auto_update(),
+            default_rerun_window: None,
         }
     }
 }
@@ -345,13 +353,20 @@ pub struct EnvironmentVarsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct BehaviorConfig {
-    /// Whether user can skip this step
+    /// Whether user can skip this step via `--skip` on the CLI.
+    /// Does NOT trigger interactive prompts — use `confirm` for that.
     #[serde(default = "default_true", skip_serializing_if = "is_true")]
     pub skippable: bool,
 
     /// Step must run, cannot be skipped
     #[serde(default, skip_serializing_if = "is_false")]
     pub required: bool,
+
+    /// Always prompt the user before running this step.
+    /// Default: false. When true, the step will never auto-run — the user
+    /// must explicitly confirm.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub confirm: bool,
 
     /// Ask before re-running completed steps.
     ///
@@ -370,6 +385,13 @@ pub struct BehaviorConfig {
     /// Mark step as handling sensitive data
     #[serde(default, skip_serializing_if = "is_false")]
     pub sensitive: bool,
+
+    /// How long a previous successful run counts as "recent enough" to
+    /// consider this step satisfied by execution history alone.
+    /// Accepts duration strings: `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`.
+    /// If not set, uses the global `default_rerun_window` setting (default: `"4h"`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rerun_window: Option<String>,
 }
 
 impl Default for BehaviorConfig {
@@ -377,9 +399,11 @@ impl Default for BehaviorConfig {
         Self {
             skippable: true,
             required: false,
+            confirm: false,
             prompt_on_rerun: true,
             allow_failure: false,
             sensitive: false,
+            rerun_window: None,
         }
     }
 }
@@ -449,7 +473,15 @@ pub struct StepConfig {
     pub depends_on: Vec<String>,
 
     /// System-level prerequisites this step requires (e.g., ruby, node, postgres-server).
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    ///
+    /// The canonical YAML field name is `tools`. The old name `requires` is
+    /// accepted as an alias for backward compatibility.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        rename = "tools",
+        alias = "requires"
+    )]
     pub requires: Vec<String>,
 
     /// Declarative satisfaction conditions.
@@ -583,6 +615,10 @@ pub struct StepOverride {
     /// Override prompt_on_rerun flag.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt_on_rerun: Option<bool>,
+
+    /// Override rerun_window.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_window: Option<String>,
 }
 
 /// Workflow-level settings overrides
@@ -827,13 +863,26 @@ pub struct StepEnvironmentOverride {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub depends_on: Option<Vec<String>>,
 
-    /// Override requirements
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Override requirements.
+    /// The canonical YAML field name is `tools`. `requires` is accepted as an alias.
+    #[serde(
+        skip_serializing_if = "Option::is_none",
+        rename = "tools",
+        alias = "requires"
+    )]
     pub requires: Option<Vec<String>>,
 
     /// Override retry count
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry: Option<u32>,
+
+    /// Override confirm
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confirm: Option<bool>,
+
+    /// Override rerun_window
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rerun_window: Option<String>,
 }
 
 impl BivvyConfig {
@@ -1374,10 +1423,7 @@ workflows:
         assert!(!yaml.contains("before"), "empty before should be omitted");
         assert!(!yaml.contains("after"), "empty after should be omitted");
         assert!(!yaml.contains("prompts"), "empty prompts should be omitted");
-        assert!(
-            !yaml.contains("requires"),
-            "empty requires should be omitted"
-        );
+        assert!(!yaml.contains("tools"), "empty tools should be omitted");
         assert!(
             !yaml.contains("environments"),
             "empty environments should be omitted"
@@ -1472,6 +1518,96 @@ settings:
         "#;
         let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.requires, vec!["ruby", "postgres-server"]);
+    }
+
+    #[test]
+    fn step_config_tools_is_canonical_name() {
+        let yaml = r#"
+            command: "bundle install"
+            tools:
+              - ruby
+              - postgres-server
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.requires, vec!["ruby", "postgres-server"]);
+    }
+
+    #[test]
+    fn step_config_tools_serializes_as_tools() {
+        let config = StepConfig {
+            requires: vec!["ruby".to_string()],
+            ..Default::default()
+        };
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(yaml.contains("tools:"), "should serialize as 'tools'");
+        assert!(
+            !yaml.contains("requires:"),
+            "should not serialize as 'requires'"
+        );
+    }
+
+    #[test]
+    fn behavior_config_confirm_defaults_false() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(!config.behavior.confirm);
+    }
+
+    #[test]
+    fn behavior_config_confirm_parses() {
+        let yaml = r#"
+            command: "bin/deploy"
+            confirm: true
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.behavior.confirm);
+    }
+
+    #[test]
+    fn behavior_config_rerun_window_defaults_none() {
+        let yaml = r#"
+            command: "echo hello"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.behavior.rerun_window.is_none());
+    }
+
+    #[test]
+    fn behavior_config_rerun_window_parses() {
+        let yaml = r#"
+            command: "yarn install"
+            rerun_window: "24h"
+        "#;
+        let config: StepConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.behavior.rerun_window, Some("24h".to_string()));
+    }
+
+    #[test]
+    fn execution_settings_default_rerun_window() {
+        let yaml = r#"
+            default_rerun_window: "8h"
+        "#;
+        let settings: ExecutionSettings = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(settings.default_rerun_window, Some("8h".to_string()));
+    }
+
+    #[test]
+    fn behavior_config_confirm_omitted_when_false() {
+        let config = BehaviorConfig::default();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(!yaml.contains("confirm"), "false confirm should be omitted");
+    }
+
+    #[test]
+    fn behavior_config_rerun_window_omitted_when_none() {
+        let config = BehaviorConfig::default();
+        let yaml = serde_yaml::to_string(&config).unwrap();
+        assert!(
+            !yaml.contains("rerun_window"),
+            "None rerun_window should be omitted"
+        );
     }
 
     #[test]

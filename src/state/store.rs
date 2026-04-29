@@ -1,7 +1,8 @@
 //! Persistent state storage.
 //!
 //! This module provides the main state storage for Bivvy projects,
-//! including step states and run history.
+//! tracking per-step execution state. Run history has moved to JSONL
+//! event logs (see `src/logging/`).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -9,9 +10,13 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-use super::{ProjectId, RunRecord};
+use super::ProjectId;
 
 /// Persistent state for a project.
+///
+/// As of v3, run history (`runs`, `last_run`, `last_workflow`) has been
+/// removed. Workflow execution history is now captured by the JSONL
+/// event logger. The state store only tracks per-step execution state.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StateStore {
     /// Schema version for migration.
@@ -20,18 +25,8 @@ pub struct StateStore {
     /// Project identification.
     pub project: ProjectInfo,
 
-    /// Last run timestamp.
-    pub last_run: Option<DateTime<Utc>>,
-
-    /// Last workflow executed.
-    pub last_workflow: Option<String>,
-
     /// State for each step.
     pub steps: HashMap<String, StepState>,
-
-    /// Run history (most recent first).
-    #[serde(default)]
-    pub runs: Vec<RunRecord>,
 }
 
 /// Project information stored in state.
@@ -82,36 +77,19 @@ pub enum StepStatus {
     NeverRun,
 }
 
-/// Entry in step history.
-#[derive(Debug, Clone)]
-pub struct StepHistoryEntry {
-    pub timestamp: DateTime<Utc>,
-    pub status: StepStatus,
-    pub workflow: String,
-}
-
 /// Summary for status command.
 #[derive(Debug, Clone)]
 pub struct StatusSummary {
-    pub last_run: Option<DateTime<Utc>>,
-    pub last_workflow: Option<String>,
     pub step_count: usize,
     pub complete_count: usize,
 }
 
-/// Size information for state.
-#[derive(Debug, Clone)]
-pub struct StateSize {
-    pub run_count: usize,
-    pub step_count: usize,
-}
-
 impl StateStore {
     /// Current schema version.
-    pub const CURRENT_VERSION: u32 = 2;
-
-    /// Default number of runs to keep.
-    pub const DEFAULT_HISTORY_RETENTION: usize = 50;
+    ///
+    /// v3: Removed `runs`, `last_run`, `last_workflow` fields.
+    ///     Run history is now in JSONL event logs.
+    pub const CURRENT_VERSION: u32 = 3;
 
     /// Create a new state store for a project.
     pub fn new(project_id: &ProjectId) -> Self {
@@ -122,10 +100,7 @@ impl StateStore {
                 git_remote: project_id.git_remote().map(String::from),
                 name: project_id.name().to_string(),
             },
-            last_run: None,
-            last_workflow: None,
             steps: HashMap::new(),
-            runs: Vec::new(),
         }
     }
 
@@ -190,6 +165,11 @@ impl StateStore {
                 }
             }
         }
+
+        // v2 → v3: Drop runs, last_run, last_workflow fields.
+        // These fields are simply ignored during deserialization (they're
+        // no longer in the struct). The migration just bumps the version
+        // so the cleaned state is written on next save.
 
         self.version = Self::CURRENT_VERSION;
         baselines
@@ -271,99 +251,17 @@ impl StateStore {
         self.steps.clear();
     }
 
-    // --- Run History ---
-
-    /// Record a completed run.
-    pub fn record_run(&mut self, record: RunRecord) {
-        self.last_run = Some(record.timestamp);
-        self.last_workflow = Some(record.workflow.clone());
-        self.runs.insert(0, record);
-    }
-
-    /// Get the most recent run.
-    pub fn last_run_record(&self) -> Option<&RunRecord> {
-        self.runs.first()
-    }
-
-    /// Get run history (most recent first).
-    pub fn run_history(&self, limit: usize) -> &[RunRecord] {
-        let len = self.runs.len().min(limit);
-        &self.runs[..len]
-    }
-
     // --- Query Methods ---
-
-    /// Get last run details for a specific step.
-    pub fn step_history(&self, step: &str) -> Vec<StepHistoryEntry> {
-        self.runs
-            .iter()
-            .filter_map(|run| {
-                if run.steps_run.contains(&step.to_string()) {
-                    Some(StepHistoryEntry {
-                        timestamp: run.timestamp,
-                        status: if run.status == super::RunStatus::Success {
-                            StepStatus::Success
-                        } else {
-                            StepStatus::Failed
-                        },
-                        workflow: run.workflow.clone(),
-                    })
-                } else if run.steps_skipped.contains(&step.to_string()) {
-                    Some(StepHistoryEntry {
-                        timestamp: run.timestamp,
-                        status: StepStatus::Skipped,
-                        workflow: run.workflow.clone(),
-                    })
-                } else {
-                    None
-                }
-            })
-            .collect()
-    }
 
     /// Get a summary for the status command.
     pub fn status_summary(&self) -> StatusSummary {
         StatusSummary {
-            last_run: self.last_run,
-            last_workflow: self.last_workflow.clone(),
             step_count: self.steps.len(),
             complete_count: self
                 .steps
                 .values()
                 .filter(|s| s.status == StepStatus::Success)
                 .count(),
-        }
-    }
-
-    // --- History Pruning ---
-
-    /// Prune old run history.
-    pub fn prune_history(&mut self, keep: usize) {
-        if self.runs.len() > keep {
-            self.runs.truncate(keep);
-        }
-    }
-
-    /// Clean up state (remove old data, prune history).
-    pub fn cleanup(&mut self, retention: usize) {
-        self.prune_history(retention);
-
-        // Remove step state for steps not in recent runs
-        let recent_steps: std::collections::HashSet<String> = self
-            .runs
-            .iter()
-            .flat_map(|r| r.steps_run.iter().chain(r.steps_skipped.iter()))
-            .cloned()
-            .collect();
-
-        self.steps.retain(|name, _| recent_steps.contains(name));
-    }
-
-    /// Get the size of the state (for diagnostics).
-    pub fn size(&self) -> StateSize {
-        StateSize {
-            run_count: self.runs.len(),
-            step_count: self.steps.len(),
         }
     }
 }
@@ -390,9 +288,8 @@ mod tests {
         let project = ProjectId::from_path(temp.path()).unwrap();
         let state = StateStore::new(&project);
 
-        assert_eq!(state.version, 2);
+        assert_eq!(state.version, 3);
         assert_eq!(state.version, StateStore::CURRENT_VERSION);
-        assert!(state.last_run.is_none());
         assert!(state.steps.is_empty());
     }
 
@@ -563,63 +460,6 @@ mod query_tests {
     use tempfile::TempDir;
 
     #[test]
-    fn step_history_returns_entries() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        let record = super::super::RunRecord {
-            timestamp: Utc::now(),
-            workflow: "default".to_string(),
-            duration_ms: 1000,
-            status: super::super::RunStatus::Success,
-            steps_run: vec!["test".to_string()],
-            steps_skipped: vec![],
-            error: None,
-        };
-
-        state.record_run(record);
-
-        let history = state.step_history("test");
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].status, StepStatus::Success);
-        assert_eq!(history[0].workflow, "default");
-    }
-
-    #[test]
-    fn step_history_includes_skipped() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        let record = super::super::RunRecord {
-            timestamp: Utc::now(),
-            workflow: "default".to_string(),
-            duration_ms: 1000,
-            status: super::super::RunStatus::Success,
-            steps_run: vec![],
-            steps_skipped: vec!["test".to_string()],
-            error: None,
-        };
-
-        state.record_run(record);
-
-        let history = state.step_history("test");
-        assert_eq!(history.len(), 1);
-        assert_eq!(history[0].status, StepStatus::Skipped);
-    }
-
-    #[test]
-    fn step_history_empty_for_unknown_step() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let state = StateStore::new(&project);
-
-        let history = state.step_history("unknown");
-        assert!(history.is_empty());
-    }
-
-    #[test]
     fn status_summary() {
         let temp = TempDir::new().unwrap();
         let project = super::super::ProjectId::from_path(temp.path()).unwrap();
@@ -632,168 +472,6 @@ mod query_tests {
         assert_eq!(summary.step_count, 2);
         assert_eq!(summary.complete_count, 1);
     }
-
-    #[test]
-    fn status_summary_with_last_run() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        let record = super::super::RunRecord {
-            timestamp: Utc::now(),
-            workflow: "custom".to_string(),
-            duration_ms: 1000,
-            status: super::super::RunStatus::Success,
-            steps_run: vec![],
-            steps_skipped: vec![],
-            error: None,
-        };
-
-        state.record_run(record);
-
-        let summary = state.status_summary();
-        assert!(summary.last_run.is_some());
-        assert_eq!(summary.last_workflow, Some("custom".to_string()));
-    }
-}
-
-#[cfg(test)]
-mod prune_tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn prune_history_keeps_recent() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        // Add 10 runs
-        for i in 0..10 {
-            let record = super::super::RunRecord {
-                timestamp: Utc::now(),
-                workflow: format!("run{}", i),
-                duration_ms: 1000,
-                status: super::super::RunStatus::Success,
-                steps_run: vec![],
-                steps_skipped: vec![],
-                error: None,
-            };
-            state.record_run(record);
-        }
-
-        assert_eq!(state.runs.len(), 10);
-
-        state.prune_history(5);
-
-        assert_eq!(state.runs.len(), 5);
-        // Most recent should still be there
-        assert_eq!(state.runs[0].workflow, "run9");
-    }
-
-    #[test]
-    fn prune_history_no_op_when_under_limit() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        // Add 3 runs
-        for i in 0..3 {
-            let record = super::super::RunRecord {
-                timestamp: Utc::now(),
-                workflow: format!("run{}", i),
-                duration_ms: 1000,
-                status: super::super::RunStatus::Success,
-                steps_run: vec![],
-                steps_skipped: vec![],
-                error: None,
-            };
-            state.record_run(record);
-        }
-
-        state.prune_history(5);
-
-        assert_eq!(state.runs.len(), 3);
-    }
-
-    #[test]
-    fn cleanup_removes_orphaned_steps() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        // Add orphan step state (not in any run)
-        state.record_step_result("orphan", StepStatus::Success, std::time::Duration::ZERO);
-
-        // Add a run with a different step
-        let record = super::super::RunRecord {
-            timestamp: Utc::now(),
-            workflow: "default".to_string(),
-            duration_ms: 1000,
-            status: super::super::RunStatus::Success,
-            steps_run: vec!["kept".to_string()],
-            steps_skipped: vec![],
-            error: None,
-        };
-        state.record_run(record);
-
-        // Add the kept step state
-        state.record_step_result("kept", StepStatus::Success, std::time::Duration::ZERO);
-
-        state.cleanup(50);
-
-        assert!(state.get_step("orphan").is_none());
-        assert!(state.get_step("kept").is_some());
-    }
-
-    #[test]
-    fn cleanup_keeps_skipped_steps() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        let record = super::super::RunRecord {
-            timestamp: Utc::now(),
-            workflow: "default".to_string(),
-            duration_ms: 1000,
-            status: super::super::RunStatus::Success,
-            steps_run: vec![],
-            steps_skipped: vec!["skipped".to_string()],
-            error: None,
-        };
-        state.record_run(record);
-
-        state.record_step_result("skipped", StepStatus::Skipped, std::time::Duration::ZERO);
-
-        state.cleanup(50);
-
-        assert!(state.get_step("skipped").is_some());
-    }
-
-    #[test]
-    fn size_returns_counts() {
-        let temp = TempDir::new().unwrap();
-        let project = super::super::ProjectId::from_path(temp.path()).unwrap();
-        let mut state = StateStore::new(&project);
-
-        state.record_step_result("a", StepStatus::Success, std::time::Duration::ZERO);
-        state.record_step_result("b", StepStatus::Success, std::time::Duration::ZERO);
-
-        let record = super::super::RunRecord {
-            timestamp: Utc::now(),
-            workflow: "default".to_string(),
-            duration_ms: 1000,
-            status: super::super::RunStatus::Success,
-            steps_run: vec![],
-            steps_skipped: vec![],
-            error: None,
-        };
-        state.record_run(record);
-
-        let size = state.size();
-        assert_eq!(size.step_count, 2);
-        assert_eq!(size.run_count, 1);
-    }
 }
 
 #[cfg(test)]
@@ -802,12 +480,12 @@ mod migration_tests {
     use tempfile::TempDir;
 
     #[test]
-    fn v2_state_loads_correctly() {
+    fn v3_state_loads_correctly() {
         let temp = TempDir::new().unwrap();
         let project = ProjectId::from_path(temp.path()).unwrap();
 
         let mut state = StateStore::new(&project);
-        assert_eq!(state.version, 2);
+        assert_eq!(state.version, 3);
         state.update_step(
             "step1",
             StepState {
@@ -818,7 +496,7 @@ mod migration_tests {
         state.save(&project).unwrap();
 
         let (loaded, _) = StateStore::load(&project).unwrap();
-        assert_eq!(loaded.version, 2);
+        assert_eq!(loaded.version, 3);
         assert_eq!(
             loaded.get_step("step1").unwrap().status,
             StepStatus::Success,
@@ -858,7 +536,7 @@ runs: []
         .unwrap();
 
         let (loaded, baselines) = StateStore::load(&project).unwrap();
-        assert_eq!(loaded.version, 2);
+        assert_eq!(loaded.version, 3);
         assert_eq!(baselines.len(), 1);
         assert_eq!(baselines[0].step_name, "build");
         assert_eq!(baselines[0].hash, "abc123def456");
@@ -868,7 +546,53 @@ runs: []
     }
 
     #[test]
-    fn migrate_v2_returns_no_baselines() {
+    fn migrate_v2_drops_runs_field() {
+        let temp = TempDir::new().unwrap();
+        let project = ProjectId::from_path(temp.path()).unwrap();
+
+        // Write a v2 state file that has runs, last_run, last_workflow
+        let state_dir = StateStore::state_dir(&project);
+        std::fs::create_dir_all(&state_dir).unwrap();
+        let state_file = state_dir.join("state.yml");
+        std::fs::write(
+            &state_file,
+            r#"version: 2
+project:
+  path: /tmp/test
+  name: test
+last_run: "2026-04-25T10:00:00Z"
+last_workflow: "default"
+steps:
+  build:
+    last_run: "2026-04-25T10:00:00Z"
+    status: Success
+    duration_ms: 1500
+runs:
+  - timestamp: "2026-04-25T10:00:00Z"
+    workflow: default
+    duration_ms: 5000
+    status: Success
+    steps_run:
+      - build
+    steps_skipped: []
+    error: null
+"#,
+        )
+        .unwrap();
+
+        let (loaded, baselines) = StateStore::load(&project).unwrap();
+        assert_eq!(loaded.version, 3);
+        assert!(baselines.is_empty());
+        // Step state should survive the migration
+        assert_eq!(
+            loaded.get_step("build").unwrap().status,
+            StepStatus::Success,
+        );
+        assert_eq!(loaded.get_step("build").unwrap().duration_ms, Some(1500));
+    }
+
+    #[test]
+    fn migrate_v3_returns_no_baselines() {
         let temp = TempDir::new().unwrap();
         let project = ProjectId::from_path(temp.path()).unwrap();
 

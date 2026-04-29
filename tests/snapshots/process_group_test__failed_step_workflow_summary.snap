@@ -1,5 +1,6 @@
 ---
 source: tests/process_group_test.rs
+assertion_line: 597
 expression: normalize_for_snapshot(&summary)
 ---
   › Abort

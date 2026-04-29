@@ -134,6 +134,10 @@ pub struct RunArgs {
     #[arg(long)]
     pub dry_run: bool,
 
+    /// Discard all persisted satisfaction records and evaluate everything fresh
+    #[arg(long)]
+    pub fresh: bool,
+
     /// Use defaults, no prompts
     #[arg(long)]
     pub non_interactive: bool,
@@ -175,6 +179,7 @@ impl Default for RunArgs {
             env: None,
             diagnostic_funnel: false,
             no_diagnostic_funnel: false,
+            fresh: false,
             suppress_header: false,
         }
     }

@@ -19,7 +19,7 @@ use crate::requirements::checker::GapChecker;
 use crate::requirements::probe::EnvironmentProbe;
 use crate::requirements::registry::RequirementRegistry;
 use crate::runner::{RunOptions, SkipBehavior, WorkflowRunner};
-use crate::state::{ProjectId, RunHistoryBuilder, StateStore};
+use crate::state::{ProjectId, StateStore};
 use crate::steps::ResolvedStep;
 use crate::ui::{hints, OutputMode, RunSummary, StatusKind, StepSummary, UserInterface};
 
@@ -94,6 +94,7 @@ impl RunCommand {
             provided_requirements: HashSet::new(),
             active_environment: None,
             diagnostic_funnel,
+            fresh: self.args.fresh,
         }
     }
 
@@ -350,9 +351,6 @@ impl Command for RunCommand {
         let ctx = InterpolationContext::new().with_vars(resolved_vars);
         let global_env: HashMap<String, String> = std::env::vars().collect();
 
-        // Start history recording
-        let mut history = RunHistoryBuilder::start(&workflow_name);
-
         // Create event bus with logger for structured event logging
         let mut event_bus = crate::logging::EventBus::new();
         if config.settings.logging.logging {
@@ -404,6 +402,13 @@ impl Command for RunCommand {
             });
         }
 
+        // Initialize satisfaction cache (two-layer: persisted + runtime)
+        let mut satisfaction_cache = if options.fresh {
+            crate::state::SatisfactionCache::empty(project_id.satisfaction_path())
+        } else {
+            crate::state::SatisfactionCache::load(project_id.satisfaction_path())
+        };
+
         // Run the workflow with UI-driven interactive prompts
         let result = runner.run_with_ui(
             &options,
@@ -414,21 +419,14 @@ impl Command for RunCommand {
             &step_overrides,
             Some(&mut gap_checker),
             Some(&mut state),
+            &mut satisfaction_cache,
             ui,
             &mut event_bus,
         )?;
 
-        // Record step results to history
-        for step_result in &result.steps {
-            history.step_run(&step_result.name);
-        }
-        for skipped in &result.skipped {
-            history.step_skipped(skipped);
-        }
-
         // Update state and snapshots (unless dry-run)
         if !self.args.dry_run {
-            // Record step results into state store (event-driven recording)
+            // Record step results into state store
             for step_result in &result.steps {
                 let status = match step_result.status() {
                     crate::steps::StepStatus::Completed => crate::state::StepStatus::Success,
@@ -439,12 +437,6 @@ impl Command for RunCommand {
                 state.record_step_result(&step_result.name, status, step_result.duration);
             }
 
-            let record = if result.success {
-                history.finish_success()
-            } else {
-                history.finish_failed("One or more steps failed")
-            };
-            state.record_run(record);
             state.save(&project_id)?;
 
             // Save snapshot baselines accumulated during check evaluation
@@ -454,6 +446,17 @@ impl Command for RunCommand {
         }
 
         // Build and show run summary
+        let steps_satisfied = result
+            .steps
+            .iter()
+            .filter(|s| {
+                s.skipped
+                    && s.check_result
+                        .as_ref()
+                        .map(|c| c.description.starts_with("satisfied:"))
+                        .unwrap_or(false)
+            })
+            .count();
         let steps_run = result.steps.len();
         let steps_skipped = result.skipped.len();
         let failed_steps: Vec<String> = result
@@ -504,6 +507,7 @@ impl Command for RunCommand {
             total_duration: result.duration,
             steps_run,
             steps_skipped,
+            steps_satisfied,
             success: result.success,
             failed_steps: failed_steps.clone(),
         };

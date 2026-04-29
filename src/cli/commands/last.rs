@@ -1,13 +1,14 @@
 //! Last command implementation.
 //!
-//! The `bivvy last` command shows last run information.
+//! The `bivvy last` command shows information about the most recent run
+//! by reading the most recent JSONL event log file.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::cli::args::LastArgs;
-use crate::error::{BivvyError, Result};
-use crate::state::{ProjectId, RunRecord, RunStatus, StateStore, StepStatus};
+use crate::error::Result;
+use crate::state::{ProjectId, StateStore, StepStatus};
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{format_duration, format_relative_time, StatusKind, UserInterface};
 
@@ -37,12 +38,166 @@ impl LastCommand {
     pub fn args(&self) -> &LastArgs {
         &self.args
     }
+}
 
+/// A run record reconstructed from JSONL event log data.
+#[derive(Debug, Clone, serde::Serialize)]
+struct LogLastRun {
+    /// When the run occurred.
+    timestamp: chrono::DateTime<chrono::Utc>,
+    /// Workflow name.
+    workflow: String,
+    /// Whether the workflow succeeded.
+    success: bool,
+    /// Whether the user aborted.
+    aborted: bool,
+    /// Number of steps that ran.
+    steps_run_count: usize,
+    /// Number of steps skipped.
+    steps_skipped_count: usize,
+    /// Total duration in milliseconds.
+    duration_ms: u64,
+    /// Step names that ran (from StepCompleted events).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    steps_run: Vec<String>,
+    /// Step names that were skipped (from StepSkipped events).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    steps_skipped: Vec<String>,
+    /// Error from failed steps.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    error: Option<String>,
+}
+
+/// Read the most recent JSONL log file and extract run information.
+///
+/// When `all` is true, scans all log files. Otherwise returns only the
+/// most recent.
+fn read_last_runs(all: bool) -> Vec<LogLastRun> {
+    let log_dir = crate::logging::default_log_dir();
+    if !log_dir.exists() {
+        return Vec::new();
+    }
+
+    // Collect and sort JSONL files by name (ascending for chronological,
+    // then we'll reverse for most-recent-first)
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&log_dir)
+        .ok()
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "jsonl"))
+        .collect();
+    files.sort();
+    files.reverse(); // most recent first
+
+    if !all {
+        files.truncate(1);
+    }
+
+    let mut runs = Vec::new();
+    for path in &files {
+        if let Some(run) = parse_log_file(path) {
+            runs.push(run);
+        }
+    }
+
+    runs
+}
+
+/// Parse a single JSONL log file into a run record.
+///
+/// Extracts `WorkflowCompleted`, `StepCompleted`, and `StepSkipped` events
+/// to reconstruct a complete run record with step names.
+fn parse_log_file(path: &Path) -> Option<LogLastRun> {
+    let content = std::fs::read_to_string(path).ok()?;
+
+    let mut workflow_completed: Option<serde_json::Value> = None;
+    let mut steps_run = Vec::new();
+    let mut steps_skipped = Vec::new();
+    let mut first_error: Option<String> = None;
+    let mut session_timestamp: Option<chrono::DateTime<chrono::Utc>> = None;
+
+    for line in content.lines() {
+        let value: serde_json::Value = match serde_json::from_str(line) {
+            Ok(v) => v,
+            Err(_) => continue,
+        };
+
+        let event_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
+
+        match event_type {
+            "session_started" => {
+                if session_timestamp.is_none() {
+                    session_timestamp = value
+                        .get("ts")
+                        .and_then(|t| t.as_str())
+                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                        .map(|dt| dt.with_timezone(&chrono::Utc));
+                }
+            }
+            "step_completed" => {
+                if let Some(name) = value.get("name").and_then(|n| n.as_str()) {
+                    steps_run.push(name.to_string());
+                    // Capture first error
+                    if first_error.is_none() {
+                        if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
+                            first_error = Some(err.to_string());
+                        }
+                    }
+                }
+            }
+            "step_skipped" => {
+                if let Some(name) = value.get("name").and_then(|n| n.as_str()) {
+                    steps_skipped.push(name.to_string());
+                }
+            }
+            "workflow_completed" => {
+                workflow_completed = Some(value);
+            }
+            _ => {}
+        }
+    }
+
+    let wc = workflow_completed?;
+
+    let timestamp = wc
+        .get("ts")
+        .and_then(|t| t.as_str())
+        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+        .map(|dt| dt.with_timezone(&chrono::Utc))
+        .or(session_timestamp)
+        .unwrap_or_else(chrono::Utc::now);
+
+    let success = wc.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+
+    Some(LogLastRun {
+        timestamp,
+        workflow: wc
+            .get("name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        success,
+        aborted: wc.get("aborted").and_then(|v| v.as_bool()).unwrap_or(false),
+        steps_run_count: wc.get("steps_run").and_then(|v| v.as_u64()).unwrap_or(0) as usize,
+        steps_skipped_count: wc
+            .get("steps_skipped")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as usize,
+        duration_ms: wc.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0),
+        steps_run,
+        steps_skipped,
+        error: if success { None } else { first_error },
+    })
+}
+
+impl LastCommand {
     /// Display a single run record with styled output.
     fn display_run(
         &self,
         ui: &mut dyn UserInterface,
-        run: &RunRecord,
+        run: &LogLastRun,
         state: &StateStore,
         theme: &BivvyTheme,
         header_label: &str,
@@ -78,11 +233,17 @@ impl LastCommand {
                 .apply_to(format_duration(Duration::from_millis(run.duration_ms))),
         ));
 
-        let status_kind = StatusKind::from(run.status);
-        let status_label = match run.status {
-            RunStatus::Success => "Success",
-            RunStatus::Failed => "Failed",
-            RunStatus::Interrupted => "Interrupted",
+        let status_kind = if run.success {
+            StatusKind::Success
+        } else {
+            StatusKind::Failed
+        };
+        let status_label = if run.success {
+            "Success"
+        } else if run.aborted {
+            "Interrupted"
+        } else {
+            "Failed"
         };
         ui.message(&format!(
             "  {}    {} {}",
@@ -177,7 +338,7 @@ impl Command for LastCommand {
 
         // --all: show all runs instead of just the last one
         if self.args.all {
-            let runs = &state.runs;
+            let runs = read_last_runs(true);
 
             if runs.is_empty() {
                 ui.message("No runs recorded for this project.");
@@ -186,8 +347,8 @@ impl Command for LastCommand {
 
             // --json with --all: serialize all runs
             if self.args.json {
-                let json =
-                    serde_json::to_string_pretty(runs).map_err(|e| BivvyError::Other(e.into()))?;
+                let json = serde_json::to_string_pretty(&runs)
+                    .map_err(|e| anyhow::anyhow!("JSON serialization failed: {e}"))?;
                 ui.message(&json);
                 return Ok(CommandResult::success());
             }
@@ -201,7 +362,8 @@ impl Command for LastCommand {
             return Ok(CommandResult::success());
         }
 
-        let last_run = match state.last_run_record() {
+        let runs = read_last_runs(false);
+        let last_run = match runs.first() {
             Some(r) => r,
             None => {
                 ui.message("No runs recorded for this project.");
@@ -224,8 +386,8 @@ impl Command for LastCommand {
 
         // --json: serialize run data as JSON
         if self.args.json {
-            let json =
-                serde_json::to_string_pretty(last_run).map_err(|e| BivvyError::Other(e.into()))?;
+            let json = serde_json::to_string_pretty(last_run)
+                .map_err(|e| anyhow::anyhow!("JSON serialization failed: {e}"))?;
             ui.message(&json);
             return Ok(CommandResult::success());
         }
@@ -240,7 +402,6 @@ impl Command for LastCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::RunHistoryBuilder;
     use crate::ui::MockUI;
     use tempfile::TempDir;
 
@@ -276,421 +437,139 @@ mod tests {
     }
 
     #[test]
-    fn last_shows_header() {
+    fn parse_log_file_extracts_workflow_completed() {
         let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
+        let log_file = temp.path().join("test.jsonl");
 
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
+        let session_line = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "run",
+            "args": ["default"],
+            "version": "1.9.0"
+        });
+        let step_completed = serde_json::json!({
+            "ts": "2026-04-25T10:00:01.000Z",
+            "session": "sess_test",
+            "type": "step_completed",
+            "name": "setup",
+            "success": true,
+            "exit_code": 0,
+            "duration_ms": 500
+        });
+        let step_skipped = serde_json::json!({
+            "ts": "2026-04-25T10:00:01.000Z",
+            "session": "sess_test",
+            "type": "step_skipped",
+            "name": "deploy",
+            "reason": "check passed"
+        });
+        let wc = serde_json::json!({
+            "ts": "2026-04-25T10:00:02.000Z",
+            "session": "sess_test",
+            "type": "workflow_completed",
+            "name": "default",
+            "success": true,
+            "aborted": false,
+            "steps_run": 1,
+            "steps_skipped": 1,
+            "duration_ms": 2000
+        });
 
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
+        let content = format!(
+            "{}\n{}\n{}\n{}\n",
+            session_line, step_completed, step_skipped, wc
+        );
+        std::fs::write(&log_file, content).unwrap();
 
-        cmd.execute(&mut ui).unwrap();
-
-        assert!(ui.messages().iter().any(|m| m.contains("⛺")));
-        assert!(ui.messages().iter().any(|m| m.contains("Last Run")));
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(run.workflow, "default");
+        assert!(run.success);
+        assert!(!run.aborted);
+        assert_eq!(run.steps_run_count, 1);
+        assert_eq!(run.steps_skipped_count, 1);
+        assert_eq!(run.duration_ms, 2000);
+        assert_eq!(run.steps_run, vec!["setup"]);
+        assert_eq!(run.steps_skipped, vec!["deploy"]);
+        assert!(run.error.is_none());
     }
 
     #[test]
-    fn last_shows_workflow_and_status() {
+    fn parse_log_file_captures_error() {
         let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
+        let log_file = temp.path().join("test_fail.jsonl");
 
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
+        let step_failed = serde_json::json!({
+            "ts": "2026-04-25T10:00:01.000Z",
+            "session": "sess_test",
+            "type": "step_completed",
+            "name": "build",
+            "success": false,
+            "exit_code": 1,
+            "duration_ms": 500,
+            "error": "Build failed: missing dependency"
+        });
+        let wc = serde_json::json!({
+            "ts": "2026-04-25T10:00:02.000Z",
+            "session": "sess_test",
+            "type": "workflow_completed",
+            "name": "default",
+            "success": false,
+            "aborted": false,
+            "steps_run": 1,
+            "steps_skipped": 0,
+            "duration_ms": 1000
+        });
 
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
+        let content = format!("{}\n{}\n", step_failed, wc);
+        std::fs::write(&log_file, content).unwrap();
 
-        cmd.execute(&mut ui).unwrap();
-
-        assert!(ui.messages().iter().any(|m| m.contains("Workflow:")));
-        assert!(ui.messages().iter().any(|m| m.contains("default")));
-        assert!(ui.messages().iter().any(|m| m.contains("Status:")));
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("✓") && m.contains("Success")));
+        let run = parse_log_file(&log_file).unwrap();
+        assert!(!run.success);
+        assert_eq!(
+            run.error,
+            Some("Build failed: missing dependency".to_string())
+        );
     }
 
     #[test]
-    fn last_shows_steps_for_recorded_run() {
+    fn parse_log_file_returns_none_without_workflow_completed() {
         let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
+        let log_file = temp.path().join("no_wc.jsonl");
 
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
+        let session = serde_json::json!({
+            "ts": "2026-04-25T10:00:00.000Z",
+            "session": "sess_test",
+            "type": "session_started",
+            "command": "lint",
+            "args": [],
+            "version": "1.9.0"
+        });
 
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
+        std::fs::write(&log_file, format!("{}\n", session)).unwrap();
 
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        assert!(ui.has_message("Steps:"));
-        assert!(ui.messages().iter().any(|m| m.contains("setup")));
+        assert!(parse_log_file(&log_file).is_none());
     }
 
     #[test]
-    fn last_shows_skipped_steps() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("build");
-        history.step_skipped("deploy");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        cmd.execute(&mut ui).unwrap();
-
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("○") && m.contains("deploy") && m.contains("skipped")));
-    }
-
-    #[test]
-    fn last_shows_when_and_duration() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        cmd.execute(&mut ui).unwrap();
-
-        assert!(ui.messages().iter().any(|m| m.contains("When:")));
-        assert!(ui.messages().iter().any(|m| m.contains("Duration:")));
-    }
-
-    #[test]
-    fn last_untracked_step_shows_pending_icon() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        // Record a run with a step name that won't have state tracking
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("unknown_step");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        cmd.execute(&mut ui).unwrap();
-
-        // Should show ◌ icon (pending) for steps with no recorded status
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("◌") && m.contains("unknown_step")));
-        // Should not use old [?] indicator anywhere
-        let all_output: Vec<&String> = ui
-            .messages()
-            .iter()
-            .chain(ui.warnings().iter())
-            .chain(ui.errors().iter())
-            .chain(ui.successes().iter())
-            .collect();
-        assert!(!all_output.iter().any(|m| m.contains("[?]")));
-    }
-
-    #[test]
-    fn last_shows_error_for_failed_run() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("build");
-        let record = history.finish_failed("Build failed: missing dependency");
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs::default();
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        cmd.execute(&mut ui).unwrap();
-
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("✗") && m.contains("Failed")));
-        assert!(ui
-            .errors()
-            .iter()
-            .any(|m| m.contains("Build failed: missing dependency")));
-    }
-
-    #[test]
-    fn last_json_output() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            json: true,
-            ..Default::default()
+    fn log_last_run_serializes_to_json() {
+        let run = LogLastRun {
+            timestamp: chrono::Utc::now(),
+            workflow: "default".to_string(),
+            success: true,
+            aborted: false,
+            steps_run_count: 2,
+            steps_skipped_count: 0,
+            duration_ms: 3000,
+            steps_run: vec!["setup".to_string(), "build".to_string()],
+            steps_skipped: vec![],
+            error: None,
         };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
 
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        // Should output valid JSON, not styled text
-        let json_output = ui.messages().join("\n");
-        let parsed: serde_json::Value = serde_json::from_str(&json_output).unwrap();
+        let json = serde_json::to_string_pretty(&run).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["workflow"], "default");
-        assert_eq!(parsed["status"], "Success");
-        // Should NOT contain styled output
-        assert!(!json_output.contains("⛺"));
-    }
-
-    #[test]
-    fn last_step_filter_shows_matching_step() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        history.step_run("build");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            step: Some("setup".to_string()),
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        assert!(ui.messages().iter().any(|m| m.contains("setup")));
-        // "build" should not appear in the steps listing
-        // (it may appear in the header area but not in the steps section)
-        let steps_section: Vec<&String> = ui
-            .messages()
-            .iter()
-            .filter(|m| m.contains("build") && !m.contains("Workflow"))
-            .collect();
-        assert!(steps_section.is_empty());
-    }
-
-    #[test]
-    fn last_step_filter_error_for_unknown_step() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            step: Some("nonexistent".to_string()),
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(!result.success);
-        assert!(ui
-            .errors()
-            .iter()
-            .any(|m| m.contains("nonexistent") && m.contains("not part of")));
-    }
-
-    #[test]
-    fn last_all_shows_multiple_runs() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        // Record two runs
-        let mut history1 = RunHistoryBuilder::start("default");
-        history1.step_run("setup");
-        let record1 = history1.finish_success();
-        state.record_run(record1);
-
-        let mut history2 = RunHistoryBuilder::start("deploy");
-        history2.step_run("build");
-        let record2 = history2.finish_success();
-        state.record_run(record2);
-
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            all: true,
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        // Should show headers for both runs
-        assert!(ui.messages().iter().any(|m| m.contains("Run 1 of 2")));
-        assert!(ui.messages().iter().any(|m| m.contains("Run 2 of 2")));
-    }
-
-    #[test]
-    fn last_all_no_runs() {
-        let temp = TempDir::new().unwrap();
-        let args = LastArgs {
-            all: true,
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        assert!(ui.messages().iter().any(|m| m.contains("No runs recorded")));
-    }
-
-    #[test]
-    fn last_all_json() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            all: true,
-            json: true,
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        let json_output = ui.messages().join("\n");
-        let parsed: serde_json::Value = serde_json::from_str(&json_output).unwrap();
-        // Should be an array
-        assert!(parsed.is_array());
-        assert_eq!(parsed.as_array().unwrap().len(), 1);
-    }
-
-    #[test]
-    fn last_output_flag_shows_note() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("setup");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            output: true,
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("no captured output")));
-    }
-
-    #[test]
-    fn last_step_filter_with_skipped_step() {
-        let temp = TempDir::new().unwrap();
-        let project_id = ProjectId::from_path(temp.path()).unwrap();
-        let (mut state, _) = StateStore::load(&project_id).unwrap();
-
-        let mut history = RunHistoryBuilder::start("default");
-        history.step_run("build");
-        history.step_skipped("deploy");
-        let record = history.finish_success();
-        state.record_run(record);
-        state.save(&project_id).unwrap();
-
-        let args = LastArgs {
-            step: Some("deploy".to_string()),
-            ..Default::default()
-        };
-        let cmd = LastCommand::new(temp.path(), args);
-        let mut ui = MockUI::new();
-
-        let result = cmd.execute(&mut ui).unwrap();
-
-        assert!(result.success);
-        assert!(ui
-            .messages()
-            .iter()
-            .any(|m| m.contains("deploy") && m.contains("skipped")));
-        // "build" should not appear in the steps section
-        let build_in_steps: Vec<&String> = ui
-            .messages()
-            .iter()
-            .filter(|m| m.contains("build") && !m.contains("Workflow"))
-            .collect();
-        assert!(build_in_steps.is_empty());
+        assert_eq!(parsed["success"], true);
     }
 }

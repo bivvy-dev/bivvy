@@ -859,6 +859,7 @@ mod tests {
             total_duration: Duration::from_secs(1),
             steps_run: 1,
             steps_skipped: 0,
+            steps_satisfied: 0,
             success: true,
             failed_steps: vec![],
         };
@@ -882,6 +883,7 @@ mod tests {
             total_duration: Duration::from_secs(5),
             steps_run: 2,
             steps_skipped: 0,
+            steps_satisfied: 0,
             success: false,
             failed_steps: vec!["build".to_string()],
         };
@@ -915,6 +917,7 @@ mod tests {
             total_duration: Duration::from_secs(1),
             steps_run: 1,
             steps_skipped: 0,
+            steps_satisfied: 0,
             success: true,
             failed_steps: vec![],
         };

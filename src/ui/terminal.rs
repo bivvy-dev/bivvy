@@ -261,9 +261,18 @@ impl WorkflowDisplay for TerminalUI {
             b.apply_to("├────────────────────────────────────")
         )
         .ok();
+        let satisfied_part = if summary.steps_satisfied > 0 {
+            format!(
+                " {} {} already satisfied",
+                self.theme.dim.apply_to("·"),
+                summary.steps_satisfied,
+            )
+        } else {
+            String::new()
+        };
         writeln!(
             self.term,
-            "{} Total: {} {} {} run {} {} skipped",
+            "{} Total: {} {} {} run {} {} skipped{}",
             b.apply_to("│"),
             self.theme
                 .duration
@@ -272,6 +281,7 @@ impl WorkflowDisplay for TerminalUI {
             summary.steps_run,
             self.theme.dim.apply_to("·"),
             summary.steps_skipped,
+            satisfied_part,
         )
         .ok();
         writeln!(

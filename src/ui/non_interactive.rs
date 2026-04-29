@@ -204,11 +204,17 @@ impl WorkflowDisplay for NonInteractiveUI {
         }
 
         println!("  ├────────────────────────────────────");
+        let satisfied_part = if summary.steps_satisfied > 0 {
+            format!(" · {} already satisfied", summary.steps_satisfied)
+        } else {
+            String::new()
+        };
         println!(
-            "  │ Total: {} · {} run · {} skipped",
+            "  │ Total: {} · {} run · {} skipped{}",
             format_duration(summary.total_duration),
             summary.steps_run,
             summary.steps_skipped,
+            satisfied_part,
         );
         println!("  └────────────────────────────────────");
 

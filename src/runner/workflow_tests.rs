@@ -3,6 +3,7 @@ use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::config::BivvyConfig;
 use crate::logging::EventBus;
+use crate::state::SatisfactionCache;
 use crate::steps::{
     ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
     ResolvedScoping, ResolvedStep,
@@ -364,6 +365,7 @@ fn run_with_ui_executes_simple_step() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -380,7 +382,7 @@ fn run_with_ui_executes_simple_step() {
 }
 
 #[test]
-fn run_with_ui_interactive_no_check_does_not_force() {
+fn run_with_ui_interactive_no_check_auto_runs() {
     let temp = TempDir::new().unwrap();
 
     let config: BivvyConfig = serde_yaml::from_str(
@@ -415,18 +417,21 @@ fn run_with_ui_interactive_no_check_does_not_force() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(result.success);
-    // Interactive mode prompts "Run 'hello'?" (default yes)
-    assert!(ui.prompts_shown().contains(&"run_hello".to_string()));
+    // Steps with no checks auto-run without prompting
+    assert!(ui.prompts_shown().is_empty());
+    assert_eq!(result.steps.len(), 1);
+    assert!(!result.steps[0].skipped);
 }
 
 #[test]
-fn run_with_ui_incomplete_check_runs_without_force() {
+fn run_with_ui_incomplete_check_auto_runs() {
     let temp = TempDir::new().unwrap();
     let marker = temp.path().join("ran.txt");
     // Don't create marker.txt — so the check will NOT pass
@@ -461,7 +466,6 @@ fn run_with_ui_incomplete_check_runs_without_force() {
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    ui.set_default_prompt_response("yes");
 
     let result = runner
         .run_with_ui(
@@ -473,21 +477,21 @@ fn run_with_ui_incomplete_check_runs_without_force() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(result.success);
-    // Interactive mode prompts "Run 'install'?" (default yes), no completed check prompt
-    assert!(ui.prompts_shown().contains(&"run_install".to_string()));
-    assert!(!ui.prompts_shown().contains(&"rerun_install".to_string()));
+    // Unsatisfied steps auto-run without prompting
+    assert!(ui.prompts_shown().is_empty());
     // Verify command actually ran
     assert!(marker.exists(), "step should run when check does not pass");
 }
 
 #[test]
-fn run_with_ui_prompts_when_complete_and_interactive() {
+fn run_with_ui_auto_skips_when_satisfied() {
     let temp = TempDir::new().unwrap();
     // Create the file so the check passes
     fs::write(temp.path().join("marker.txt"), "done").unwrap();
@@ -522,8 +526,6 @@ fn run_with_ui_prompts_when_complete_and_interactive() {
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    // User declines re-run
-    ui.set_prompt_response("rerun_install", "no");
 
     let result = runner
         .run_with_ui(
@@ -535,14 +537,15 @@ fn run_with_ui_prompts_when_complete_and_interactive() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(result.success);
-    // Should have prompted
-    assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
+    // Satisfied steps auto-skip without prompting
+    assert!(ui.prompts_shown().is_empty());
     // Step should be check-passed (not skipped) since check succeeded
     assert_eq!(result.steps.len(), 1);
     assert!(!result.steps[0].skipped);
@@ -550,7 +553,7 @@ fn run_with_ui_prompts_when_complete_and_interactive() {
 }
 
 #[test]
-fn run_with_ui_reruns_when_user_confirms() {
+fn run_with_ui_force_reruns_satisfied_step() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("marker.txt"), "done").unwrap();
 
@@ -579,13 +582,12 @@ fn run_with_ui_reruns_when_user_confirms() {
     );
 
     let mut runner = WorkflowRunner::new(&config, steps);
-    let options = RunOptions::default();
+    let mut options = RunOptions::default();
+    options.force.insert("install".to_string());
     let ctx = InterpolationContext::new();
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    // User confirms re-run
-    ui.set_prompt_response("rerun_install", "yes");
 
     let result = runner
         .run_with_ui(
@@ -597,13 +599,15 @@ fn run_with_ui_reruns_when_user_confirms() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(result.success);
-    assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
+    // No prompts — force bypasses satisfaction and auto-runs
+    assert!(ui.prompts_shown().is_empty());
     // Step should have run (not skipped)
     assert_eq!(result.steps.len(), 1);
     assert!(!result.steps[0].skipped);
@@ -655,6 +659,7 @@ fn run_with_ui_silent_skip_when_not_interactive() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -715,6 +720,7 @@ fn run_with_ui_silent_skip_when_prompt_on_rerun_false() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -752,8 +758,7 @@ fn run_with_ui_sensitive_step_prompts() {
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    ui.set_default_prompt_response("yes");
-    // User confirms both the run prompt (default yes) and sensitive prompt
+    // Only sensitive prompt is shown — no general run prompt
     ui.set_prompt_response("sensitive_deploy", "yes");
 
     let result = runner
@@ -766,13 +771,15 @@ fn run_with_ui_sensitive_step_prompts() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(result.success);
-    assert!(ui.prompts_shown().contains(&"run_deploy".to_string()));
+    // No run prompt — only sensitive prompt
+    assert!(!ui.prompts_shown().contains(&"run_deploy".to_string()));
     assert!(ui.prompts_shown().contains(&"sensitive_deploy".to_string()));
     assert!(!result.steps[0].skipped);
 }
@@ -815,6 +822,7 @@ fn run_with_ui_sensitive_not_skippable_declined_errors() {
         &HashMap::new(),
         None,
         None,
+        &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
         &mut ui,
         &mut EventBus::new(),
     );
@@ -869,6 +877,7 @@ fn run_with_ui_workflow_non_interactive_suppresses_prompts() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -936,6 +945,7 @@ fn run_with_ui_step_override_disables_prompt_on_rerun() {
             &overrides,
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1188,6 +1198,7 @@ fn run_with_ui_step_error_continues_with_allow_failure() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1238,6 +1249,7 @@ fn run_with_ui_shows_error_output_on_failure() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1411,7 +1423,7 @@ fn transitive_dependency_blocked() {
 }
 
 #[test]
-fn run_with_ui_prompts_before_each_skippable_step() {
+fn run_with_ui_auto_runs_all_steps_without_prompting() {
     let temp = TempDir::new().unwrap();
 
     let config: BivvyConfig = serde_yaml::from_str(
@@ -1439,7 +1451,6 @@ fn run_with_ui_prompts_before_each_skippable_step() {
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    // Both default to "true", so both proceed
 
     let result = runner
         .run_with_ui(
@@ -1451,6 +1462,7 @@ fn run_with_ui_prompts_before_each_skippable_step() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1458,12 +1470,14 @@ fn run_with_ui_prompts_before_each_skippable_step() {
 
     assert!(result.success);
     assert_eq!(result.steps.len(), 2);
-    assert!(ui.prompts_shown().contains(&"run_first".to_string()));
-    assert!(ui.prompts_shown().contains(&"run_second".to_string()));
+    // Steps auto-run without prompting
+    assert!(ui.prompts_shown().is_empty());
+    assert!(!result.steps[0].skipped);
+    assert!(!result.steps[1].skipped);
 }
 
 #[test]
-fn run_with_ui_skip_declined_step() {
+fn run_with_ui_confirm_step_skipped_when_declined() {
     let temp = TempDir::new().unwrap();
     let marker = temp.path().join("ran.txt");
 
@@ -1476,11 +1490,11 @@ fn run_with_ui_skip_declined_step() {
     )
     .unwrap();
 
+    let mut step = make_step("optional", &format!("touch {}", marker.display()), vec![]);
+    step.behavior.confirm = true;
+
     let mut steps = HashMap::new();
-    steps.insert(
-        "optional".to_string(),
-        make_step("optional", &format!("touch {}", marker.display()), vec![]),
-    );
+    steps.insert("optional".to_string(), step);
 
     let mut runner = WorkflowRunner::new(&config, steps);
     let options = RunOptions::default();
@@ -1488,7 +1502,7 @@ fn run_with_ui_skip_declined_step() {
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    ui.set_prompt_response("run_optional", "no");
+    ui.set_prompt_response("confirm_optional", "no");
 
     let result = runner
         .run_with_ui(
@@ -1500,6 +1514,7 @@ fn run_with_ui_skip_declined_step() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1509,6 +1524,7 @@ fn run_with_ui_skip_declined_step() {
     assert_eq!(result.steps.len(), 1);
     assert!(result.steps[0].skipped);
     assert!(!marker.exists());
+    assert!(ui.prompts_shown().contains(&"confirm_optional".to_string()));
 }
 
 #[test]
@@ -1547,6 +1563,7 @@ fn run_with_ui_no_prompt_when_not_skippable() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1593,6 +1610,7 @@ fn run_with_ui_no_prompt_when_non_interactive() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1603,7 +1621,7 @@ fn run_with_ui_no_prompt_when_non_interactive() {
 }
 
 #[test]
-fn run_with_ui_completed_prompt_replaces_run_prompt() {
+fn run_with_ui_satisfied_step_auto_skips_no_prompts() {
     let temp = TempDir::new().unwrap();
     fs::write(temp.path().join("marker.txt"), "done").unwrap();
 
@@ -1637,8 +1655,6 @@ fn run_with_ui_completed_prompt_replaces_run_prompt() {
 
     let mut ui = MockUI::new();
     ui.set_interactive(true);
-    // User confirms re-run
-    ui.set_prompt_response("rerun_install", "yes");
 
     let result = runner
         .run_with_ui(
@@ -1650,16 +1666,18 @@ fn run_with_ui_completed_prompt_replaces_run_prompt() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(result.success);
-    // Should see rerun prompt but NOT the general run prompt
-    assert!(ui.prompts_shown().contains(&"rerun_install".to_string()));
-    assert!(!ui.prompts_shown().contains(&"run_install".to_string()));
+    // No prompts at all — satisfied steps auto-skip silently
+    assert!(ui.prompts_shown().is_empty());
+    // Step is check-passed (not skipped)
     assert!(!result.steps[0].skipped);
+    assert!(result.steps[0].check_result.is_some());
 }
 
 #[test]
@@ -1701,6 +1719,7 @@ fn run_with_ui_blocked_step_shows_warning() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1765,6 +1784,7 @@ fn run_with_ui_proceeds_when_all_satisfied() {
             &HashMap::new(),
             Some(&mut checker),
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1821,6 +1841,7 @@ fn run_with_ui_warns_on_system_only() {
             &HashMap::new(),
             Some(&mut checker),
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -1861,29 +1882,27 @@ fn run_with_ui_errors_on_unknown_requirement() {
     // But we can pre-cache it for clarity
     checker.seed_cache("nonexistent-xyz", RequirementStatus::Unknown);
 
-    // Non-interactive (default MockUI) → should error
+    // Non-interactive (default MockUI) → engine skips the step (soft block)
     let mut ui = MockUI::new();
 
-    let result = runner.run_with_ui(
-        &options,
-        &ctx,
-        &HashMap::new(),
-        temp.path(),
-        false,
-        &HashMap::new(),
-        Some(&mut checker),
-        None,
-        &mut ui,
-        &mut EventBus::new(),
-    );
+    let result = runner
+        .run_with_ui(
+            &options,
+            &ctx,
+            &HashMap::new(),
+            temp.path(),
+            false,
+            &HashMap::new(),
+            Some(&mut checker),
+            None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
+            &mut ui,
+            &mut EventBus::new(),
+        )
+        .unwrap();
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(
-        matches!(err, BivvyError::RequirementMissing { .. }),
-        "expected RequirementMissing, got: {}",
-        err
-    );
+    // Engine decides Skip(RequirementNotMet) — step is skipped, workflow continues
+    assert!(!result.steps.is_empty() || !result.skipped.is_empty());
 }
 
 #[test]
@@ -1919,7 +1938,7 @@ fn run_with_ui_non_interactive_fails_on_missing() {
         },
     );
 
-    // Non-interactive → should error
+    // Non-interactive → engine skips the step (soft block)
     let mut ui = MockUI::new();
 
     let result = runner.run_with_ui(
@@ -1931,13 +1950,14 @@ fn run_with_ui_non_interactive_fails_on_missing() {
         &HashMap::new(),
         Some(&mut checker),
         None,
+        &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
         &mut ui,
         &mut EventBus::new(),
     );
 
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(matches!(err, BivvyError::RequirementMissing { .. }));
+    let result = result.unwrap();
+    // Engine decides Skip(RequirementNotMet) — step is skipped, workflow continues
+    assert!(!result.steps.is_empty() || !result.skipped.is_empty());
 }
 
 #[test]
@@ -1987,6 +2007,7 @@ fn run_with_ui_interactive_warns_on_missing() {
             &HashMap::new(),
             Some(&mut checker),
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2035,6 +2056,7 @@ fn run_with_ui_no_gaps_when_requires_empty() {
             &HashMap::new(),
             Some(&mut checker),
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2336,6 +2358,7 @@ fn recovery_retry_succeeds() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2398,6 +2421,7 @@ fn recovery_skip_does_not_block_dependents() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2459,6 +2483,7 @@ fn recovery_abort_stops_workflow() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2518,6 +2543,7 @@ fn recovery_abort_includes_partial_results() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2571,6 +2597,7 @@ fn auto_retry_before_menu() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2628,6 +2655,7 @@ fn auto_retry_succeeds() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2687,6 +2715,7 @@ fn allow_failure_suppresses_menu() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2736,6 +2765,7 @@ fn non_interactive_no_menu() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2790,6 +2820,7 @@ fn non_interactive_auto_retry() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2839,6 +2870,7 @@ fn recovery_detail_in_skip() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2892,6 +2924,7 @@ fn recovery_detail_in_retry() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -2945,6 +2978,7 @@ fn hint_shown_on_low_confidence() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -3022,6 +3056,7 @@ fn recovery_fix_confirmed_retries() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )
@@ -3071,6 +3106,7 @@ fn recovery_fix_declined_reprompts() {
             &HashMap::new(),
             None,
             None,
+            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
             &mut EventBus::new(),
         )

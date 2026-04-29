@@ -229,6 +229,7 @@ fn wait_for(session: &Session, pattern: &str, context: &str) -> String {
 }
 
 /// Wait for a pattern, then send a single key. Returns accumulated output.
+#[allow(dead_code)]
 fn wait_and_send(session: &Session, pattern: &str, key: u8, context: &str) -> String {
     let output = wait_for(session, pattern, context);
     send_key(session, key);
@@ -272,6 +273,7 @@ fn assert_zsh_exit_code(session: &Session, expected: i32, context: &str) {
 }
 
 /// `y` — single key selects "Yes" in bivvy's raw-mode prompts (no Enter)
+#[allow(dead_code)]
 const KEY_Y: u8 = b'y';
 
 /// Arrow down — ANSI escape sequence (3 bytes)
@@ -356,8 +358,8 @@ fn spawn_zsh(project_dir: &std::path::Path) -> Session {
 
 // ── Configs ─────────────────────────────────────────────────────────
 
-/// 3-step interactive workflow. Every step is skippable (default), so
-/// bivvy prompts "Step title?" before each one.
+/// 3-step interactive workflow. Steps auto-run under the decision engine
+/// (no prompts for skippable steps).
 const INTERACTIVE_CONFIG: &str = r#"
 app_name: "ProcessGroupTest"
 
@@ -448,12 +450,11 @@ workflows:
 
 // ── Tests ───────────────────────────────────────────────────────────
 
-/// Core regression test: interactive multi-step workflow under zsh job
-/// control. Each step is skippable, so bivvy prompts before each one.
-/// The user presses `y` to accept.
+/// Core regression test: multi-step workflow under zsh job control.
+/// Steps auto-run without prompts under the decision engine.
 ///
-/// If process group handling is broken, the second or third prompt
-/// never appears and the test times out.
+/// If process group handling is broken, step execution hangs and the
+/// test times out — or zsh reports "suspended (tty output)".
 #[test]
 fn interactive_workflow_under_zsh_job_control() {
     let temp = setup_project(INTERACTIVE_CONFIG);
@@ -462,17 +463,7 @@ fn interactive_workflow_under_zsh_job_control() {
     wait_for(&session, READY, "Waiting for zsh to start");
     send_line(&session, "$BIVVY run");
 
-    // Step 1: prompt → y → step runs
-    wait_and_send(&session, "Check toolchain?", KEY_Y, "Step 1 prompt");
-
-    // Step 2: prompt appears after step 1's child exits — the critical
-    // foreground reclamation transition
-    wait_and_send(&session, "Check git?", KEY_Y, "Step 2 prompt");
-
-    // Step 3: one more transition
-    wait_and_send(&session, "Check cargo?", KEY_Y, "Step 3 prompt");
-
-    // Wait for and snapshot the summary
+    // All 3 steps auto-run without prompts. Wait for workflow completion.
     let summary = wait_for(&session, "bivvy status", "Workflow completion");
     assert_not_suspended(&summary, "interactive workflow");
     insta::assert_snapshot!(
@@ -498,8 +489,8 @@ fn interactive_workflow_under_zsh_job_control() {
     send_line(&session, "exit");
 }
 
-/// Completed-check steps spawn additional child processes between
-/// prompt transitions.
+/// Completed-check steps: step 2 has an execution check that passes
+/// (git rev-parse), so it auto-skips. Steps 1 and 3 auto-run.
 #[test]
 fn completed_check_steps_under_zsh_job_control() {
     let temp = setup_project(COMPLETED_CHECK_CONFIG);
@@ -508,15 +499,8 @@ fn completed_check_steps_under_zsh_job_control() {
     wait_for(&session, READY, "Waiting for zsh to start");
     send_line(&session, "$BIVVY run");
 
-    // Step 1: file doesn't exist yet → regular prompt
-    wait_and_send(&session, "Install tools?", KEY_Y, "Step 1 prompt");
-
-    // Step 2: git rev-parse succeeds → "Check passed" re-run prompt
-    wait_and_send(&session, "Check passed", KEY_Y, "Step 2 re-run prompt");
-
-    // Step 3: no completed_check → regular prompt
-    wait_and_send(&session, "Run analysis?", KEY_Y, "Step 3 prompt");
-
+    // All steps auto-decide: step 1 auto-runs, step 2 auto-skips (check passes),
+    // step 3 auto-runs. Wait for workflow completion.
     let summary = wait_for(&session, "bivvy status", "Workflow completion");
     assert_not_suspended(&summary, "completed-check workflow");
     insta::assert_snapshot!(
@@ -530,10 +514,8 @@ fn completed_check_steps_under_zsh_job_control() {
         temp.path().join(".tools-installed.txt").exists(),
         "Step 1 side-effect missing"
     );
-    assert!(
-        temp.path().join(".repo-verified.txt").exists(),
-        "Step 2 side-effect missing"
-    );
+    // Step 2 may or may not create the file depending on whether it auto-skipped
+    // (execution check passes, so it auto-skips — the command doesn't run)
     assert!(
         temp.path().join(".analysis.txt").exists(),
         "Step 3 side-effect missing"
@@ -542,8 +524,8 @@ fn completed_check_steps_under_zsh_job_control() {
     send_line(&session, "exit");
 }
 
-/// Run bivvy interactively twice in the same zsh session. Catches
-/// dirty process group state leaking between runs.
+/// Run bivvy twice in the same zsh session. Steps auto-run both times.
+/// Catches dirty process group state leaking between runs.
 #[test]
 fn consecutive_interactive_runs_under_zsh_job_control() {
     let temp = setup_project(INTERACTIVE_CONFIG);
@@ -554,47 +536,28 @@ fn consecutive_interactive_runs_under_zsh_job_control() {
     // ── First run ───────────────────────────────────────────────
     send_line(&session, "$BIVVY run");
 
-    wait_and_send(&session, "Check toolchain?", KEY_Y, "Run 1, Step 1");
-    wait_and_send(&session, "Check git?", KEY_Y, "Run 1, Step 2");
-    wait_and_send(&session, "Check cargo?", KEY_Y, "Run 1, Step 3");
-
+    // All steps auto-run without prompts
     let run1_output = wait_for(&session, "bivvy status", "Run 1 completion");
     assert_not_suspended(&run1_output, "first run");
     assert_zsh_exit_code(&session, 0, "first run");
 
-    // Clean side-effect files for second run
-    send_line(&session, "rm -f .step1.txt .step2.txt .step3.txt");
+    // ── Second run ──────────────────────────────────────────────
+    // Steps ran seconds ago and are within the 4h rerun window,
+    // so they auto-skip on the second run. This is correct behavior.
     send_line(&session, &format!("echo {READY}"));
     wait_for(&session, READY, "Waiting between runs");
 
-    // ── Second run ──────────────────────────────────────────────
     send_line(&session, "$BIVVY run");
 
-    wait_and_send(&session, "Check toolchain?", KEY_Y, "Run 2, Step 1");
-    wait_and_send(&session, "Check git?", KEY_Y, "Run 2, Step 2");
-    wait_and_send(&session, "Check cargo?", KEY_Y, "Run 2, Step 3");
-
+    // Steps auto-skip (within rerun window). Workflow still succeeds.
     let run2_output = wait_for(&session, "bivvy status", "Run 2 completion");
     assert_not_suspended(&run2_output, "second run");
     assert_zsh_exit_code(&session, 0, "second run");
 
-    assert!(
-        temp.path().join(".step1.txt").exists(),
-        "Step 1 missing after run 2"
-    );
-    assert!(
-        temp.path().join(".step2.txt").exists(),
-        "Step 2 missing after run 2"
-    );
-    assert!(
-        temp.path().join(".step3.txt").exists(),
-        "Step 3 missing after run 2"
-    );
-
     send_line(&session, "exit");
 }
 
-/// A failing step under zsh job control. Step 1 prompts interactively,
+/// A failing step under zsh job control. Step 1 auto-runs,
 /// step 2 fails and shows the recovery menu. We navigate to "Abort"
 /// via arrow keys and Enter.
 #[test]
@@ -605,10 +568,7 @@ fn failed_step_under_zsh_job_control() {
     wait_for(&session, READY, "Waiting for zsh to start");
     send_line(&session, "$BIVVY run");
 
-    // Step 1: skippable, accept the prompt
-    wait_and_send(&session, "Will succeed?", KEY_Y, "Step 1 prompt");
-
-    // Step 2: skippable: false, runs without prompt, fails.
+    // Step 1: auto-runs (no prompt). Step 2: auto-runs, fails.
     // Recovery menu: Retry / Skip / Shell / Abort.
     // Navigate to Abort: 3x arrow-down, then Enter.
     //

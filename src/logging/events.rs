@@ -457,6 +457,8 @@ pub struct BehaviorFlags {
     pub forced: bool,
     /// Whether prompt_on_rerun is active.
     pub prompt_on_rerun: bool,
+    /// Whether `confirm: true` is set (always prompt before running).
+    pub confirm: bool,
 }
 
 /// Requirement gap info within a decision trace.
@@ -681,6 +683,7 @@ mod tests {
                 required: false,
                 forced: false,
                 prompt_on_rerun: true,
+                confirm: false,
             },
             satisfaction: Some(SatisfactionResult {
                 satisfied: true,

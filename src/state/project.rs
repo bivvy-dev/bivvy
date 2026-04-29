@@ -92,6 +92,13 @@ impl ProjectId {
         }
     }
 
+    /// Get the path to the satisfaction cache file for a project.
+    ///
+    /// Located alongside the state file in `~/.bivvy/projects/{hash}/satisfaction.json`.
+    pub fn satisfaction_path(&self) -> PathBuf {
+        crate::state::StateStore::state_dir(self).join("satisfaction.json")
+    }
+
     fn compute_hash(path: &Path, git_remote: Option<&str>) -> String {
         let mut hasher = Sha256::new();
 

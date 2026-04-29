@@ -204,6 +204,8 @@ pub struct RunSummary {
     pub steps_run: usize,
     /// Number of steps skipped.
     pub steps_skipped: usize,
+    /// Number of steps auto-skipped because already satisfied.
+    pub steps_satisfied: usize,
     /// Whether all steps succeeded.
     pub success: bool,
     /// Names of failed steps.

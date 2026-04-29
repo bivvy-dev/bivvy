@@ -15,6 +15,10 @@ use std::collections::HashMap;
 
 use crate::checks::evaluator::CheckEvaluator;
 use crate::checks::{Check, CheckResult, SatisfactionCondition};
+use crate::runner::RerunWindow;
+use crate::state::satisfaction::{
+    PresenceKind as EvidencePresenceKind, SatisfactionEvidence, SatisfactionSource,
+};
 use crate::steps::ResolvedStep;
 
 /// Result of evaluating a step's satisfaction conditions.
@@ -130,6 +134,222 @@ pub fn collect_named_check_results(
     let mut results = HashMap::new();
     collect_named_recursive(step_name, check, evaluator, &mut results);
     results
+}
+
+/// Result of computing a step's satisfaction through the full hierarchy.
+#[derive(Debug, Clone)]
+pub struct ComputedSatisfaction {
+    /// Whether the step is satisfied.
+    pub satisfied: bool,
+    /// What signal produced the satisfaction (or lack thereof).
+    pub source: SatisfactionSource,
+    /// The verifiable evidence behind the decision.
+    pub evidence: SatisfactionEvidence,
+    /// Human-readable description of why the step is/isn't satisfied.
+    pub description: String,
+}
+
+/// Compute a step's satisfaction through the full hierarchy.
+///
+/// Evaluates signals in order (first match wins):
+/// 1. Explicit `satisfied_when` conditions
+/// 2. Step's check (presence, execution, change) passes
+/// 3. Within rerun window and last run succeeded
+///
+/// Returns `ComputedSatisfaction` with the result and evidence.
+///
+/// # Arguments
+///
+/// * `step` - The step to evaluate
+/// * `evaluator` - Check evaluator for running checks
+/// * `named_check_results` - Pre-evaluated named check results
+/// * `step_name` - Name of the current step
+/// * `rerun_window` - The effective rerun window for this step
+/// * `last_success` - Timestamp of the step's last successful run (if any)
+pub fn compute_satisfaction(
+    step: &ResolvedStep,
+    evaluator: &mut CheckEvaluator<'_>,
+    named_check_results: &HashMap<String, CheckResult>,
+    step_name: &str,
+    rerun_window: &RerunWindow,
+    last_success: Option<chrono::DateTime<chrono::Utc>>,
+) -> ComputedSatisfaction {
+    // 1. Explicit satisfied_when (highest priority)
+    if !step.satisfied_when.is_empty() {
+        if let Some(result) = evaluate_satisfaction(step, evaluator, named_check_results, step_name)
+        {
+            if result.satisfied {
+                let descriptions: Vec<&str> = result
+                    .condition_results
+                    .iter()
+                    .map(|r| r.description.as_str())
+                    .collect();
+                let desc = descriptions.join(", ");
+                // Build evidence from each condition's check type when possible
+                let evidence_items: Vec<SatisfactionEvidence> = step
+                    .satisfied_when
+                    .iter()
+                    .map(|cond| match cond {
+                        SatisfactionCondition::Check(check) => condition_check_to_evidence(check),
+                        SatisfactionCondition::Ref { .. } => SatisfactionEvidence::None,
+                    })
+                    .collect();
+                return ComputedSatisfaction {
+                    satisfied: true,
+                    source: SatisfactionSource::ExplicitCondition,
+                    evidence: SatisfactionEvidence::Composite(evidence_items),
+                    description: desc,
+                };
+            }
+            // satisfied_when exists but failed — don't fall through to checks,
+            // because the user explicitly defined what "satisfied" means
+            let descriptions: Vec<&str> = result
+                .condition_results
+                .iter()
+                .filter(|r| !r.passed_check())
+                .map(|r| r.description.as_str())
+                .collect();
+            return ComputedSatisfaction {
+                satisfied: false,
+                source: SatisfactionSource::ExplicitCondition,
+                evidence: SatisfactionEvidence::None,
+                description: format!("satisfied_when failed: {}", descriptions.join(", ")),
+            };
+        }
+    }
+
+    // 2. Step's check (from the check/checks field)
+    if let Some(check) = step.execution.effective_check() {
+        let check_result = evaluator.evaluate(&check);
+        if check_result.passed_check() {
+            let evidence = check_to_evidence(&check, &check_result);
+            let source = check_to_source(&check);
+            return ComputedSatisfaction {
+                satisfied: true,
+                source,
+                evidence,
+                description: check_result.description.clone(),
+            };
+        }
+        // Check exists but failed — not satisfied, but we still check rerun window
+    }
+
+    // 3. Within rerun window + last run succeeded
+    if let Some(last_run) = last_success {
+        if rerun_window.is_within_window(last_run) {
+            let time_since = format_time_since_brief(last_run);
+            return ComputedSatisfaction {
+                satisfied: true,
+                source: SatisfactionSource::ExecutionHistory,
+                evidence: SatisfactionEvidence::HistoricalRun {
+                    ran_at: last_run,
+                    exit_code: 0,
+                },
+                description: format!("ran successfully {}", time_since),
+            };
+        }
+    }
+
+    // Nothing satisfied — the step needs to run
+    ComputedSatisfaction {
+        satisfied: false,
+        source: SatisfactionSource::NeverEvaluated,
+        evidence: SatisfactionEvidence::None,
+        description: "not satisfied".to_string(),
+    }
+}
+
+/// Convert a check to the corresponding satisfaction source.
+fn check_to_source(check: &Check) -> SatisfactionSource {
+    match check {
+        Check::Presence { .. } => SatisfactionSource::PresenceCheck,
+        Check::Change { .. } => SatisfactionSource::ChangeCheck,
+        Check::Execution { .. } => SatisfactionSource::ExecutionCheck,
+        Check::All { .. } | Check::Any { .. } => SatisfactionSource::ExplicitCondition,
+    }
+}
+
+/// Convert a check + result into satisfaction evidence.
+fn check_to_evidence(check: &Check, result: &CheckResult) -> SatisfactionEvidence {
+    match check {
+        Check::Presence { target, kind, .. } => {
+            let ek = match kind {
+                Some(crate::checks::PresenceKind::File) => EvidencePresenceKind::File,
+                Some(crate::checks::PresenceKind::Binary) => EvidencePresenceKind::Binary,
+                Some(crate::checks::PresenceKind::Custom) | None => EvidencePresenceKind::Custom,
+            };
+            SatisfactionEvidence::Presence {
+                target: target.clone().unwrap_or_default(),
+                kind: ek,
+            }
+        }
+        Check::Change { target, .. } => SatisfactionEvidence::ChangeBaseline {
+            target: target.clone(),
+            // Extract hash from check result description if available
+            hash: result.description.clone(),
+        },
+        Check::Execution { command, .. } => SatisfactionEvidence::CommandSuccess {
+            command: command.clone(),
+        },
+        Check::All { .. } | Check::Any { .. } => SatisfactionEvidence::None,
+    }
+}
+
+/// Convert a satisfaction condition check into evidence (without a result).
+/// Used for `satisfied_when` conditions where we have the check type but
+/// want evidence based on the check's structural info.
+fn condition_check_to_evidence(check: &Check) -> SatisfactionEvidence {
+    match check {
+        Check::Presence { target, kind, .. } => {
+            let ek = match kind {
+                Some(crate::checks::PresenceKind::File) => EvidencePresenceKind::File,
+                Some(crate::checks::PresenceKind::Binary) => EvidencePresenceKind::Binary,
+                Some(crate::checks::PresenceKind::Custom) | None => EvidencePresenceKind::Custom,
+            };
+            SatisfactionEvidence::Presence {
+                target: target.clone().unwrap_or_default(),
+                kind: ek,
+            }
+        }
+        Check::Change { target, .. } => SatisfactionEvidence::ChangeBaseline {
+            target: target.clone(),
+            hash: String::new(),
+        },
+        Check::Execution { command, .. } => SatisfactionEvidence::CommandSuccess {
+            command: command.clone(),
+        },
+        Check::All { .. } | Check::Any { .. } => SatisfactionEvidence::None,
+    }
+}
+
+/// Brief time-since formatting for satisfaction descriptions.
+fn format_time_since_brief(timestamp: chrono::DateTime<chrono::Utc>) -> String {
+    let elapsed = chrono::Utc::now().signed_duration_since(timestamp);
+    let secs = elapsed.num_seconds();
+    if secs < 60 {
+        "seconds ago".to_string()
+    } else if secs < 3600 {
+        let mins = secs / 60;
+        if mins == 1 {
+            "1 minute ago".to_string()
+        } else {
+            format!("{} minutes ago", mins)
+        }
+    } else if secs < 86400 {
+        let hours = secs / 3600;
+        if hours == 1 {
+            "1 hour ago".to_string()
+        } else {
+            format!("{} hours ago", hours)
+        }
+    } else {
+        let days = secs / 86400;
+        if days == 1 {
+            "1 day ago".to_string()
+        } else {
+            format!("{} days ago", days)
+        }
+    }
 }
 
 fn collect_named_recursive(
@@ -505,5 +725,310 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!(results["my_step.a_exists"].passed_check());
         assert!(!results["my_step.b_exists"].passed_check());
+    }
+}
+
+#[cfg(test)]
+mod compute_satisfaction_tests {
+    use super::*;
+    use crate::checks::SatisfactionCondition;
+    use crate::steps::{
+        ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks,
+        ResolvedOutput, ResolvedScoping, ResolvedStep,
+    };
+
+    fn make_step(satisfied_when: Vec<SatisfactionCondition>, check: Option<Check>) -> ResolvedStep {
+        ResolvedStep {
+            name: "test_step".to_string(),
+            title: "test_step".to_string(),
+            description: None,
+            depends_on: vec![],
+            requires: vec![],
+            inputs: HashMap::new(),
+            satisfied_when,
+            execution: ResolvedExecution {
+                command: "echo test".to_string(),
+                check,
+                ..Default::default()
+            },
+            env_vars: ResolvedEnvironmentVars::default(),
+            behavior: ResolvedBehavior::default(),
+            hooks: ResolvedHooks::default(),
+            output: ResolvedOutput::default(),
+            scoping: ResolvedScoping::default(),
+        }
+    }
+
+    #[test]
+    fn no_signals_not_satisfied() {
+        let step = make_step(vec![], None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &RerunWindow::default(),
+            None,
+        );
+        assert!(!result.satisfied);
+    }
+
+    #[test]
+    fn satisfied_when_passes() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("node_modules"), "").unwrap();
+
+        let step = make_step(
+            vec![SatisfactionCondition::Check(Check::Presence {
+                name: None,
+                target: Some("node_modules".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            })],
+            None,
+        );
+
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &RerunWindow::default(),
+            None,
+        );
+        assert!(result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::ExplicitCondition);
+    }
+
+    #[test]
+    fn satisfied_when_fails_blocks_fallthrough() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // node_modules does NOT exist
+
+        // Step has satisfied_when that fails, but also has a check that would pass
+        let step = make_step(
+            vec![SatisfactionCondition::Check(Check::Presence {
+                name: None,
+                target: Some("node_modules".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            })],
+            Some(Check::Presence {
+                name: None,
+                target: Some("Cargo.toml".to_string()), // doesn't matter
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        );
+
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &RerunWindow::default(),
+            None,
+        );
+        // satisfied_when takes priority and blocks fallthrough to check
+        assert!(!result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::ExplicitCondition);
+    }
+
+    #[test]
+    fn check_passes_when_no_satisfied_when() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("build_output"), "").unwrap();
+
+        let step = make_step(
+            vec![], // no satisfied_when
+            Some(Check::Presence {
+                name: None,
+                target: Some("build_output".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        );
+
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &RerunWindow::default(),
+            None,
+        );
+        assert!(result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::PresenceCheck);
+    }
+
+    #[test]
+    fn rerun_window_satisfies_when_recent() {
+        let step = make_step(vec![], None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::hours(1));
+        let window = RerunWindow::Duration(std::time::Duration::from_secs(4 * 3600));
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+        assert!(result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::ExecutionHistory);
+    }
+
+    #[test]
+    fn rerun_window_expired_not_satisfied() {
+        let step = make_step(vec![], None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::hours(5));
+        let window = RerunWindow::Duration(std::time::Duration::from_secs(4 * 3600));
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+        assert!(!result.satisfied);
+    }
+
+    #[test]
+    fn check_takes_priority_over_rerun_window() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("output"), "").unwrap();
+
+        let step = make_step(
+            vec![],
+            Some(Check::Presence {
+                name: None,
+                target: Some("output".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        );
+
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        // Even though rerun window would satisfy, check is higher priority
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::hours(1));
+        let window = RerunWindow::Duration(std::time::Duration::from_secs(4 * 3600));
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+        assert!(result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::PresenceCheck);
+    }
+
+    #[test]
+    fn rerun_window_never_not_satisfied() {
+        let step = make_step(vec![], None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let last_success = Some(chrono::Utc::now()); // just now
+        let window = RerunWindow::Never;
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+        assert!(!result.satisfied);
+    }
+
+    #[test]
+    fn rerun_window_forever_always_satisfied() {
+        let step = make_step(vec![], None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::days(365));
+        let window = RerunWindow::Forever;
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+        assert!(result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::ExecutionHistory);
+    }
+
+    #[test]
+    fn no_last_success_not_satisfied_by_history() {
+        let step = make_step(vec![], None);
+        let dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &RerunWindow::Forever,
+            None, // no history
+        );
+        assert!(!result.satisfied);
     }
 }

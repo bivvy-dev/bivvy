@@ -16,88 +16,23 @@ use crate::checks::CheckResult;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
-use crate::logging::{BehaviorFlags, BivvyEvent, DecisionTrace, EventBus, NamedCheckResult};
+use crate::logging::{BehaviorFlags, BivvyEvent, DecisionTrace, EventBus};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
+use crate::state::satisfaction::{SatisfactionCache, SatisfactionRecord};
 use crate::state::StateStore;
 use crate::steps::{ResolvedStep, StepResult, StepStatus};
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{Prompt, PromptOption, PromptType, StatusKind, UserInterface};
 
-use super::decision;
+use super::decision::{BlockReason, SkipReason, StepDecision};
 use super::diagnostic;
+use super::engine::{self, EngineContext, EvaluationResult};
 use super::execution::{config_prompt_to_ui_prompt, execute_step_with_recovery};
 use super::patterns::StepContext;
 use super::plan::build_execution_plan;
 use super::satisfaction;
 use super::workflow::{RunOptions, WorkflowResult, WorkflowRunner};
-
-/// Format a `chrono::Duration` as a human-readable "time since" string.
-fn format_time_since(elapsed: chrono::Duration) -> String {
-    let secs = elapsed.num_seconds();
-    if secs < 60 {
-        "seconds ago".to_string()
-    } else if secs < 3600 {
-        let mins = secs / 60;
-        if mins == 1 {
-            "1 minute ago".to_string()
-        } else {
-            format!("{} minutes ago", mins)
-        }
-    } else if secs < 86400 {
-        let hours = secs / 3600;
-        if hours == 1 {
-            "1 hour ago".to_string()
-        } else {
-            format!("{} hours ago", hours)
-        }
-    } else {
-        let days = secs / 86400;
-        if days == 1 {
-            "1 day ago".to_string()
-        } else {
-            format!("{} days ago", days)
-        }
-    }
-}
-
-/// Drain pending baseline events from the snapshot store and emit them on the event bus.
-fn emit_baseline_events(
-    snapshot_store: &mut crate::snapshots::SnapshotStore,
-    event_bus: &mut EventBus,
-) {
-    for evt in snapshot_store.drain_events() {
-        match evt.change {
-            crate::snapshots::BaselineChange::Established => {
-                event_bus.emit(&BivvyEvent::BaselineEstablished {
-                    step: evt.step,
-                    target: evt.target,
-                    hash: evt.hash,
-                    scope: evt.scope,
-                });
-            }
-            crate::snapshots::BaselineChange::Updated { old_hash } => {
-                event_bus.emit(&BivvyEvent::BaselineUpdated {
-                    step: evt.step,
-                    target: evt.target,
-                    old_hash,
-                    new_hash: evt.hash,
-                });
-            }
-            crate::snapshots::BaselineChange::Unchanged => {}
-        }
-    }
-}
-
-/// Build behavior flags from a resolved step and force status.
-fn make_behavior_flags(step: &ResolvedStep, forced: bool) -> BehaviorFlags {
-    BehaviorFlags {
-        skippable: step.behavior.skippable,
-        required: step.behavior.required,
-        forced,
-        prompt_on_rerun: step.behavior.prompt_on_rerun,
-    }
-}
 
 impl<'a> WorkflowRunner<'a> {
     /// Run a workflow with full interactive UI support.
@@ -118,6 +53,7 @@ impl<'a> WorkflowRunner<'a> {
         step_overrides: &HashMap<String, StepOverride>,
         mut gap_checker: Option<&mut GapChecker<'_>>,
         state: Option<&mut StateStore>,
+        satisfaction_cache: &mut SatisfactionCache,
         ui: &mut dyn UserInterface,
         event_bus: &mut EventBus,
     ) -> Result<WorkflowResult> {
@@ -217,66 +153,11 @@ impl<'a> WorkflowRunner<'a> {
                 )
             };
 
-            // Check if any dependency failed
-            if decision::blocked_by_failure(step, &failed_steps) {
-                let blocked_by = step
-                    .depends_on
-                    .iter()
-                    .find(|d| failed_steps.contains(*d))
-                    .cloned()
-                    .unwrap_or_default();
-                event_bus.emit(&BivvyEvent::DependencyBlocked {
-                    name: step_name.clone(),
-                    blocked_by: blocked_by.clone(),
-                    reason: "dependency_failed".to_string(),
-                });
-                event_bus.emit(&BivvyEvent::StepDecided {
-                    name: step_name.clone(),
-                    decision: "block".to_string(),
-                    reason: Some("dependency_failed".to_string()),
-                    trace: None,
-                });
-                ui.message(&step_display);
-                ui.message(&format!(
-                    "{}{}",
-                    step_pad,
-                    StatusKind::Blocked
-                        .format(&theme, decision::BlockReason::DependencyFailed.message())
-                ));
-                ui.show_workflow_progress(index + 1, total, start.elapsed());
-                all_success = false;
-                failed_steps.insert(step_name.clone());
-                continue;
-            }
-
-            // Auto-skip if any dependency was user-skipped and not satisfied
-            if decision::blocked_by_user_skip(step, &user_skipped_steps, &satisfied_steps) {
-                event_bus.emit(&BivvyEvent::StepDecided {
-                    name: step_name.clone(),
-                    decision: "skip".to_string(),
-                    reason: Some("dependency_skipped".to_string()),
-                    trace: None,
-                });
-                event_bus.emit(&BivvyEvent::StepSkipped {
-                    name: step_name.clone(),
-                    reason: "dependency_skipped".to_string(),
-                });
-                ui.message(&step_display);
-                ui.message(&format!(
-                    "{}{}",
-                    step_pad,
-                    StatusKind::Skipped.format(&theme, "Skipped (dependency skipped)")
-                ));
-                ui.show_workflow_progress(index + 1, total, start.elapsed());
-                user_skipped_steps.insert(step_name.clone());
-                results.push(StepResult::skipped(
-                    &step.name,
-                    CheckResult::passed("Dependency skipped"),
-                ));
-                continue;
-            }
-
-            // Check requirement gaps before proceeding
+            // ── Pre-engine: requirement gap resolution (side effect — may install) ──
+            // Gap detection and install attempts are side-effectful (probe environment,
+            // prompt user, run install commands). The engine checks `unresolved_gaps`
+            // at step 3 (soft blocks) to make the actual skip/proceed decision.
+            let mut unresolved_gaps: HashSet<String> = HashSet::new();
             if let Some(ref mut checker) = gap_checker {
                 let provided = if options.provided_requirements.is_empty() {
                     None
@@ -285,94 +166,28 @@ impl<'a> WorkflowRunner<'a> {
                 };
                 let gaps = checker.check_step(step, provided);
                 if !gaps.is_empty() {
-                    let can_proceed =
-                        installer::handle_gaps(&gaps, checker, ui, interactive, &installer_ctx)?;
-                    if !can_proceed {
-                        for gap in &gaps {
-                            event_bus.emit(&BivvyEvent::RequirementGap {
-                                name: step_name.clone(),
-                                requirement: gap.requirement.clone(),
-                                status: format!("{:?}", gap.status),
-                            });
+                    let resolved =
+                        installer::handle_gaps(&gaps, checker, ui, interactive, &installer_ctx);
+                    match resolved {
+                        Ok(true) => {} // all gaps resolved, proceed
+                        Ok(false) | Err(_) => {
+                            // Gaps remain — let the engine decide what to do
+                            for gap in &gaps {
+                                event_bus.emit(&BivvyEvent::RequirementGap {
+                                    name: step_name.clone(),
+                                    requirement: gap.requirement.clone(),
+                                    status: format!("{:?}", gap.status),
+                                });
+                            }
+                            unresolved_gaps.insert(step_name.clone());
                         }
-                        event_bus.emit(&BivvyEvent::StepDecided {
-                            name: step_name.clone(),
-                            decision: "skip".to_string(),
-                            reason: Some("requirement_not_met".to_string()),
-                            trace: None,
-                        });
-                        event_bus.emit(&BivvyEvent::StepSkipped {
-                            name: step_name.clone(),
-                            reason: "requirement_not_met".to_string(),
-                        });
-                        ui.message(&step_display);
-                        ui.message(&format!(
-                            "{}{}",
-                            step_pad,
-                            StatusKind::Skipped.format(&theme, "Skipped (requirement not met)")
-                        ));
-                        ui.show_workflow_progress(index + 1, total, start.elapsed());
-                        continue;
                     }
                 }
             }
 
-            // Resolve effective prompt_on_rerun (step-level, possibly overridden)
-            let effective_prompt_on_rerun =
-                decision::effective_prompt_on_rerun(step, step_name, step_overrides);
+            let needs_force = options.force.contains(step_name);
 
-            let mut needs_force = options.force.contains(step_name);
-            let mut already_prompted = false;
-            let mut had_prompt = false;
-
-            // Evaluate precondition using the new CheckEvaluator (never bypassed by --force)
-            if !options.dry_run {
-                if let Some(precondition) = step.execution.effective_precondition() {
-                    let mut evaluator =
-                        CheckEvaluator::new(project_root, &context, &mut self.snapshot_store);
-                    let precond_result = evaluator.evaluate(&precondition);
-                    event_bus.emit(&BivvyEvent::PreconditionEvaluated {
-                        step: step_name.clone(),
-                        check_type: precondition.type_name().to_string(),
-                        outcome: precond_result.outcome.as_str().to_string(),
-                        description: precond_result.description.clone(),
-                    });
-                    if !precond_result.passed_check() {
-                        event_bus.emit(&BivvyEvent::StepDecided {
-                            name: step_name.clone(),
-                            decision: "block".to_string(),
-                            reason: Some("precondition_failed".to_string()),
-                            trace: Some(DecisionTrace {
-                                precondition_result: Some(crate::logging::TraceCheckResult {
-                                    check_type: precondition.type_name().to_string(),
-                                    outcome: precond_result.outcome.as_str().to_string(),
-                                    description: precond_result.description.clone(),
-                                }),
-                                behavior_flags: make_behavior_flags(step, needs_force),
-                                ..Default::default()
-                            }),
-                        });
-                        ui.message(&step_display);
-                        ui.message(&format!(
-                            "{}{}",
-                            step_pad,
-                            StatusKind::Blocked.format(
-                                &theme,
-                                &format!("Precondition failed: {}", precond_result.description)
-                            )
-                        ));
-                        ui.show_workflow_progress(index + 1, total, start.elapsed());
-                        all_success = false;
-                        failed_steps.insert(step_name.clone());
-                        continue;
-                    }
-                }
-            }
-
-            // Collect named check results from this step's checks for cross-step
-            // ref resolution. Must happen for ALL steps with named checks, not just
-            // those with satisfied_when, because downstream steps may reference them
-            // via `ref: step_name.check_name` in their own satisfied_when conditions.
+            // ── Pre-engine: collect named check results for cross-step refs ──
             if !options.dry_run {
                 if let Some(check) = step.execution.effective_check() {
                     if check.has_named_checks() {
@@ -388,354 +203,306 @@ impl<'a> WorkflowRunner<'a> {
                 }
             }
 
-            // Evaluate satisfied_when (unless forced). If satisfied, auto-skip.
-            // --force bypasses satisfaction-based auto-skip.
-            if !needs_force && !options.dry_run && !step.satisfied_when.is_empty() {
-                let mut evaluator =
-                    CheckEvaluator::new(project_root, &context, &mut self.snapshot_store);
-
-                let sat_result = satisfaction::evaluate_satisfaction(
-                    step,
-                    &mut evaluator,
-                    &named_check_results,
-                    step_name,
-                );
-
-                if let Some(ref result) = sat_result {
-                    event_bus.emit(&BivvyEvent::SatisfactionEvaluated {
-                        step: step_name.clone(),
-                        satisfied: result.satisfied,
-                        condition_count: result.condition_count,
-                        passed_count: result.passed_count,
-                    });
-                    if result.satisfied {
-                        satisfied_steps.insert(step_name.clone());
-
-                        // Build a description of why it's satisfied
-                        let descriptions: Vec<&str> = result
-                            .condition_results
-                            .iter()
-                            .map(|r| r.description.as_str())
-                            .collect();
-                        let satisfied_desc = descriptions.join(", ");
-
-                        event_bus.emit(&BivvyEvent::StepDecided {
-                            name: step_name.clone(),
-                            decision: "skip".to_string(),
-                            reason: Some("satisfied".to_string()),
-                            trace: Some(DecisionTrace {
-                                satisfaction: Some(crate::logging::SatisfactionResult {
-                                    satisfied: result.satisfied,
-                                    condition_count: result.condition_count,
-                                    passed_count: result.passed_count,
-                                }),
-                                behavior_flags: make_behavior_flags(step, needs_force),
-                                ..Default::default()
-                            }),
-                        });
-                        event_bus.emit(&BivvyEvent::StepSkipped {
-                            name: step_name.clone(),
-                            reason: format!("satisfied: {}", satisfied_desc),
-                        });
-                        ui.message(&step_display);
-                        let skip_label = crate::ui::satisfaction_label(&satisfied_desc);
-                        ui.message(&format!(
-                            "{}{}",
-                            step_pad,
-                            StatusKind::Success.format(&theme, &skip_label)
-                        ));
-                        ui.show_workflow_progress(index + 1, total, start.elapsed());
-                        results.push(StepResult::check_passed(
-                            &step.name,
-                            CheckResult::passed(format!("satisfied: {}", satisfied_desc)),
-                        ));
-                        continue;
-                    }
+            // ── Decision Engine: evaluate step through the full matrix ──
+            // The engine handles: dependency blocks, force, satisfaction,
+            // prompt_on_rerun, sensitive, confirm, and auto-run decisions.
+            let eval_result = if options.dry_run {
+                // In dry-run mode, skip the engine and auto-run everything
+                EvaluationResult {
+                    decision: StepDecision::AutoRun,
+                    reason: "dry run".to_string(),
+                    satisfaction: None,
                 }
-            }
-
-            // Detect rerun from execution history (independent of check evaluation)
-            let rerun_info = if !needs_force && effective_prompt_on_rerun {
-                state
-                    .as_ref()
-                    .and_then(|s| s.step_last_run(step_name))
-                    .map(|last_run| {
-                        let elapsed = chrono::Utc::now().signed_duration_since(last_run);
-                        let time_since = format_time_since(elapsed);
-                        event_bus.emit(&BivvyEvent::RerunDetected {
-                            name: step_name.clone(),
-                            last_run: last_run.to_rfc3339(),
-                            time_since: time_since.clone(),
-                        });
-                        (last_run.to_rfc3339(), time_since)
-                    })
             } else {
-                None
+                // Scope the engine context so snapshot_store borrow is released after
+                let result = {
+                    let mut engine_ctx = EngineContext {
+                        steps: &self.steps,
+                        project_root,
+                        interpolation: &context,
+                        snapshot_store: &mut self.snapshot_store,
+                        state: state.as_deref(),
+                        step_overrides,
+                        force: &options.force,
+                        named_check_results: &named_check_results,
+                        satisfaction_cache,
+                        evaluated: HashMap::new(),
+                        failed_steps: &failed_steps,
+                        user_skipped_steps: &user_skipped_steps,
+                        satisfied_steps: &satisfied_steps,
+                        unresolved_gaps: &unresolved_gaps,
+                    };
+                    engine::evaluate_step(step_name, &mut engine_ctx)
+                };
+                result
             };
 
-            // Check if already complete (unless forced) using the new CheckEvaluator
-            if !needs_force && !options.dry_run {
-                if let Some(check) = step.execution.effective_check() {
-                    let config_hash = check.config_hash();
-                    let check_type_name = check.type_name().to_string();
-                    let check_name = check.name().map(|s| s.to_string());
-                    let mut evaluator =
-                        CheckEvaluator::new(project_root, &context, &mut self.snapshot_store)
-                            .with_step(step_name, &config_hash)
-                            .with_workflow(workflow_name);
-                    let check_result = evaluator.evaluate(&check);
-                    event_bus.emit(&BivvyEvent::CheckEvaluated {
-                        step: step_name.clone(),
-                        check_name: check_name.clone(),
-                        check_type: check_type_name.clone(),
-                        outcome: check_result.outcome.as_str().to_string(),
-                        description: check_result.description.clone(),
-                        details: check_result.details.clone(),
-                        duration_ms: None,
-                    });
-                    if check_result.passed_check() {
-                        if interactive && effective_prompt_on_rerun {
-                            if step.behavior.skippable {
-                                // Show step header, then ask if they want to re-run
-                                ui.message(&step_header);
-                                let prompt_label = if let Some((_, ref time_since)) = rerun_info {
-                                    format!("This step ran {}. Run again?", time_since)
-                                } else {
-                                    crate::ui::rerun_prompt_label(&check_result.description)
-                                };
-                                let prompt = Prompt {
-                                    key: format!("rerun_{}", step_name),
-                                    question: format!("{}{}", step_pad, prompt_label),
-                                    prompt_type: PromptType::Select {
-                                        options: vec![
-                                            PromptOption {
-                                                label: "No  (n)".to_string(),
-                                                value: "no".to_string(),
-                                            },
-                                            PromptOption {
-                                                label: "Yes (y)".to_string(),
-                                                value: "yes".to_string(),
-                                            },
-                                        ],
-                                    },
-                                    default: Some("no".to_string()),
-                                };
+            // Emit any baseline events from check evaluation
+            emit_baseline_events(&mut self.snapshot_store, event_bus);
 
-                                event_bus.emit(&BivvyEvent::UserPrompted {
-                                    step: Some(step_name.clone()),
-                                    prompt: prompt_label.clone(),
-                                    options: vec!["No  (n)".to_string(), "Yes (y)".to_string()],
-                                });
-                                let answer = ui.prompt(&prompt)?;
-                                let answer_str = answer.as_string();
-                                event_bus.emit(&BivvyEvent::UserResponded {
-                                    step: Some(step_name.clone()),
-                                    input: answer_str.clone(),
-                                    method: crate::logging::InputMethod::ArrowSelect,
-                                });
-                                if answer_str != "yes" {
-                                    // Clear prompt output (question + answer = 2 lines)
-                                    ui.clear_lines(2);
-                                    let skip_label =
-                                        crate::ui::check_passed_label(&check_result.description);
-                                    ui.message(&format!(
-                                        "{}{}",
-                                        step_pad,
-                                        StatusKind::Success.format(&theme, &skip_label)
-                                    ));
-                                    // Record as check-passed (not skipped) — dependents proceed.
-                                    event_bus.emit(&BivvyEvent::StepDecided {
-                                        name: step_name.clone(),
-                                        decision: "skip".to_string(),
-                                        reason: Some("check_passed".to_string()),
-                                        trace: Some(DecisionTrace {
-                                            check_results: vec![NamedCheckResult {
-                                                name: check_name.clone(),
-                                                check_type: check_type_name.clone(),
-                                                outcome: check_result.outcome.as_str().to_string(),
-                                                description: check_result.description.clone(),
-                                            }],
-                                            behavior_flags: make_behavior_flags(step, needs_force),
-                                            ..Default::default()
-                                        }),
-                                    });
-                                    satisfied_steps.insert(step_name.clone());
-                                    results
-                                        .push(StepResult::check_passed(&step.name, check_result));
-                                    continue;
-                                }
-                                // Clear prompt output so spinner starts below step header
-                                ui.clear_lines(2);
-                                needs_force = true;
-                                already_prompted = true;
-                                had_prompt = true;
-                            } else {
-                                // Not skippable, inform and re-run
-                                ui.message(&step_display);
-                                ui.message(&format!("{}Re-running (not skippable)", step_pad));
-                                needs_force = true;
-                            }
-                        } else {
-                            // Not interactive or prompt_on_rerun is false: check passed
-                            event_bus.emit(&BivvyEvent::StepDecided {
+            // ── Act on the engine's decision ──
+            match &eval_result.decision {
+                StepDecision::Block { reason } => {
+                    let reason_str = match reason {
+                        BlockReason::DependencyFailed => {
+                            let blocked_by = step
+                                .depends_on
+                                .iter()
+                                .find(|d| failed_steps.contains(*d))
+                                .cloned()
+                                .unwrap_or_default();
+                            event_bus.emit(&BivvyEvent::DependencyBlocked {
                                 name: step_name.clone(),
-                                decision: "skip".to_string(),
-                                reason: Some("check_passed".to_string()),
-                                trace: Some(DecisionTrace {
-                                    check_results: vec![NamedCheckResult {
-                                        name: check_name.clone(),
-                                        check_type: check_type_name.clone(),
-                                        outcome: check_result.outcome.as_str().to_string(),
-                                        description: check_result.description.clone(),
-                                    }],
-                                    behavior_flags: make_behavior_flags(step, needs_force),
-                                    ..Default::default()
-                                }),
+                                blocked_by,
+                                reason: "dependency_failed".to_string(),
                             });
-                            ui.message(&step_display);
-                            let skip_label =
-                                crate::ui::check_passed_label(&check_result.description);
+                            "dependency_failed"
+                        }
+                        BlockReason::DependencySkipped => "dependency_skipped",
+                        BlockReason::PreconditionFailed => "precondition_failed",
+                        BlockReason::DependencyUnsatisfied => "dependency_unsatisfied",
+                    };
+                    event_bus.emit(&BivvyEvent::StepDecided {
+                        name: step_name.clone(),
+                        decision: "block".to_string(),
+                        reason: Some(reason_str.to_string()),
+                        trace: None,
+                    });
+                    ui.message(&step_display);
+                    ui.message(&format!(
+                        "{}{}",
+                        step_pad,
+                        StatusKind::Blocked.format(&theme, reason.message())
+                    ));
+                    ui.show_workflow_progress(index + 1, total, start.elapsed());
+                    all_success = false;
+                    if matches!(reason, BlockReason::DependencySkipped) {
+                        user_skipped_steps.insert(step_name.clone());
+                        results.push(StepResult::skipped(
+                            &step.name,
+                            CheckResult::passed("Dependency skipped"),
+                        ));
+                    } else {
+                        failed_steps.insert(step_name.clone());
+                    }
+                    continue;
+                }
+
+                StepDecision::Skip {
+                    reason: SkipReason::AutoSatisfied,
+                } => {
+                    satisfied_steps.insert(step_name.clone());
+                    event_bus.emit(&BivvyEvent::StepDecided {
+                        name: step_name.clone(),
+                        decision: "skip".to_string(),
+                        reason: Some("auto_satisfied".to_string()),
+                        trace: Some(DecisionTrace {
+                            behavior_flags: make_behavior_flags(step, needs_force),
+                            ..Default::default()
+                        }),
+                    });
+                    event_bus.emit(&BivvyEvent::StepSkipped {
+                        name: step_name.clone(),
+                        reason: format!("satisfied: {}", eval_result.reason),
+                    });
+                    ui.message(&step_display);
+                    let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
+                    ui.message(&format!(
+                        "{}{}",
+                        step_pad,
+                        StatusKind::Success.format(&theme, &skip_label)
+                    ));
+                    ui.show_workflow_progress(index + 1, total, start.elapsed());
+                    results.push(StepResult::check_passed(
+                        &step.name,
+                        CheckResult::passed(format!("satisfied: {}", eval_result.reason)),
+                    ));
+                    continue;
+                }
+
+                StepDecision::Prompt { prompt_key } => {
+                    ui.message(&step_display);
+
+                    if !interactive {
+                        // Non-interactive: auto-run (can't prompt)
+                        // Fall through to execution
+                    } else if prompt_key.starts_with("rerun_") {
+                        // Rerun prompt: "Ran X ago. Run again?" (default No)
+                        let prompt_text = format!("{}. Run again?", eval_result.reason);
+                        let prompt = Prompt {
+                            key: prompt_key.clone(),
+                            question: format!("{}{}", step_pad, prompt_text),
+                            prompt_type: PromptType::Select {
+                                options: vec![
+                                    PromptOption {
+                                        label: "No  (n)".to_string(),
+                                        value: "no".to_string(),
+                                    },
+                                    PromptOption {
+                                        label: "Yes (y)".to_string(),
+                                        value: "yes".to_string(),
+                                    },
+                                ],
+                            },
+                            default: Some("no".to_string()),
+                        };
+                        let answer = ui.prompt(&prompt)?;
+                        ui.clear_lines(2);
+                        if answer.as_string() != "yes" {
+                            satisfied_steps.insert(step_name.clone());
+                            event_bus.emit(&BivvyEvent::StepSkipped {
+                                name: step_name.clone(),
+                                reason: format!("satisfied: {}", eval_result.reason),
+                            });
+                            let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
                             ui.message(&format!(
                                 "{}{}",
                                 step_pad,
                                 StatusKind::Success.format(&theme, &skip_label)
                             ));
-                            satisfied_steps.insert(step_name.clone());
-                            results.push(StepResult::check_passed(&step.name, check_result));
+                            ui.show_workflow_progress(index + 1, total, start.elapsed());
+                            results.push(StepResult::check_passed(
+                                &step.name,
+                                CheckResult::passed(format!("satisfied: {}", eval_result.reason)),
+                            ));
                             continue;
                         }
+                        // User chose yes — fall through to execution
+                    } else if prompt_key.starts_with("confirm_") {
+                        // Confirm prompt: "Step title?" (default Yes)
+                        let prompt_text = format!("{}?", step.title);
+                        let prompt = Prompt {
+                            key: prompt_key.clone(),
+                            question: format!("{}{}", step_pad, prompt_text),
+                            prompt_type: PromptType::Select {
+                                options: vec![
+                                    PromptOption {
+                                        label: "Yes (y)".to_string(),
+                                        value: "yes".to_string(),
+                                    },
+                                    PromptOption {
+                                        label: "No  (n)".to_string(),
+                                        value: "no".to_string(),
+                                    },
+                                ],
+                            },
+                            default: Some("yes".to_string()),
+                        };
+                        event_bus.emit(&BivvyEvent::UserPrompted {
+                            step: Some(step_name.clone()),
+                            prompt: prompt_text,
+                            options: vec!["Yes (y)".to_string(), "No  (n)".to_string()],
+                        });
+                        let answer = ui.prompt(&prompt)?;
+                        let answer_str = answer.as_string();
+                        event_bus.emit(&BivvyEvent::UserResponded {
+                            step: Some(step_name.clone()),
+                            input: answer_str.clone(),
+                            method: crate::logging::InputMethod::ArrowSelect,
+                        });
+                        if answer_str != "yes" {
+                            ui.clear_lines(2);
+                            event_bus.emit(&BivvyEvent::StepDecided {
+                                name: step_name.clone(),
+                                decision: "skip".to_string(),
+                                reason: Some("user_declined".to_string()),
+                                trace: None,
+                            });
+                            event_bus.emit(&BivvyEvent::StepSkipped {
+                                name: step_name.clone(),
+                                reason: "user_declined".to_string(),
+                            });
+                            ui.message(&format!("{}{}", step_pad, theme.format_skipped("Skipped")));
+                            user_skipped_steps.insert(step_name.clone());
+                            results.push(StepResult::skipped(
+                                &step.name,
+                                CheckResult::passed("User declined"),
+                            ));
+                            continue;
+                        }
+                        ui.clear_lines(2);
+                        // User chose yes — fall through to execution
+                    } else if prompt_key.starts_with("sensitive_") {
+                        // Sensitive prompt: "Handles sensitive data. Continue?"
+                        let prompt_text = "Handles sensitive data. Continue?";
+                        let prompt = Prompt {
+                            key: prompt_key.clone(),
+                            question: prompt_text.to_string(),
+                            prompt_type: PromptType::Select {
+                                options: vec![
+                                    PromptOption {
+                                        label: "Yes (y)".to_string(),
+                                        value: "yes".to_string(),
+                                    },
+                                    PromptOption {
+                                        label: "No (n)".to_string(),
+                                        value: "no".to_string(),
+                                    },
+                                ],
+                            },
+                            default: Some("yes".to_string()),
+                        };
+                        event_bus.emit(&BivvyEvent::UserPrompted {
+                            step: Some(step_name.clone()),
+                            prompt: prompt_text.to_string(),
+                            options: vec!["Yes (y)".to_string(), "No (n)".to_string()],
+                        });
+                        let answer = ui.prompt(&prompt)?;
+                        let answer_str = answer.as_string();
+                        event_bus.emit(&BivvyEvent::UserResponded {
+                            step: Some(step_name.clone()),
+                            input: answer_str.clone(),
+                            method: crate::logging::InputMethod::ArrowSelect,
+                        });
+                        if answer_str != "yes" {
+                            if step.behavior.skippable {
+                                event_bus.emit(&BivvyEvent::StepSkipped {
+                                    name: step_name.clone(),
+                                    reason: "user_declined_sensitive".to_string(),
+                                });
+                                ui.message(&format!(
+                                    "{}{}",
+                                    step_pad,
+                                    theme.format_skipped("Skipped (declined sensitive step)")
+                                ));
+                                results.push(StepResult::skipped(
+                                    &step.name,
+                                    CheckResult::passed("User declined sensitive step"),
+                                ));
+                                continue;
+                            } else {
+                                return Err(BivvyError::StepExecutionError {
+                                    step: step_name.clone(),
+                                    message: format!(
+                                        "Step '{}' is sensitive and not skippable, but user declined",
+                                        step.title
+                                    ),
+                                });
+                            }
+                        }
+                        // User chose yes — fall through to execution
                     }
                 }
-            }
 
-            // Emit any baseline events from check evaluation
-            emit_baseline_events(&mut self.snapshot_store, event_bus);
+                StepDecision::AutoRun | StepDecision::Run => {
+                    // Show step header, then fall through to execution
+                    ui.message(&step_display);
+                }
 
-            // In interactive mode, prompt before running skippable steps
-            // (skip if already prompted by completed check)
-            if interactive && step.behavior.skippable && !already_prompted {
-                // Show step header, then prompt with indented title
-                ui.message(&step_header);
-                let prompt_text = format!("{}?", step.title);
-                let prompt = Prompt {
-                    key: format!("run_{}", step_name),
-                    question: format!("{}{}", step_pad, prompt_text),
-                    prompt_type: PromptType::Select {
-                        options: vec![
-                            PromptOption {
-                                label: "No  (n)".to_string(),
-                                value: "no".to_string(),
-                            },
-                            PromptOption {
-                                label: "Yes (y)".to_string(),
-                                value: "yes".to_string(),
-                            },
-                        ],
-                    },
-                    default: Some("no".to_string()),
-                };
-                event_bus.emit(&BivvyEvent::UserPrompted {
-                    step: Some(step_name.clone()),
-                    prompt: prompt_text,
-                    options: vec!["No  (n)".to_string(), "Yes (y)".to_string()],
-                });
-                let answer = ui.prompt(&prompt)?;
-                let answer_str = answer.as_string();
-                event_bus.emit(&BivvyEvent::UserResponded {
-                    step: Some(step_name.clone()),
-                    input: answer_str.clone(),
-                    method: crate::logging::InputMethod::ArrowSelect,
-                });
-                if answer_str != "yes" {
-                    // Clear prompt output (question + answer = 2 lines)
-                    ui.clear_lines(2);
-                    event_bus.emit(&BivvyEvent::StepDecided {
-                        name: step_name.clone(),
-                        decision: "skip".to_string(),
-                        reason: Some("user_declined".to_string()),
-                        trace: None,
-                    });
-                    event_bus.emit(&BivvyEvent::StepSkipped {
-                        name: step_name.clone(),
-                        reason: "user_declined".to_string(),
-                    });
-                    ui.message(&format!("{}{}", step_pad, theme.format_skipped("Skipped")));
-                    user_skipped_steps.insert(step_name.clone());
+                StepDecision::Skip { reason } => {
+                    // Other skip reasons (shouldn't normally happen from engine)
+                    ui.message(&step_display);
+                    ui.message(&format!(
+                        "{}{}",
+                        step_pad,
+                        StatusKind::Skipped.format(&theme, reason.message())
+                    ));
+                    ui.show_workflow_progress(index + 1, total, start.elapsed());
                     results.push(StepResult::skipped(
                         &step.name,
-                        CheckResult::passed("User declined"),
+                        CheckResult::passed(reason.message()),
                     ));
                     continue;
-                }
-                // Clear prompt output (question + answer = 2 lines)
-                // so spinner starts directly below step header
-                ui.clear_lines(2);
-                had_prompt = true;
-            }
-
-            // Show step name if no prompt was shown (non-interactive or non-skippable)
-            if !had_prompt && !already_prompted {
-                ui.message(&step_display);
-            }
-
-            // Sensitive confirmation (skip in dry-run — nothing will actually execute)
-            if step.behavior.sensitive && interactive && !options.dry_run {
-                let prompt_text = "Handles sensitive data. Continue?";
-                let prompt = Prompt {
-                    key: format!("sensitive_{}", step_name),
-                    question: prompt_text.to_string(),
-                    prompt_type: PromptType::Select {
-                        options: vec![
-                            PromptOption {
-                                label: "Yes (y)".to_string(),
-                                value: "yes".to_string(),
-                            },
-                            PromptOption {
-                                label: "No (n)".to_string(),
-                                value: "no".to_string(),
-                            },
-                        ],
-                    },
-                    default: Some("yes".to_string()),
-                };
-
-                event_bus.emit(&BivvyEvent::UserPrompted {
-                    step: Some(step_name.clone()),
-                    prompt: prompt_text.to_string(),
-                    options: vec!["Yes (y)".to_string(), "No (n)".to_string()],
-                });
-                let answer = ui.prompt(&prompt)?;
-                let answer_str = answer.as_string();
-                event_bus.emit(&BivvyEvent::UserResponded {
-                    step: Some(step_name.clone()),
-                    input: answer_str.clone(),
-                    method: crate::logging::InputMethod::ArrowSelect,
-                });
-                if answer_str != "yes" {
-                    if step.behavior.skippable {
-                        event_bus.emit(&BivvyEvent::StepSkipped {
-                            name: step_name.clone(),
-                            reason: "user_declined_sensitive".to_string(),
-                        });
-                        ui.message(&format!(
-                            "{}{}",
-                            step_pad,
-                            theme.format_skipped("Skipped (declined sensitive step)")
-                        ));
-                        results.push(StepResult::skipped(
-                            &step.name,
-                            CheckResult::passed("User declined sensitive step"),
-                        ));
-                        continue;
-                    } else {
-                        return Err(BivvyError::StepExecutionError {
-                            step: step_name.clone(),
-                            message: format!(
-                                "Step '{}' is sensitive and not skippable, but user declined",
-                                step.title
-                            ),
-                        });
-                    }
                 }
             }
 
@@ -898,6 +665,20 @@ impl<'a> WorkflowRunner<'a> {
             // if satisfied_when is omitted, satisfaction = "step ran successfully")
             if status == StepStatus::Completed {
                 satisfied_steps.insert(step_name.clone());
+
+                // Record successful execution in satisfaction cache
+                let record = SatisfactionRecord {
+                    satisfied: true,
+                    source: crate::state::satisfaction::SatisfactionSource::ExecutionHistory,
+                    recorded_at: chrono::Utc::now(),
+                    evidence: crate::state::satisfaction::SatisfactionEvidence::HistoricalRun {
+                        ran_at: chrono::Utc::now(),
+                        exit_code: exec_result.result.exit_code.unwrap_or(0),
+                    },
+                    config_hash: None,
+                    step_hash: None,
+                };
+                satisfaction_cache.store(step_name, record);
             }
 
             results.push(exec_result.result);
@@ -915,6 +696,13 @@ impl<'a> WorkflowRunner<'a> {
                 workflow_aborted = true;
                 all_success = false;
                 break;
+            }
+        }
+
+        // Flush satisfaction cache to disk
+        if !options.dry_run {
+            if let Err(e) = satisfaction_cache.flush() {
+                tracing::warn!("Failed to flush satisfaction cache: {}", e);
             }
         }
 
@@ -945,52 +733,5 @@ impl<'a> WorkflowRunner<'a> {
             success: all_success,
             aborted: workflow_aborted,
         })
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn format_time_since_seconds() {
-        let d = chrono::Duration::seconds(30);
-        assert_eq!(format_time_since(d), "seconds ago");
-    }
-
-    #[test]
-    fn format_time_since_one_minute() {
-        let d = chrono::Duration::seconds(90);
-        assert_eq!(format_time_since(d), "1 minute ago");
-    }
-
-    #[test]
-    fn format_time_since_minutes() {
-        let d = chrono::Duration::minutes(15);
-        assert_eq!(format_time_since(d), "15 minutes ago");
-    }
-
-    #[test]
-    fn format_time_since_one_hour() {
-        let d = chrono::Duration::hours(1);
-        assert_eq!(format_time_since(d), "1 hour ago");
-    }
-
-    #[test]
-    fn format_time_since_hours() {
-        let d = chrono::Duration::hours(5);
-        assert_eq!(format_time_since(d), "5 hours ago");
-    }
-
-    #[test]
-    fn format_time_since_one_day() {
-        let d = chrono::Duration::days(1);
-        assert_eq!(format_time_since(d), "1 day ago");
-    }
-
-    #[test]
-    fn format_time_since_days() {
-        let d = chrono::Duration::days(3);
-        assert_eq!(format_time_since(d), "3 days ago");
     }
 }

@@ -172,14 +172,6 @@ impl StatusCommand {
             Vec::new()
         };
 
-        // Build last run info
-        let last_run = state.last_run_record().map(|r| {
-            json!({
-                "timestamp": r.timestamp.to_rfc3339(),
-                "workflow": r.workflow,
-            })
-        });
-
         // Assemble top-level JSON
         let mut output = json!({
             "app_name": app_name,
@@ -192,10 +184,6 @@ impl StatusCommand {
 
         if !requirements.is_empty() {
             output["requirements"] = json!(requirements);
-        }
-
-        if let Some(lr) = last_run {
-            output["last_run"] = lr;
         }
 
         let json_str = serde_json::to_string_pretty(&output)
@@ -286,16 +274,13 @@ impl Command for StatusCommand {
         ));
         ui.message("");
 
-        // Show last run info with relative time
-        if let Some(last_run) = state.last_run_record() {
+        // Show last run info by checking step state timestamps
+        let most_recent_step_run = state.steps.values().filter_map(|s| s.last_run).max();
+        if let Some(last_ts) = most_recent_step_run {
             ui.message(&format!(
-                "  {} {} {} {}",
-                theme.key.apply_to("Last run:"),
-                theme.dim.apply_to(format_relative_time(last_run.timestamp)),
-                theme.dim.apply_to("·"),
-                theme
-                    .dim
-                    .apply_to(format!("{} workflow", last_run.workflow)),
+                "  {} {}",
+                theme.key.apply_to("Last activity:"),
+                theme.dim.apply_to(format_relative_time(last_ts)),
             ));
             ui.message("");
         }

@@ -14,8 +14,11 @@ use crate::steps::ResolvedStep;
 /// decision — running, skipping, prompting, or blocking the step accordingly.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StepDecision {
-    /// Execute the step.
+    /// Execute the step (user explicitly requested, e.g. via prompt response).
     Run,
+    /// Auto-run the step without prompting. The decision engine determined the
+    /// step is not satisfied and should execute.
+    AutoRun,
     /// Auto-skip the step without prompting.
     Skip { reason: SkipReason },
     /// Ask the user whether to run/skip/re-run.
@@ -56,6 +59,9 @@ pub enum SkipReason {
     CheckPassed,
     /// The step's `satisfied_when` conditions all passed (purpose already fulfilled).
     Satisfied,
+    /// The decision engine auto-determined that the step is satisfied
+    /// (via computed satisfaction: checks, rerun window, or explicit conditions).
+    AutoSatisfied,
     /// The user declined to run the step.
     UserDeclined,
     /// The user declined a sensitive step.
@@ -70,6 +76,7 @@ impl SkipReason {
         match self {
             SkipReason::CheckPassed => "Already complete",
             SkipReason::Satisfied => "Already satisfied",
+            SkipReason::AutoSatisfied => "Already satisfied",
             SkipReason::UserDeclined => "Skipped",
             SkipReason::SensitiveDeclined => "Skipped (declined sensitive step)",
             SkipReason::RequirementNotMet => "Skipped (requirement not met)",
@@ -207,6 +214,7 @@ mod tests {
     fn skip_reason_messages() {
         assert_eq!(SkipReason::CheckPassed.message(), "Already complete");
         assert_eq!(SkipReason::Satisfied.message(), "Already satisfied");
+        assert_eq!(SkipReason::AutoSatisfied.message(), "Already satisfied");
         assert_eq!(SkipReason::UserDeclined.message(), "Skipped");
         assert_eq!(
             SkipReason::SensitiveDeclined.message(),
@@ -267,10 +275,23 @@ mod tests {
         let run = StepDecision::Run;
         assert_eq!(run, StepDecision::Run);
 
+        let auto_run = StepDecision::AutoRun;
+        assert_eq!(auto_run, StepDecision::AutoRun);
+
         let skip = StepDecision::Skip {
             reason: SkipReason::CheckPassed,
         };
         assert!(matches!(skip, StepDecision::Skip { .. }));
+
+        let auto_satisfied = StepDecision::Skip {
+            reason: SkipReason::AutoSatisfied,
+        };
+        assert!(matches!(
+            auto_satisfied,
+            StepDecision::Skip {
+                reason: SkipReason::AutoSatisfied
+            }
+        ));
 
         let prompt = StepDecision::Prompt {
             prompt_key: "rerun_install".to_string(),

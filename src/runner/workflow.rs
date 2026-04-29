@@ -83,6 +83,8 @@ pub struct RunOptions {
     pub active_environment: Option<String>,
     /// Use the diagnostic funnel pipeline for error recovery.
     pub diagnostic_funnel: bool,
+    /// Discard all persisted satisfaction records and evaluate everything fresh.
+    pub fresh: bool,
 }
 
 impl<'a> WorkflowRunner<'a> {

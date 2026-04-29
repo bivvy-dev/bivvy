@@ -71,11 +71,14 @@ pub struct ResolvedEnvironmentVars {
 /// Resolved behavior fields (skippable, required, etc.).
 #[derive(Debug, Clone)]
 pub struct ResolvedBehavior {
-    /// Whether step can be skipped.
+    /// Whether step can be skipped via `--skip`.
     pub skippable: bool,
 
     /// Whether step is required.
     pub required: bool,
+
+    /// Always prompt the user before running this step.
+    pub confirm: bool,
 
     /// Prompt before re-running completed.
     pub prompt_on_rerun: bool,
@@ -85,6 +88,9 @@ pub struct ResolvedBehavior {
 
     /// Sensitive step.
     pub sensitive: bool,
+
+    /// How long a previous successful run counts as recent enough.
+    pub rerun_window: crate::runner::RerunWindow,
 }
 
 impl Default for ResolvedBehavior {
@@ -92,9 +98,11 @@ impl Default for ResolvedBehavior {
         Self {
             skippable: true,
             required: false,
+            confirm: false,
             prompt_on_rerun: true,
             allow_failure: false,
             sensitive: false,
+            rerun_window: crate::runner::RerunWindow::default(),
         }
     }
 }
@@ -221,9 +229,11 @@ impl ResolvedStep {
             behavior: ResolvedBehavior {
                 skippable: config.behavior.skippable,
                 required: config.behavior.required,
+                confirm: config.behavior.confirm,
                 prompt_on_rerun: config.behavior.prompt_on_rerun,
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
+                rerun_window: resolve_rerun_window(config.behavior.rerun_window.as_deref()),
             },
             hooks: ResolvedHooks {
                 before: config.hooks.before.clone(),
@@ -279,9 +289,11 @@ impl ResolvedStep {
             behavior: ResolvedBehavior {
                 skippable: config.behavior.skippable,
                 required: config.behavior.required,
+                confirm: config.behavior.confirm,
                 prompt_on_rerun: config.behavior.prompt_on_rerun,
                 allow_failure: config.behavior.allow_failure,
                 sensitive: config.behavior.sensitive,
+                rerun_window: resolve_rerun_window(config.behavior.rerun_window.as_deref()),
             },
             hooks: ResolvedHooks {
                 before: config.hooks.before.clone(),
@@ -361,6 +373,20 @@ impl ResolvedStep {
         if let Some(r) = overrides.retry {
             self.execution.retry = r;
         }
+        if let Some(v) = overrides.confirm {
+            self.behavior.confirm = v;
+        }
+        if let Some(ref w) = overrides.rerun_window {
+            self.behavior.rerun_window = resolve_rerun_window(Some(w));
+        }
+    }
+}
+
+/// Resolve a rerun window string to a `RerunWindow`, falling back to the default.
+fn resolve_rerun_window(window_str: Option<&str>) -> crate::runner::RerunWindow {
+    match window_str {
+        Some(s) => s.parse().unwrap_or_default(),
+        None => crate::runner::RerunWindow::default(),
     }
 }
 
