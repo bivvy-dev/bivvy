@@ -331,6 +331,6 @@ steps:
     check:
       type: presence
       target: "node_modules"
-    prompt_on_rerun: true      # Ask before re-running (default: true)
+    prompt_on_rerun: false     # Skip silently if satisfied (default: false)
     skippable: true            # Allow skipping (default: true)
 ```

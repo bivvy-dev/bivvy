@@ -36,11 +36,6 @@ app_name: "MyApp"
 # --------------------------------------------------------------------------
 settings:
 
-  # Output verbosity: verbose | quiet | silent
-  # Override per-run with --verbose, --quiet, or --silent
-  # Default: verbose
-  default_output: verbose
-
   # Write logs to a file
   # Default: false
   logging: false
@@ -109,6 +104,11 @@ settings:
   # Type: map (optional)
   defaults:
 
+    # Output verbosity: verbose | quiet | silent
+    # Override per-run with --verbose, --quiet, or --silent
+    # Default: verbose
+    output: verbose
+
     # Whether steps auto-run when the pipeline determines they need to run.
     # When false, the user is prompted "Run <step>?" before each step executes.
     # Default: true
@@ -116,8 +116,8 @@ settings:
 
     # Whether to prompt before re-running a step completed within the rerun window.
     # When false, recently-completed steps are silently skipped.
-    # Default: true
-    prompt_on_rerun: true
+    # Default: false
+    prompt_on_rerun: false
 
     # Default rerun window for all steps (how long a previous success counts as recent).
     # Steps override with their own rerun_window field.
@@ -286,8 +286,8 @@ steps:
     # auto_run: true
 
     # Ask before re-running a step that's already complete
-    # Default: true
-    prompt_on_rerun: true
+    # Default: false
+    prompt_on_rerun: false
 
     # Continue the workflow even if this step fails
     # Default: false

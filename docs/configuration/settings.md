@@ -6,7 +6,8 @@ Global settings control Bivvy's behavior across all workflows.
 
 ```yaml
 settings:
-  default_output: verbose  # verbose | quiet | silent
+  defaults:
+    output: verbose        # verbose | quiet | silent
   logging: true            # Enable JSONL event logging (default: true)
   log_retention_days: 30   # Max age of log files in days (default: 30)
   log_retention_mb: 500    # Max total size of log files in MB (default: 500)
@@ -128,7 +129,7 @@ Set default behavior for all steps:
 settings:
   defaults:
     auto_run: true          # Auto-run unsatisfied steps (default: true)
-    prompt_on_rerun: true   # Ask before re-running satisfied steps (default: true)
+    prompt_on_rerun: false  # Skip satisfied steps silently (default: false)
     rerun_window: "4h"      # How long a successful run counts as satisfied (default: "4h")
 ```
 

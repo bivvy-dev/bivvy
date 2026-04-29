@@ -46,9 +46,9 @@ Once satisfaction is determined, the decision engine follows this logic:
 2. **Precondition** -- If the step has a precondition and it fails, the step
    is **blocked**.
 3. **Satisfied** -- If the step is satisfied:
-   - With `prompt_on_rerun: true` (default): you are **prompted** to re-run
+   - With `prompt_on_rerun: false` (default): the step is **skipped** silently.
+   - With `prompt_on_rerun: true`: you are **prompted** to re-run
      or skip.
-   - With `prompt_on_rerun: false`: the step is **skipped** silently.
 4. **Not satisfied** -- If the step needs to run:
    - With `auto_run: true` (default): the step **auto-runs**.
    - With `auto_run: false`: you are **prompted** before execution.
@@ -83,15 +83,15 @@ settings:
 
 ### `prompt_on_rerun`
 
-Controls what happens when a step is already satisfied. When `true` (the
-default), Bivvy asks if you want to re-run it. When `false`, satisfied
-steps are silently skipped.
+Controls what happens when a step is already satisfied. When `false` (the
+default), satisfied steps are silently skipped. When `true`, Bivvy asks
+if you want to re-run it.
 
 ```yaml
 steps:
-  install_deps:
-    command: npm install
-    prompt_on_rerun: false  # skip silently if satisfied
+  deploy:
+    command: ./scripts/deploy.sh
+    prompt_on_rerun: true  # ask before re-running
 ```
 
 Set the global default:
@@ -99,7 +99,7 @@ Set the global default:
 ```yaml
 settings:
   defaults:
-    prompt_on_rerun: true  # default for all steps
+    prompt_on_rerun: false  # default for all steps
 ```
 
 ### `rerun_window`

@@ -30,7 +30,7 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `default_output` | `verbose` \| `quiet` \| `silent` | `verbose` | Output verbosity |
+| `defaults.output` | `verbose` \| `quiet` \| `silent` | `verbose` | Output verbosity |
 | `logging` | bool | `true` | Enable JSONL event logging to `~/.bivvy/logs/` |
 | `log_retention_days` | int | `30` | Max age of log files in days |
 | `log_retention_mb` | int | `500` | Max total size of log files in MB |
@@ -54,7 +54,7 @@ Project-wide (or system-wide) defaults for step behavior. Step-level settings ov
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `auto_run` | bool | `true` | Whether steps auto-run when the pipeline says they need to run. When `false`, the user is prompted before each step executes. |
-| `prompt_on_rerun` | bool | `true` | Whether to prompt before re-running a recently completed step. When `false`, recently-completed steps are silently skipped. |
+| `prompt_on_rerun` | bool | `false` | Whether to prompt before re-running a recently completed step. When `false`, recently-completed steps are silently skipped. |
 | `rerun_window` | string | `"4h"` | Default rerun window for all steps. Accepts duration strings: `"4h"`, `"30m"`, `"7d"`, `"0"`/`"never"`, `"forever"`. |
 
 ### Step
@@ -77,7 +77,7 @@ At minimum, a step needs either `command` or `template`.
 | `required` | bool | `false` | Cannot be skipped |
 | `auto_run` | bool | — | Auto-run when pipeline says step needs to run. `None` = use global default. |
 | `confirm` | bool | `false` | Always prompt user before running (never auto-runs) |
-| `prompt_on_rerun` | bool | `true` | Ask before re-running |
+| `prompt_on_rerun` | bool | `false` | Ask before re-running |
 | `allow_failure` | bool | `false` | Continue workflow on failure |
 | `retry` | int | `0` | Retry attempts on failure |
 | `env` | map | `{}` | Step-specific env vars |

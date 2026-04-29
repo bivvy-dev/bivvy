@@ -251,7 +251,7 @@ mod tests {
     fn effective_prompt_uses_step_default() {
         let step = make_step("a", vec![]);
         let overrides = HashMap::new();
-        assert!(effective_prompt_on_rerun(&step, "a", &overrides));
+        assert!(!effective_prompt_on_rerun(&step, "a", &overrides));
     }
 
     #[test]

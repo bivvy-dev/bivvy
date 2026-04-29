@@ -151,7 +151,7 @@ mod tests {
 
         // These are fields from flattened sub-structs that should appear somewhere
         for field in &[
-            "default_output",
+            "defaults",
             "parallel",
             "max_parallel",
             "logging",
@@ -215,4 +215,5 @@ mod tests {
             "Embedded schema is stale. Regenerate with: cargo run -- schema -o generated/schema.json"
         );
     }
+
 }

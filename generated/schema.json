@@ -457,8 +457,17 @@
           "description": "Whether steps auto-run when the pipeline determines they need to run. When false, the user is prompted before each step executes. Default: true.",
           "type": "boolean"
         },
+        "output": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/OutputMode"
+            }
+          ],
+          "default": "verbose",
+          "description": "Default output mode: verbose, quiet, silent"
+        },
         "prompt_on_rerun": {
-          "description": "Whether to prompt the user before re-running a step that was recently completed (within the rerun window). When false, recently-completed steps are silently skipped. Default: true.",
+          "description": "Whether to prompt the user before re-running a step that was recently completed (within the rerun window). When false, recently-completed steps are silently skipped. Default: false.",
           "type": "boolean"
         },
         "rerun_window": {
@@ -699,7 +708,7 @@
       "type": "object"
     },
     "Settings": {
-      "description": "Global settings that apply to all workflows and steps.\n\nUses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat (e.g., `settings.default_output` in YAML, not `settings.output.default_output`).",
+      "description": "Global settings that apply to all workflows and steps.\n\nUses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat (e.g., `settings.parallel` in YAML, not `settings.execution.parallel`).",
       "properties": {
         "auto_update": {
           "default": true,
@@ -712,15 +721,6 @@
             "string",
             "null"
           ]
-        },
-        "default_output": {
-          "allOf": [
-            {
-              "$ref": "#/definitions/OutputMode"
-            }
-          ],
-          "default": "verbose",
-          "description": "Default output mode: verbose, quiet, silent"
         },
         "default_rerun_window": {
           "description": "Global default rerun window for all steps. Steps can override this with their own `rerun_window` field. Accepts duration strings: `\"4h\"`, `\"30m\"`, `\"7d\"`, `\"0\"`/`\"never\"`, `\"forever\"`. Default: `\"4h\"`.",
@@ -1461,8 +1461,7 @@
         }
       ],
       "default": {
-        "auto_update": true,
-        "default_output": "verbose"
+        "auto_update": true
       },
       "description": "Global settings"
     },

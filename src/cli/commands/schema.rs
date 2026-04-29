@@ -6,6 +6,7 @@ use std::fs;
 
 use crate::cli::args::SchemaArgs;
 use crate::error::Result;
+use crate::lint::schema::SchemaGenerator;
 use crate::lint::EMBEDDED_SCHEMA_JSON;
 use crate::ui::UserInterface;
 
@@ -25,18 +26,24 @@ impl SchemaCommand {
 
 impl Command for SchemaCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        let json = EMBEDDED_SCHEMA_JSON;
-
         if let Some(ref path) = self.args.output {
+            // When writing to a file, generate fresh from the types so the
+            // output always reflects the current code — even if the embedded
+            // schema (baked in at compile time) is stale.
+            let generated = SchemaGenerator::new().generate();
+            let json = serde_json::to_string_pretty(&generated)?;
+
             if let Some(parent) = path.parent() {
                 if !parent.as_os_str().is_empty() {
                     fs::create_dir_all(parent)?;
                 }
             }
-            fs::write(path, json)?;
+            fs::write(path, format!("{json}\n"))?;
             ui.success(&format!("Wrote schema to {}", path.display()));
         } else {
-            ui.message(json);
+            // For stdout, use the embedded schema — it's fast and
+            // avoids runtime generation for normal `bivvy schema` usage.
+            ui.message(EMBEDDED_SCHEMA_JSON);
         }
 
         Ok(CommandResult::success())

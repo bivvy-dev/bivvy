@@ -67,23 +67,6 @@ pub struct BivvyConfig {
     pub vars: HashMap<String, VarDefinition>,
 }
 
-/// Output-related settings (verbosity).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(default)]
-pub struct OutputSettings {
-    /// Default output mode: verbose, quiet, silent
-    #[serde(default = "default_output")]
-    pub default_output: OutputMode,
-}
-
-impl Default for OutputSettings {
-    fn default() -> Self {
-        Self {
-            default_output: default_output(),
-        }
-    }
-}
-
 /// JSONL event logging settings.
 ///
 /// Controls whether structured event logs are written to `~/.bivvy/logs/`
@@ -244,6 +227,10 @@ pub struct EnvironmentProfileSettings {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct DefaultsSettings {
+    /// Default output mode: verbose, quiet, silent
+    #[serde(default = "default_output")]
+    pub output: OutputMode,
+
     /// Whether steps auto-run when the pipeline determines they need to run.
     /// When false, the user is prompted before each step executes.
     /// Default: true.
@@ -252,8 +239,8 @@ pub struct DefaultsSettings {
 
     /// Whether to prompt the user before re-running a step that was recently
     /// completed (within the rerun window). When false, recently-completed
-    /// steps are silently skipped. Default: true.
-    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    /// steps are silently skipped. Default: false.
+    #[serde(default, skip_serializing_if = "is_false")]
     pub prompt_on_rerun: bool,
 
     /// Default rerun window for all steps.
@@ -267,8 +254,9 @@ pub struct DefaultsSettings {
 impl Default for DefaultsSettings {
     fn default() -> Self {
         Self {
+            output: default_output(),
             auto_run: true,
-            prompt_on_rerun: true,
+            prompt_on_rerun: false,
             rerun_window: None,
         }
     }
@@ -276,21 +264,20 @@ impl Default for DefaultsSettings {
 
 impl DefaultsSettings {
     fn is_default(&self) -> bool {
-        self.auto_run && self.prompt_on_rerun && self.rerun_window.is_none()
+        matches!(self.output, OutputMode::Verbose)
+            && self.auto_run
+            && !self.prompt_on_rerun
+            && self.rerun_window.is_none()
     }
 }
 
 /// Global settings that apply to all workflows and steps.
 ///
 /// Uses `#[serde(flatten)]` on sub-structs so the YAML surface stays flat
-/// (e.g., `settings.default_output` in YAML, not `settings.output.default_output`).
+/// (e.g., `settings.parallel` in YAML, not `settings.execution.parallel`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 pub struct Settings {
-    /// Output-related settings (verbosity)
-    #[serde(flatten)]
-    pub output: OutputSettings,
-
     /// JSONL event logging settings (enable/disable, retention)
     #[serde(flatten)]
     pub logging: LoggingSettings,
@@ -1027,7 +1014,7 @@ mod tests {
     #[test]
     fn empty_config_has_defaults() {
         let config: BivvyConfig = serde_yaml::from_str("").unwrap();
-        assert_eq!(config.settings.output.default_output, OutputMode::Verbose);
+        assert_eq!(config.settings.defaults.output, OutputMode::Verbose);
         assert_eq!(config.settings.execution.max_parallel, 4);
         assert_eq!(config.settings.execution.history_retention, 50);
         assert!(config.settings.logging.logging);
@@ -1042,11 +1029,12 @@ mod tests {
         let yaml = r#"
 app_name: "MyApp"
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(config.app_name, Some("MyApp".to_string()));
-        assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
+        assert_eq!(config.settings.defaults.output, OutputMode::Quiet);
     }
 
     #[test]
@@ -1114,11 +1102,12 @@ settings:
 settings:
   logging: true
   log_path: "logs/bivvy.log"
-  default_output: verbose
+  defaults:
+    output: verbose
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        // logging and log_path are silently ignored; default_output still works
-        assert_eq!(config.settings.output.default_output, OutputMode::Verbose);
+        // logging and log_path are silently ignored; defaults.output still works
+        assert_eq!(config.settings.defaults.output, OutputMode::Verbose);
     }
 
     #[test]
@@ -1745,12 +1734,12 @@ settings:
 settings:
   defaults:
     auto_run: false
-    prompt_on_rerun: false
+    prompt_on_rerun: true
     rerun_window: "8h"
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(!config.settings.defaults.auto_run);
-        assert!(!config.settings.defaults.prompt_on_rerun);
+        assert!(config.settings.defaults.prompt_on_rerun);
         assert_eq!(
             config.settings.defaults.rerun_window,
             Some("8h".to_string())
@@ -1764,7 +1753,7 @@ app_name: test
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
         assert!(config.settings.defaults.auto_run);
-        assert!(config.settings.defaults.prompt_on_rerun);
+        assert!(!config.settings.defaults.prompt_on_rerun);
         assert!(config.settings.defaults.rerun_window.is_none());
     }
 
