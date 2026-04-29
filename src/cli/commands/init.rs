@@ -56,9 +56,7 @@ impl InitCommand {
             .unwrap_or("MyApp");
 
         let mut config = format!(
-            "# yaml-language-server: $schema=https://bivvy.dev/schemas/config.json\n\
-             \n\
-             # Bivvy configuration for {project_name}\n\
+            "# Bivvy configuration for {project_name}\n\
              # Docs: https://bivvy.dev/configuration\n\
              #\n\
              # Override any template field per-step:\n\
@@ -136,7 +134,6 @@ impl InitCommand {
         fs::create_dir_all(&bivvy_dir)?;
         fs::copy(&source, bivvy_dir.join("config.yml"))?;
 
-        self.write_schema_file(ui)?;
         self.update_gitignore(ui)?;
 
         ui.message("");
@@ -200,7 +197,6 @@ impl InitCommand {
         fs::create_dir_all(&bivvy_dir)?;
         fs::write(bivvy_dir.join("config.yml"), &config)?;
 
-        self.write_schema_file(ui)?;
         self.update_gitignore(ui)?;
 
         ui.message("");
@@ -219,19 +215,11 @@ impl InitCommand {
         Ok(CommandResult::success())
     }
 
-    /// Write `.bivvy/schema.json` for offline IDE support.
-    fn write_schema_file(&self, ui: &mut dyn OutputWriter) -> Result<()> {
-        let schema_path = self.project_root.join(".bivvy/schema.json");
-        fs::write(&schema_path, crate::lint::schema_json())?;
-        ui.message("Generated .bivvy/schema.json for IDE support");
-        Ok(())
-    }
-
-    /// Update gitignore to exclude local overrides and generated schema.
+    /// Update gitignore to exclude local overrides.
     ///
     /// Only requires `OutputWriter` — displays a message but does not prompt.
     fn update_gitignore(&self, ui: &mut dyn OutputWriter) -> Result<()> {
-        let entries = [".bivvy/config.local.yml", ".bivvy/schema.json"];
+        let entries = [".bivvy/config.local.yml"];
         let gitignore_path = self.project_root.join(".gitignore");
 
         if gitignore_path.exists() {
@@ -359,9 +347,6 @@ impl Command for InitCommand {
         let bivvy_dir = self.project_root.join(".bivvy");
         fs::create_dir_all(&bivvy_dir)?;
         fs::write(bivvy_dir.join("config.yml"), &config)?;
-
-        // Write schema for IDE support
-        self.write_schema_file(ui)?;
 
         // Update gitignore
         self.update_gitignore(ui)?;

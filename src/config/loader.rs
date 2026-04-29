@@ -146,31 +146,45 @@ impl ConfigPaths {
     }
 }
 
-/// Ensure the global config directory and file exist.
+/// Ensure the global config directory, config file, and schema exist.
 ///
-/// Creates `~/.bivvy/config.yml` with commented-out examples if it
-/// doesn't already exist. Called on every invocation so every install
-/// path (Homebrew, `cargo install`, `install.sh`) gets the global
-/// config without relying on the installer.
+/// Creates `~/.bivvy/config.yml` (with commented-out examples) and
+/// `~/.bivvy/schema.json` if they don't already exist. Called on every
+/// invocation so every install path (Homebrew, `cargo install`,
+/// `install.sh`) gets the global config without relying on the installer.
+///
+/// The schema file is always rewritten so it stays current after upgrades.
 ///
 /// Failures are silently ignored — a missing global config is not fatal.
 pub fn ensure_global_config() {
     let Some(home) = crate::sys::home_dir() else {
         return;
     };
+    ensure_global_config_in(home);
+}
 
+/// Inner implementation that accepts an explicit home directory.
+///
+/// Separated from [`ensure_global_config`] so tests can point at a temp dir.
+fn ensure_global_config_in(home: PathBuf) {
     let bivvy_dir = home.join(".bivvy");
-    let config_path = bivvy_dir.join("config.yml");
-
-    if config_path.exists() {
-        return;
-    }
 
     if fs::create_dir_all(&bivvy_dir).is_err() {
         return;
     }
 
-    let content = "\
+    // Write schema.json on every run so it stays current after upgrades.
+    let schema_path = bivvy_dir.join("schema.json");
+    let _ = fs::write(&schema_path, crate::lint::schema_json());
+
+    // Only create config.yml if it doesn't exist yet.
+    let config_path = bivvy_dir.join("config.yml");
+    if !config_path.exists() {
+        let schema_display = schema_path.display();
+        let content = format!(
+            "\
+# yaml-language-server: $schema={schema_display}
+#
 # Bivvy global configuration
 # Docs: https://bivvy.dev/configuration
 #
@@ -186,9 +200,11 @@ pub fn ensure_global_config() {
 #   max_parallel: 4          # max concurrent steps (when parallel: true)
 #   auto_update: true        # check for bivvy updates in the background
 #   logging: false           # enable JSONL event logging
-";
+"
+        );
 
-    let _ = fs::write(&config_path, content);
+        let _ = fs::write(&config_path, content);
+    }
 }
 
 /// Find the project root by walking up from current directory.
@@ -536,36 +552,18 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn ensure_global_config_creates_file() {
+    fn ensure_global_config_creates_config_and_schema() {
         let temp = TempDir::new().unwrap();
-        // Point HOME at temp so ensure_global_config writes there
         let bivvy_dir = temp.path().join(".bivvy");
         let config_path = bivvy_dir.join("config.yml");
+        let schema_path = bivvy_dir.join("schema.json");
 
         assert!(!config_path.exists());
+        assert!(!schema_path.exists());
 
-        // Simulate what ensure_global_config does, but with a controlled home dir
-        fs::create_dir_all(&bivvy_dir).unwrap();
-        let content = "\
-# Bivvy global configuration
-# Docs: https://bivvy.dev/configuration
-#
-# Settings here apply to ALL projects on this machine.
-# Project-level .bivvy/config.yml overrides these defaults.
+        ensure_global_config_in(temp.path().to_path_buf());
 
-# settings:
-#   defaults:
-#     output: verbose        # verbose | quiet | silent
-#     auto_run: true         # auto-run steps or prompt first
-#     prompt_on_rerun: false # prompt before re-running completed steps
-#   parallel: false          # enable parallel step execution
-#   max_parallel: 4          # max concurrent steps (when parallel: true)
-#   auto_update: true        # check for bivvy updates in the background
-#   logging: false           # enable JSONL event logging
-";
-        fs::write(&config_path, content).unwrap();
-
-        assert!(config_path.exists());
+        // config.yml created with expected content
         let written = fs::read_to_string(&config_path).unwrap();
         assert!(written.contains("# Bivvy global configuration"));
         assert!(written.contains("# settings:"));
@@ -574,9 +572,20 @@ mod tests {
         assert!(written.contains("#   auto_update: true"));
         assert!(written.contains("#   logging: false"));
 
+        // schema line points to the local schema.json
+        assert!(written.contains(&format!(
+            "# yaml-language-server: $schema={}",
+            schema_path.display()
+        )));
+
         // File should be valid YAML (all comments, so it parses as empty/null)
         let parsed: serde_yaml::Value = serde_yaml::from_str(&written).unwrap();
         assert!(parsed.is_null());
+
+        // schema.json created and is valid JSON
+        let schema_content = fs::read_to_string(&schema_path).unwrap();
+        let schema: serde_json::Value = serde_json::from_str(&schema_content).unwrap();
+        assert_eq!(schema["type"], "object");
     }
 
     #[test]
@@ -587,12 +596,32 @@ mod tests {
         fs::create_dir_all(&bivvy_dir).unwrap();
         fs::write(&config_path, "app_name: custom\n").unwrap();
 
-        // Simulate the guard check from ensure_global_config
-        assert!(config_path.exists());
+        ensure_global_config_in(temp.path().to_path_buf());
 
-        // File should be unchanged
+        // config.yml should be unchanged
         let content = fs::read_to_string(&config_path).unwrap();
         assert_eq!(content, "app_name: custom\n");
+
+        // schema.json should still be written
+        let schema_path = bivvy_dir.join("schema.json");
+        assert!(schema_path.exists());
+    }
+
+    #[test]
+    fn ensure_global_config_updates_schema_on_rerun() {
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        let schema_path = bivvy_dir.join("schema.json");
+        fs::create_dir_all(&bivvy_dir).unwrap();
+        fs::write(&schema_path, "old content").unwrap();
+
+        ensure_global_config_in(temp.path().to_path_buf());
+
+        // schema.json should be overwritten with the real schema
+        let content = fs::read_to_string(&schema_path).unwrap();
+        assert_ne!(content, "old content");
+        let schema: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert_eq!(schema["type"], "object");
     }
 
     #[test]
