@@ -238,7 +238,7 @@ impl Command for RunCommand {
         // Apply config default_output when no CLI flag was explicitly set.
         // OutputMode::Normal means the user didn't pass --verbose or --quiet.
         if ui.output_mode() == OutputMode::Normal {
-            ui.set_output_mode(config.settings.output.default_output.into());
+            ui.set_output_mode(config.settings.defaults.output.into());
         }
 
         // Resolve environment (before header so we can use resolved workflow)
@@ -1023,7 +1023,8 @@ workflows:
         let config = r#"
 app_name: Test
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   hello:
     command: echo hello
@@ -1048,7 +1049,8 @@ workflows:
         let config = r#"
 app_name: Test
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   hello:
     command: echo hello

@@ -184,8 +184,8 @@ fn init_generated_config_contains_settings() -> Result<(), Box<dyn std::error::E
         "Config should include settings section"
     );
     assert!(
-        config.contains("default_output:"),
-        "Config should include default_output setting"
+        config.contains("output:"),
+        "Config should include output setting under defaults"
     );
     assert!(
         config.contains("app_name:"),

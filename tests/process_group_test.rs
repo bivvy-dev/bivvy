@@ -364,8 +364,8 @@ const INTERACTIVE_CONFIG: &str = r#"
 app_name: "ProcessGroupTest"
 
 settings:
-  default_output: verbose
   defaults:
+    output: verbose
     prompt_on_rerun: false
 
 steps:
@@ -393,7 +393,8 @@ const COMPLETED_CHECK_CONFIG: &str = r#"
 app_name: "CompletedCheckTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   install-tools:
@@ -427,7 +428,8 @@ const FAILING_CONFIG: &str = r#"
 app_name: "FailTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   will-succeed:

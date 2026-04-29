@@ -23,12 +23,14 @@
 #     ci:
 #       steps: [bundle-install, yarn-install]
 #       settings:
-#         default_output: quiet
+#         defaults:
+#           output: quiet
 
 app_name: "bivvy"
 
 settings:
-  default_output: verbose  # verbose | quiet | silent
+  defaults:
+    output: verbose  # verbose | quiet | silent
 
 vars:
   version:

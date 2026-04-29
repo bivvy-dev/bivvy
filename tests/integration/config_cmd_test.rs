@@ -123,7 +123,8 @@ fn config_merged_shows_merged_result() -> Result<(), Box<dyn std::error::Error>>
         r#"
 app_name: BaseApp
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 steps:
   hello:
     command: echo hello
@@ -138,7 +139,8 @@ workflows:
         bivvy_dir.join("config.local.yml"),
         r#"
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 "#,
     )?;
 
@@ -316,7 +318,8 @@ fn config_shows_settings() -> Result<(), Box<dyn std::error::Error>> {
     let config = r#"
 app_name: SettingsTest
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   hello:
     command: echo hello

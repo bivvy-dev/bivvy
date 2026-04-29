@@ -52,7 +52,7 @@ pub mod vars;
 pub use schema::{
     BehaviorConfig, BivvyConfig, CustomRequirement, CustomRequirementCheck, EnvVarSettings,
     EnvironmentProfileSettings, EnvironmentScopingConfig, EnvironmentVarsConfig, ExecutionConfig,
-    ExecutionSettings, HookConfig, OutputMode, OutputSettings, PromptConfig, PromptType,
+    ExecutionSettings, HookConfig, OutputMode, PromptConfig, PromptType,
     SecretConfig, Settings, StepConfig, StepEnvironmentOverride, StepOutputConfig,
     StepOutputSettings, StepOverride, TemplateSource, VarDefinition, WorkflowConfig,
     WorkflowSettings,

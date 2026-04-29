@@ -35,11 +35,12 @@ use system::helpers::*;
 // ─────────────────────────────────────────────────────────────────────
 
 /// Non-trivial baseline config: two steps with a dependency relationship
-/// and an explicit `default_output` setting. Exercised by most of the
+/// and an explicit `defaults.output` setting. Exercised by most of the
 /// happy-path snapshot tests.
 const CONFIG: &str = r#"app_name: "ConfigTest"
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 steps:
   deps:
     title: "Install dependencies"
@@ -145,10 +146,10 @@ workflows:
     steps: [build]
 "#;
 
-/// Local override that replaces the project's `default_output`. Used
+/// Local override that replaces the project's `defaults.output`. Used
 /// by the `--merged` tests to verify that `.bivvy/config.local.yml` is
 /// layered on top of `.bivvy/config.yml`.
-const LOCAL_OVERRIDE_SETTINGS: &str = "settings:\n  default_output: quiet\n";
+const LOCAL_OVERRIDE_SETTINGS: &str = "settings:\n  defaults:\n    output: quiet\n";
 
 /// Local override that adds a brand new step. Used by the `--merged`
 /// tests to verify new steps from the local config appear in the
@@ -319,7 +320,7 @@ fn config_tests_json_flag_parseable() {
     // Targeted assertions — a bad JSON gives a specific failure rather
     // than an opaque snapshot diff.
     assert_eq!(parsed["app_name"], "ConfigTest");
-    assert_eq!(parsed["settings"]["default_output"], "verbose");
+    assert_eq!(parsed["settings"]["defaults"]["output"], "verbose");
     assert_eq!(parsed["steps"]["deps"]["command"], "cargo --version");
     assert_eq!(parsed["steps"]["build"]["command"], "rustc --version");
     assert_eq!(parsed["steps"]["build"]["depends_on"][0], "deps");
@@ -401,7 +402,7 @@ fn config_tests_merged_json_parseable() {
         .unwrap_or_else(|e| panic!("Failed to parse merged JSON: {e}\nJSON was:\n{json_str}"));
 
     assert_eq!(parsed["app_name"], "ConfigTest");
-    assert_eq!(parsed["settings"]["default_output"], "verbose");
+    assert_eq!(parsed["settings"]["defaults"]["output"], "verbose");
 
     insta::assert_json_snapshot!("config_tests_merged_json", parsed);
     assert_exit_code(&s, 0);
@@ -488,7 +489,7 @@ fn config_tests_merged_local_override_adds_step() {
     assert_exit_code(&s, 0);
 }
 
-/// `config.local.yml` changing `settings.default_output` must override
+/// `config.local.yml` changing `settings.defaults.output` must override
 /// the project setting in the merged output.
 #[test]
 fn config_tests_merged_local_override_changes_settings() {
@@ -506,8 +507,8 @@ fn config_tests_merged_local_override_changes_settings() {
         .unwrap_or_else(|e| panic!("Failed to parse merged JSON: {e}\nJSON was:\n{json_str}"));
 
     assert_eq!(
-        parsed["settings"]["default_output"], "quiet",
-        "local override should change default_output from verbose to quiet"
+        parsed["settings"]["defaults"]["output"], "quiet",
+        "local override should change defaults.output from verbose to quiet"
     );
     // Project fields preserved.
     assert_eq!(parsed["app_name"], "ConfigTest");

@@ -21,7 +21,8 @@ use tempfile::TempDir;
 const COMPLETED_CONFIG: &str = r#"
 app_name: "RunTest"
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   deps:

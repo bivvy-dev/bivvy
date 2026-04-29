@@ -61,7 +61,8 @@ bivvy config
 app_name: "MyApp"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   brew:

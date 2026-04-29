@@ -130,7 +130,8 @@ reqwest = { version = "0.13", features = ["blocking"] }   # HTTP client
 app_name: "MyApp"
 
 settings:
-  default_output: verbose    # verbose | quiet | silent
+  defaults:
+    output: verbose    # verbose | quiet | silent
   logging: false
 
 steps:

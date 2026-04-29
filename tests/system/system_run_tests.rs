@@ -20,7 +20,8 @@ const REALISTIC_CONFIG: &str = r#"
 app_name: "TestProject"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 vars:
   version:
@@ -92,7 +93,8 @@ const INTERACTIVE_CONFIG: &str = r#"
 app_name: "InteractiveTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   list-files:
@@ -125,7 +127,8 @@ const PROMPTED_CHECK_CONFIG: &str = r#"
 app_name: "PromptedCheck"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   check-tools:

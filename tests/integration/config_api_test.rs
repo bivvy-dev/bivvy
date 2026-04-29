@@ -58,7 +58,8 @@ fn config_merge_workflow() {
         r#"
 app_name: BaseApp
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 steps:
   deps:
     command: "yarn install"
@@ -71,7 +72,8 @@ steps:
         bivvy_dir.join("config.local.yml"),
         r#"
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   deps:
     command: "yarn install --frozen-lockfile"
@@ -85,7 +87,7 @@ steps:
     assert_eq!(config.app_name, Some("BaseApp".to_string()));
 
     // Setting overridden by local
-    assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
+    assert_eq!(config.settings.defaults.output, OutputMode::Quiet);
 
     // Step command overridden by local
     assert_eq!(

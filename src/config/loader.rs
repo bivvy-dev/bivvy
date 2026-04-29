@@ -626,7 +626,8 @@ mod tests {
             r#"
 app_name: "FullApp"
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   test:
     command: "echo test"
@@ -657,7 +658,8 @@ workflows:
             r#"
 app_name: TestApp
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 steps:
   test:
     command: "echo test"
@@ -670,7 +672,8 @@ steps:
             bivvy_dir.join("config.local.yml"),
             r#"
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 "#,
         )
         .unwrap();
@@ -678,7 +681,7 @@ settings:
         let config = load_merged_config(temp.path()).unwrap();
 
         assert_eq!(config.app_name, Some("TestApp".to_string()));
-        assert_eq!(config.settings.output.default_output, OutputMode::Quiet);
+        assert_eq!(config.settings.defaults.output, OutputMode::Quiet);
         assert!(config.steps.contains_key("test"));
     }
 
@@ -819,7 +822,8 @@ steps:
         let base_yaml = r#"
 app_name: BaseApp
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   install:
     command: npm install

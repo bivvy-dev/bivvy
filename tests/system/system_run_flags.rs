@@ -41,7 +41,8 @@ const FLAG_CONFIG: &str = r#"
 app_name: "FlagTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   check-tools:
@@ -86,7 +87,8 @@ const INTERACTIVE_CONFIG: &str = r#"
 app_name: "InteractiveFlags"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   scan-files:
@@ -113,7 +115,8 @@ const ENV_CONFIG: &str = r#"
 app_name: "EnvTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   always-run:

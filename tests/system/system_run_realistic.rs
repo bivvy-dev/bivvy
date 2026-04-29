@@ -24,7 +24,8 @@ const REALISTIC_CONFIG: &str = r#"
 app_name: "TestProject"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 vars:
   git_branch:
@@ -88,7 +89,8 @@ const INTERACTIVE_CONFIG: &str = r#"
 app_name: "InteractiveTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   list-structure:
@@ -121,7 +123,8 @@ const CHECK_CONFIG: &str = r#"
 app_name: "CheckTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   check-rust:
@@ -168,7 +171,8 @@ const ENV_CONFIG: &str = r#"
 app_name: "EnvTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
   environments:
     ci:
       env:
@@ -216,7 +220,8 @@ const HOOKS_CONFIG: &str = r#"
 app_name: "HooksTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   with-before:
@@ -269,7 +274,8 @@ const FAILURE_CONFIG: &str = r#"
 app_name: "FailureTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   setup-step:
@@ -307,7 +313,8 @@ const MARKER_REALISTIC_CONFIG: &str = r#"
 app_name: "MarkerRealistic"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   init-db:
@@ -331,7 +338,8 @@ const ALL_COMBINATOR_CONFIG: &str = r#"
 app_name: "AllCombinatorRealistic"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   full-validate:
@@ -358,7 +366,8 @@ const ANY_COMBINATOR_CONFIG: &str = r#"
 app_name: "AnyCombinatorRealistic"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   flexible-check:
@@ -383,7 +392,8 @@ const PRECONDITION_REALISTIC_CONFIG: &str = r#"
 app_name: "PreconditionRealistic"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   deploy:
@@ -404,7 +414,8 @@ const SENSITIVE_REALISTIC_CONFIG: &str = r#"
 app_name: "SensitiveRealistic"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 steps:
   build:

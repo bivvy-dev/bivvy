@@ -572,8 +572,8 @@ fn init_config_contains_settings_and_header() {
         &config[..config.len().min(500)]
     );
     assert!(
-        config.contains("default_output: verbose"),
-        "Config should have default output setting, got: {}",
+        config.contains("output: verbose"),
+        "Config should have output setting under defaults, got: {}",
         &config[..config.len().min(500)]
     );
     assert!(

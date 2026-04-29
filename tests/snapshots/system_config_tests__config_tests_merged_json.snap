@@ -6,7 +6,9 @@ expression: parsed
   "app_name": "ConfigTest",
   "settings": {
     "auto_update": true,
-    "default_output": "verbose"
+    "defaults": {
+      "output": "verbose"
+    }
   },
   "steps": {
     "build": {

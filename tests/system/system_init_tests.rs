@@ -1451,8 +1451,8 @@ fn init_complete_wizard_walkthrough() {
         "Config should have settings section"
     );
     assert!(
-        config.contains("default_output: verbose"),
-        "Config should have default_output setting"
+        config.contains("output: verbose"),
+        "Config should have defaults.output setting"
     );
 
     // Steps
@@ -1801,8 +1801,8 @@ fn init_generated_config_structure() {
         "Config should have settings"
     );
     assert!(
-        config.contains("default_output: verbose"),
-        "Config should have default_output"
+        config.contains("output: verbose"),
+        "Config should have defaults.output"
     );
 
     // Steps section

@@ -20,7 +20,8 @@ const CONFIG: &str = r#"
 app_name: "CommandTest"
 
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 
 vars:
   version:

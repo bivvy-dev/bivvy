@@ -153,12 +153,14 @@ The generated config includes commented-out template details so you can see what
 #     ci:
 #       steps: [bundle-install, yarn-install]
 #       settings:
-#         default_output: quiet
+#         defaults:
+#           output: quiet
 
 app_name: "my-app"
 
 settings:
-  default_output: verbose  # verbose | quiet | silent
+  defaults:
+    output: verbose  # verbose | quiet | silent
 
 steps:
   bundle-install:

@@ -102,6 +102,7 @@ workflows:
   ci:
     steps: [deps, test]
     settings:
-      default_output: quiet
+      defaults:
+        output: quiet
       fail_fast: true
 ```

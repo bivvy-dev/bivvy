@@ -17,7 +17,8 @@ Configuration is loaded and merged in this order (later overrides earlier):
 app_name: "MyApp"
 
 settings:
-  default_output: verbose  # verbose | quiet | silent
+  defaults:
+    output: verbose  # verbose | quiet | silent
 
 steps:
   install_deps:

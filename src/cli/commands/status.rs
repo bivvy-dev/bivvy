@@ -231,7 +231,7 @@ impl Command for StatusCommand {
 
         // Apply config default_output when no CLI flag was explicitly set
         if ui.output_mode() == OutputMode::Normal {
-            ui.set_output_mode(config.settings.output.default_output.into());
+            ui.set_output_mode(config.settings.defaults.output.into());
         }
 
         // Get project identity
@@ -560,7 +560,8 @@ workflows:
         let config = r#"
 app_name: Test
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   hello:
     command: echo hello

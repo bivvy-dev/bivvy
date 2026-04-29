@@ -4,7 +4,8 @@ expression: body
 ---
 app_name: ConfigTest
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
   auto_update: true
 steps:
   deps:

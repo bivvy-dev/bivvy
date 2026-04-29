@@ -127,7 +127,8 @@ fn config_default_output_quiet_applies() -> Result<(), Box<dyn std::error::Error
     let config = r#"
 app_name: Test
 settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 steps:
   hello:
     command: echo hello

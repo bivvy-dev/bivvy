@@ -26,7 +26,8 @@ use tempfile::TempDir;
 /// checks, multiple workflows, and settings.
 const CONFIG: &str = r#"app_name: "ConfigTest"
 settings:
-  default_output: verbose
+  defaults:
+    output: verbose
 steps:
   deps:
     title: "Install dependencies"
@@ -53,7 +54,8 @@ workflows:
 /// A local override layered on top of [`CONFIG`] used to verify the
 /// `--merged` flag actually merges `.bivvy/config.local.yml`.
 const LOCAL_OVERRIDE: &str = r#"settings:
-  default_output: quiet
+  defaults:
+    output: quiet
 "#;
 
 // ─────────────────────────────────────────────────────────────────────
@@ -330,8 +332,8 @@ fn config_merged_applies_local_override() {
         });
 
     assert_eq!(
-        parsed["settings"]["default_output"], "quiet",
-        "local override should change default_output from verbose to quiet"
+        parsed["settings"]["defaults"]["output"], "quiet",
+        "local override should change output from verbose to quiet"
     );
     assert_eq!(
         parsed["app_name"], "ConfigTest",
@@ -386,7 +388,7 @@ fn config_merged_without_local_matches_project() {
         "merged yaml should preserve app_name, got:\n{body}"
     );
     assert!(
-        body.contains("default_output: verbose"),
+        body.contains("output: verbose"),
         "merged yaml should preserve settings when no override is present, got:\n{body}"
     );
     assert!(
