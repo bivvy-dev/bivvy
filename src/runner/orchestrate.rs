@@ -15,7 +15,7 @@ use crate::checks::CheckResult;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
-use crate::logging::{BivvyEvent, EventBus};
+use crate::logging::{BivvyEvent, EventBus, StepOutcomeKind};
 use crate::requirements::checker::GapChecker;
 use crate::state::satisfaction::{SatisfactionCache, SatisfactionRecord};
 use crate::state::StateStore;
@@ -78,6 +78,12 @@ impl<'a> WorkflowRunner<'a> {
                 name: skip_name.clone(),
                 reason: "skip_flag".to_string(),
             });
+            event_bus.emit(&BivvyEvent::StepOutcome {
+                name: skip_name.clone(),
+                outcome: StepOutcomeKind::FilteredOut,
+                detail: Some("skip_flag".to_string()),
+                duration_ms: None,
+            });
             ui.message(&format!(
                 "    {}",
                 theme.format_skipped(&format!("{} skipped", skip_name))
@@ -88,12 +94,18 @@ impl<'a> WorkflowRunner<'a> {
                 name: skip_name.clone(),
                 reason: "environment".to_string(),
             });
+            let env_label = options.active_environment.as_deref().unwrap_or("unknown");
+            event_bus.emit(&BivvyEvent::StepOutcome {
+                name: skip_name.clone(),
+                outcome: StepOutcomeKind::FilteredOut,
+                detail: Some(format!("not in {} environment", env_label)),
+                duration_ms: None,
+            });
             ui.message(&format!(
                 "    {}",
                 theme.format_skipped(&format!(
                     "{} skipped (not in {} environment)",
-                    skip_name,
-                    options.active_environment.as_deref().unwrap_or("unknown")
+                    skip_name, env_label
                 ))
             ));
         }

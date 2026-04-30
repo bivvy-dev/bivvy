@@ -35,7 +35,7 @@ pub use bus::EventBus;
 pub use events::{
     BehaviorFlags, BivvyEvent, DecisionTrace, DependencyStatus, EventConsumer, FilterResult,
     InputMethod, NamedCheckResult, RequirementGapInfo, RerunInfo, SatisfactionResult,
-    TraceCheckResult,
+    StepOutcomeKind, TraceCheckResult,
 };
 
 use std::fs::{self, File};

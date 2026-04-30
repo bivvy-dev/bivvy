@@ -2,13 +2,25 @@
 //!
 //! The `bivvy last` command shows information about the most recent run
 //! by reading the most recent JSONL event log file.
+//!
+//! # Reading step outcomes
+//!
+//! Per-step outcomes are read from `step_outcome` events emitted by the
+//! runner. Each step produces exactly one such event, with a typed
+//! [`StepOutcomeKind`] that matches the visual state shown by `bivvy run`.
+//! The older fine-grained events (`step_completed`, `step_skipped`,
+//! `step_filtered_out`, `step_decided`, `dependency_blocked`) are still
+//! emitted for consumers that need timing or decision-reasoning detail,
+//! but `bivvy last` ignores them — `step_outcome` is the single source
+//! of truth here.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::cli::args::LastArgs;
 use crate::error::Result;
-use crate::state::{ProjectId, StateStore, StepStatus};
+use crate::logging::StepOutcomeKind;
+use crate::state::ProjectId;
 use crate::ui::theme::BivvyTheme;
 use crate::ui::{format_duration, format_relative_time, StatusKind, UserInterface};
 
@@ -40,6 +52,29 @@ impl LastCommand {
     }
 }
 
+/// A single step's terminal state, reconstructed from a `step_outcome` event.
+#[derive(Debug, Clone, serde::Serialize)]
+struct LoggedStep {
+    /// Step name.
+    name: String,
+    /// Outcome variant as the snake_case JSON tag (`completed`, `failed`,
+    /// `satisfied`, `declined`, `filtered_out`, `blocked`).
+    outcome: String,
+    /// Human-readable detail (skip reason, error message, block reason).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    detail: Option<String>,
+    /// Execution duration in milliseconds, only present for steps that ran.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duration_ms: Option<u64>,
+}
+
+impl LoggedStep {
+    fn outcome_kind(&self) -> Option<StepOutcomeKind> {
+        use std::str::FromStr;
+        StepOutcomeKind::from_str(&self.outcome).ok()
+    }
+}
+
 /// A run record reconstructed from JSONL event log data.
 #[derive(Debug, Clone, serde::Serialize)]
 struct LogLastRun {
@@ -51,19 +86,16 @@ struct LogLastRun {
     success: bool,
     /// Whether the user aborted.
     aborted: bool,
-    /// Number of steps that ran.
+    /// Number of steps that ran (from `WorkflowCompleted.steps_run`).
     steps_run_count: usize,
-    /// Number of steps skipped.
+    /// Number of steps skipped (from `WorkflowCompleted.steps_skipped`).
     steps_skipped_count: usize,
     /// Total duration in milliseconds.
     duration_ms: u64,
-    /// Step names that ran (from StepCompleted events).
+    /// Typed terminal outcomes, in emission order.
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    steps_run: Vec<String>,
-    /// Step names that were skipped (from StepSkipped events).
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    steps_skipped: Vec<String>,
-    /// Error from failed steps.
+    steps: Vec<LoggedStep>,
+    /// Error from the first failed step.
     #[serde(skip_serializing_if = "Option::is_none")]
     error: Option<String>,
 }
@@ -118,14 +150,15 @@ fn read_last_runs(all: bool, canonical_project: &Path) -> Vec<LogLastRun> {
 
 /// Parse a single JSONL log file into a run record.
 ///
-/// Extracts `WorkflowCompleted`, `StepCompleted`, and `StepSkipped` events
-/// to reconstruct a complete run record with step names.
+/// Reads `step_outcome` events into a typed step list and the
+/// `workflow_completed` event for run-level summary fields. Returns
+/// `None` if the file has no `workflow_completed` event — that filters
+/// out non-`run` sessions like `bivvy status`.
 fn parse_log_file(path: &Path) -> Option<LogLastRun> {
     let content = std::fs::read_to_string(path).ok()?;
 
     let mut workflow_completed: Option<serde_json::Value> = None;
-    let mut steps_run = Vec::new();
-    let mut steps_skipped = Vec::new();
+    let mut steps: Vec<LoggedStep> = Vec::new();
     let mut first_error: Option<String> = None;
     let mut session_timestamp: Option<chrono::DateTime<chrono::Utc>> = None;
 
@@ -147,21 +180,31 @@ fn parse_log_file(path: &Path) -> Option<LogLastRun> {
                         .map(|dt| dt.with_timezone(&chrono::Utc));
                 }
             }
-            "step_completed" => {
-                if let Some(name) = value.get("name").and_then(|n| n.as_str()) {
-                    steps_run.push(name.to_string());
-                    // Capture first error
-                    if first_error.is_none() {
-                        if let Some(err) = value.get("error").and_then(|e| e.as_str()) {
-                            first_error = Some(err.to_string());
-                        }
-                    }
+            "step_outcome" => {
+                let name = match value.get("name").and_then(|n| n.as_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                let outcome = match value.get("outcome").and_then(|o| o.as_str()) {
+                    Some(o) => o.to_string(),
+                    None => continue,
+                };
+                let detail = value
+                    .get("detail")
+                    .and_then(|d| d.as_str())
+                    .map(|s| s.to_string());
+                let duration_ms = value.get("duration_ms").and_then(|d| d.as_u64());
+
+                if first_error.is_none() && outcome == StepOutcomeKind::Failed.as_str() {
+                    first_error = detail.clone();
                 }
-            }
-            "step_skipped" => {
-                if let Some(name) = value.get("name").and_then(|n| n.as_str()) {
-                    steps_skipped.push(name.to_string());
-                }
+
+                steps.push(LoggedStep {
+                    name,
+                    outcome,
+                    detail,
+                    duration_ms,
+                });
             }
             "workflow_completed" => {
                 workflow_completed = Some(value);
@@ -197,10 +240,32 @@ fn parse_log_file(path: &Path) -> Option<LogLastRun> {
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as usize,
         duration_ms: wc.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0),
-        steps_run,
-        steps_skipped,
+        steps,
         error: if success { None } else { first_error },
     })
+}
+
+/// Map a [`StepOutcomeKind`] to the [`StatusKind`] used to render its glyph
+/// in `bivvy last`. Matches what `bivvy run` displays for each outcome.
+fn outcome_status_kind(kind: StepOutcomeKind) -> StatusKind {
+    match kind {
+        StepOutcomeKind::Completed | StepOutcomeKind::Satisfied => StatusKind::Success,
+        StepOutcomeKind::Failed => StatusKind::Failed,
+        StepOutcomeKind::Declined | StepOutcomeKind::FilteredOut => StatusKind::Skipped,
+        StepOutcomeKind::Blocked => StatusKind::Blocked,
+    }
+}
+
+/// Default human-readable label for each outcome when no detail is recorded.
+fn outcome_default_label(kind: StepOutcomeKind) -> &'static str {
+    match kind {
+        StepOutcomeKind::Completed => "completed",
+        StepOutcomeKind::Failed => "failed",
+        StepOutcomeKind::Satisfied => "already satisfied",
+        StepOutcomeKind::Declined => "skipped",
+        StepOutcomeKind::FilteredOut => "filtered out",
+        StepOutcomeKind::Blocked => "blocked",
+    }
 }
 
 impl LastCommand {
@@ -209,7 +274,6 @@ impl LastCommand {
         &self,
         ui: &mut dyn UserInterface,
         run: &LogLastRun,
-        state: &StateStore,
         theme: &BivvyTheme,
         header_label: &str,
     ) {
@@ -263,41 +327,28 @@ impl LastCommand {
             status_label,
         ));
 
-        // Steps section - apply --step filter if provided
+        // Steps section — apply --step filter if provided
         let step_filter = self.args.step.as_deref();
-
-        let steps_run: Vec<&String> = if let Some(filter) = step_filter {
-            run.steps_run
-                .iter()
-                .filter(|s| s.as_str() == filter)
-                .collect()
+        let steps: Vec<&LoggedStep> = if let Some(filter) = step_filter {
+            run.steps.iter().filter(|s| s.name == filter).collect()
         } else {
-            run.steps_run.iter().collect()
+            run.steps.iter().collect()
         };
 
-        let steps_skipped: Vec<&String> = if let Some(filter) = step_filter {
-            run.steps_skipped
-                .iter()
-                .filter(|s| s.as_str() == filter)
-                .collect()
-        } else {
-            run.steps_skipped.iter().collect()
-        };
-
-        if !steps_run.is_empty() || !steps_skipped.is_empty() {
+        if !steps.is_empty() {
             ui.message("");
             ui.message(&format!("  {}", theme.key.apply_to("Steps:")));
 
-            for step_name in &steps_run {
-                let status = state
-                    .get_step(step_name.as_str())
-                    .map(|s| s.status)
-                    .unwrap_or(StepStatus::NeverRun);
-                let kind = StatusKind::from(status);
-
-                let duration_info = state
-                    .get_step(step_name.as_str())
-                    .and_then(|s| s.duration_ms)
+            for step in &steps {
+                let kind = step.outcome_kind();
+                let status_kind = kind.map(outcome_status_kind).unwrap_or(StatusKind::Pending);
+                let label = step.detail.clone().unwrap_or_else(|| {
+                    kind.map(outcome_default_label)
+                        .unwrap_or(step.outcome.as_str())
+                        .to_string()
+                });
+                let duration_info = step
+                    .duration_ms
                     .map(|ms| {
                         theme
                             .duration
@@ -307,9 +358,10 @@ impl LastCommand {
                     .unwrap_or_default();
 
                 ui.message(&format!(
-                    "    {} {:<20} {}",
-                    kind.styled(theme),
-                    step_name,
+                    "    {} {:<20} {} {}",
+                    status_kind.styled(theme),
+                    step.name,
+                    theme.dim.apply_to(&label),
                     duration_info,
                 ));
 
@@ -322,15 +374,6 @@ impl LastCommand {
                             .apply_to("(no captured output available in run history)")
                     ));
                 }
-            }
-
-            for step_name in &steps_skipped {
-                ui.message(&format!(
-                    "    {} {:<20} {}",
-                    StatusKind::Skipped.styled(theme),
-                    step_name,
-                    theme.dim.apply_to("skipped"),
-                ));
             }
         }
 
@@ -345,7 +388,6 @@ impl LastCommand {
 impl Command for LastCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
         let project_id = ProjectId::from_path(&self.project_root)?;
-        let (state, _) = StateStore::load(&project_id)?;
         let canonical_project = project_id.path();
 
         // --all: show all runs instead of just the last one
@@ -368,7 +410,7 @@ impl Command for LastCommand {
             let theme = BivvyTheme::new();
             for (i, run) in runs.iter().enumerate() {
                 let label = format!("Run {} of {}", i + 1, runs.len());
-                self.display_run(ui, run, &state, &theme, &label);
+                self.display_run(ui, run, &theme, &label);
             }
 
             return Ok(CommandResult::success());
@@ -385,9 +427,8 @@ impl Command for LastCommand {
 
         // --step: validate that the step exists in the run
         if let Some(ref step_name) = self.args.step {
-            let in_run = last_run.steps_run.contains(step_name);
-            let in_skipped = last_run.steps_skipped.contains(step_name);
-            if !in_run && !in_skipped {
+            let in_run = last_run.steps.iter().any(|s| s.name == *step_name);
+            if !in_run {
                 ui.error(&format!(
                     "Step '{}' was not part of the last run.",
                     step_name
@@ -405,7 +446,7 @@ impl Command for LastCommand {
         }
 
         let theme = BivvyTheme::new();
-        self.display_run(ui, last_run, &state, &theme, "Last Run");
+        self.display_run(ui, last_run, &theme, "Last Run");
 
         Ok(CommandResult::success())
     }
@@ -448,105 +489,88 @@ mod tests {
         let _ = cmd.args();
     }
 
+    /// Build a `step_outcome` JSON value with the given fields.
+    fn outcome_event(
+        name: &str,
+        outcome: StepOutcomeKind,
+        detail: Option<&str>,
+        duration_ms: Option<u64>,
+    ) -> serde_json::Value {
+        let mut v = serde_json::json!({
+            "ts": "2026-04-25T10:00:01.000Z",
+            "session": "sess_test",
+            "type": "step_outcome",
+            "name": name,
+            "outcome": outcome.as_str(),
+        });
+        if let Some(d) = detail {
+            v["detail"] = serde_json::Value::String(d.to_string());
+        }
+        if let Some(ms) = duration_ms {
+            v["duration_ms"] = serde_json::Value::Number(ms.into());
+        }
+        v
+    }
+
+    fn workflow_completed(success: bool, run: u64, skipped: u64) -> serde_json::Value {
+        serde_json::json!({
+            "ts": "2026-04-25T10:00:02.000Z",
+            "session": "sess_test",
+            "type": "workflow_completed",
+            "name": "default",
+            "success": success,
+            "aborted": false,
+            "steps_run": run,
+            "steps_skipped": skipped,
+            "duration_ms": 2000
+        })
+    }
+
+    fn write_log(path: &Path, lines: &[serde_json::Value]) {
+        let mut content = String::new();
+        for v in lines {
+            content.push_str(&v.to_string());
+            content.push('\n');
+        }
+        std::fs::write(path, content).unwrap();
+    }
+
     #[test]
-    fn parse_log_file_extracts_workflow_completed() {
+    fn parse_log_reads_workflow_completed_summary() {
         let temp = TempDir::new().unwrap();
         let log_file = temp.path().join("test.jsonl");
 
-        let session_line = serde_json::json!({
+        let session = serde_json::json!({
             "ts": "2026-04-25T10:00:00.000Z",
             "session": "sess_test",
             "type": "session_started",
             "command": "run",
             "args": ["default"],
-            "version": "1.9.0"
+            "version": "1.10.0"
         });
-        let step_completed = serde_json::json!({
-            "ts": "2026-04-25T10:00:01.000Z",
-            "session": "sess_test",
-            "type": "step_completed",
-            "name": "setup",
-            "success": true,
-            "exit_code": 0,
-            "duration_ms": 500
-        });
-        let step_skipped = serde_json::json!({
-            "ts": "2026-04-25T10:00:01.000Z",
-            "session": "sess_test",
-            "type": "step_skipped",
-            "name": "deploy",
-            "reason": "check passed"
-        });
-        let wc = serde_json::json!({
-            "ts": "2026-04-25T10:00:02.000Z",
-            "session": "sess_test",
-            "type": "workflow_completed",
-            "name": "default",
-            "success": true,
-            "aborted": false,
-            "steps_run": 1,
-            "steps_skipped": 1,
-            "duration_ms": 2000
-        });
-
-        let content = format!(
-            "{}\n{}\n{}\n{}\n",
-            session_line, step_completed, step_skipped, wc
+        write_log(
+            &log_file,
+            &[
+                session,
+                outcome_event("setup", StepOutcomeKind::Completed, None, Some(500)),
+                workflow_completed(true, 1, 0),
+            ],
         );
-        std::fs::write(&log_file, content).unwrap();
 
         let run = parse_log_file(&log_file).unwrap();
         assert_eq!(run.workflow, "default");
         assert!(run.success);
         assert!(!run.aborted);
         assert_eq!(run.steps_run_count, 1);
-        assert_eq!(run.steps_skipped_count, 1);
         assert_eq!(run.duration_ms, 2000);
-        assert_eq!(run.steps_run, vec!["setup"]);
-        assert_eq!(run.steps_skipped, vec!["deploy"]);
+        assert_eq!(run.steps.len(), 1);
+        assert_eq!(run.steps[0].name, "setup");
+        assert_eq!(run.steps[0].outcome, "completed");
         assert!(run.error.is_none());
     }
 
     #[test]
-    fn parse_log_file_captures_error() {
-        let temp = TempDir::new().unwrap();
-        let log_file = temp.path().join("test_fail.jsonl");
-
-        let step_failed = serde_json::json!({
-            "ts": "2026-04-25T10:00:01.000Z",
-            "session": "sess_test",
-            "type": "step_completed",
-            "name": "build",
-            "success": false,
-            "exit_code": 1,
-            "duration_ms": 500,
-            "error": "Build failed: missing dependency"
-        });
-        let wc = serde_json::json!({
-            "ts": "2026-04-25T10:00:02.000Z",
-            "session": "sess_test",
-            "type": "workflow_completed",
-            "name": "default",
-            "success": false,
-            "aborted": false,
-            "steps_run": 1,
-            "steps_skipped": 0,
-            "duration_ms": 1000
-        });
-
-        let content = format!("{}\n{}\n", step_failed, wc);
-        std::fs::write(&log_file, content).unwrap();
-
-        let run = parse_log_file(&log_file).unwrap();
-        assert!(!run.success);
-        assert_eq!(
-            run.error,
-            Some("Build failed: missing dependency".to_string())
-        );
-    }
-
-    #[test]
-    fn parse_log_file_returns_none_without_workflow_completed() {
+    fn parse_log_returns_none_without_workflow_completed() {
         let temp = TempDir::new().unwrap();
         let log_file = temp.path().join("no_wc.jsonl");
 
@@ -556,7 +580,7 @@ mod tests {
             "type": "session_started",
             "command": "lint",
             "args": [],
-            "version": "1.9.0"
+            "version": "1.10.0"
         });
 
         std::fs::write(&log_file, format!("{}\n", session)).unwrap();
@@ -564,25 +588,207 @@ mod tests {
         assert!(parse_log_file(&log_file).is_none());
     }
 
+    /// Per-variant round trip: every StepOutcomeKind written to the log
+    /// is parsed back into a typed step entry preserving outcome, detail,
+    /// and duration_ms.
     #[test]
-    fn log_last_run_serializes_to_json() {
-        let run = LogLastRun {
-            timestamp: chrono::Utc::now(),
-            workflow: "default".to_string(),
-            success: true,
-            aborted: false,
-            steps_run_count: 2,
-            steps_skipped_count: 0,
-            duration_ms: 3000,
-            steps_run: vec!["setup".to_string(), "build".to_string()],
-            steps_skipped: vec![],
-            error: None,
-        };
+    fn parse_log_round_trips_completed() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("c.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event("build", StepOutcomeKind::Completed, None, Some(1234)),
+                workflow_completed(true, 1, 0),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(
+            run.steps[0].outcome_kind(),
+            Some(StepOutcomeKind::Completed)
+        );
+        assert_eq!(run.steps[0].duration_ms, Some(1234));
+    }
 
-        let json = serde_json::to_string_pretty(&run).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["workflow"], "default");
-        assert_eq!(parsed["success"], true);
+    #[test]
+    fn parse_log_round_trips_failed_and_captures_error() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("f.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event(
+                    "build",
+                    StepOutcomeKind::Failed,
+                    Some("exit code 1"),
+                    Some(500),
+                ),
+                workflow_completed(false, 1, 0),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(run.steps[0].outcome_kind(), Some(StepOutcomeKind::Failed));
+        assert_eq!(run.error.as_deref(), Some("exit code 1"));
+    }
+
+    #[test]
+    fn parse_log_round_trips_satisfied() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("s.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event(
+                    "rust",
+                    StepOutcomeKind::Satisfied,
+                    Some("✓ rustc --version succeeded"),
+                    None,
+                ),
+                workflow_completed(true, 0, 1),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(
+            run.steps[0].outcome_kind(),
+            Some(StepOutcomeKind::Satisfied)
+        );
+        assert_eq!(
+            run.steps[0].detail.as_deref(),
+            Some("✓ rustc --version succeeded")
+        );
+    }
+
+    #[test]
+    fn parse_log_round_trips_declined() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("d.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event(
+                    "deploy",
+                    StepOutcomeKind::Declined,
+                    Some("user_declined"),
+                    None,
+                ),
+                workflow_completed(true, 0, 1),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(run.steps[0].outcome_kind(), Some(StepOutcomeKind::Declined));
+    }
+
+    #[test]
+    fn parse_log_round_trips_filtered_out() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("fo.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event(
+                    "version-bump",
+                    StepOutcomeKind::FilteredOut,
+                    Some("skip_flag"),
+                    None,
+                ),
+                workflow_completed(true, 0, 1),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(
+            run.steps[0].outcome_kind(),
+            Some(StepOutcomeKind::FilteredOut)
+        );
+    }
+
+    #[test]
+    fn parse_log_round_trips_blocked() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("b.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event(
+                    "release-tag",
+                    StepOutcomeKind::Blocked,
+                    Some("Blocked (dependency 'build' failed)"),
+                    None,
+                ),
+                workflow_completed(false, 0, 0),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(run.steps[0].outcome_kind(), Some(StepOutcomeKind::Blocked));
+    }
+
+    #[test]
+    fn parse_log_preserves_step_order() {
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("order.jsonl");
+        write_log(
+            &log_file,
+            &[
+                outcome_event("a", StepOutcomeKind::Completed, None, Some(10)),
+                outcome_event("b", StepOutcomeKind::Satisfied, None, None),
+                outcome_event("c", StepOutcomeKind::Blocked, None, None),
+                workflow_completed(false, 1, 1),
+            ],
+        );
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(run.steps.len(), 3);
+        assert_eq!(run.steps[0].name, "a");
+        assert_eq!(run.steps[1].name, "b");
+        assert_eq!(run.steps[2].name, "c");
+    }
+
+    #[test]
+    fn parse_log_skips_unknown_outcome_strings() {
+        // A future runner adding a new variant should not crash older bivvy
+        // last installs — unknown outcomes are kept as raw strings on the
+        // step and outcome_kind() returns None.
+        let temp = TempDir::new().unwrap();
+        let log_file = temp.path().join("unknown.jsonl");
+        let event = serde_json::json!({
+            "ts": "2026-04-25T10:00:01.000Z",
+            "session": "sess_test",
+            "type": "step_outcome",
+            "name": "x",
+            "outcome": "future_kind"
+        });
+        write_log(&log_file, &[event, workflow_completed(true, 0, 0)]);
+        let run = parse_log_file(&log_file).unwrap();
+        assert_eq!(run.steps[0].outcome, "future_kind");
+        assert_eq!(run.steps[0].outcome_kind(), None);
+    }
+
+    #[test]
+    fn outcome_status_kind_matches_run_ui() {
+        // bivvy run uses these StatusKind glyphs for each outcome — bivvy
+        // last must match.
+        assert_eq!(
+            outcome_status_kind(StepOutcomeKind::Completed),
+            StatusKind::Success
+        );
+        assert_eq!(
+            outcome_status_kind(StepOutcomeKind::Failed),
+            StatusKind::Failed
+        );
+        assert_eq!(
+            outcome_status_kind(StepOutcomeKind::Satisfied),
+            StatusKind::Success
+        );
+        assert_eq!(
+            outcome_status_kind(StepOutcomeKind::Declined),
+            StatusKind::Skipped
+        );
+        assert_eq!(
+            outcome_status_kind(StepOutcomeKind::FilteredOut),
+            StatusKind::Skipped
+        );
+        assert_eq!(
+            outcome_status_kind(StepOutcomeKind::Blocked),
+            StatusKind::Blocked
+        );
     }
 
     /// Helper: write a `session_started` + `workflow_completed` log file for `project`.
@@ -593,10 +799,10 @@ mod tests {
             "type": "session_started",
             "command": "run",
             "args": [workflow],
-            "version": "1.9.0",
+            "version": "1.10.0",
             "working_directory": project.display().to_string()
         });
-        let workflow_completed = serde_json::json!({
+        let wc = serde_json::json!({
             "ts": "2026-04-25T10:00:02.000Z",
             "session": "sess_test",
             "type": "workflow_completed",
@@ -607,11 +813,7 @@ mod tests {
             "steps_skipped": 0,
             "duration_ms": 1000
         });
-        std::fs::write(
-            log_dir.join(name),
-            format!("{}\n{}\n", session_started, workflow_completed),
-        )
-        .unwrap();
+        std::fs::write(log_dir.join(name), format!("{}\n{}\n", session_started, wc)).unwrap();
     }
 
     /// Helper: write a status-style log (session_started only, no workflow_completed).
@@ -622,7 +824,7 @@ mod tests {
             "type": "session_started",
             "command": "status",
             "args": [],
-            "version": "1.9.0",
+            "version": "1.10.0",
             "working_directory": project.display().to_string()
         });
         std::fs::write(log_dir.join(name), format!("{}\n", session)).unwrap();

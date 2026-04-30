@@ -12,7 +12,7 @@ use crate::checks::CheckResult;
 use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
-use crate::logging::{BehaviorFlags, BivvyEvent, DecisionTrace, EventBus};
+use crate::logging::{BehaviorFlags, BivvyEvent, DecisionTrace, EventBus, StepOutcomeKind};
 use crate::requirements::checker::GapChecker;
 use crate::requirements::installer;
 use crate::snapshots::SnapshotStore;
@@ -339,6 +339,12 @@ impl<'a> StepManager<'a> {
                     name: self.step_name.to_string(),
                     reason: reason.message().to_string(),
                 });
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: skip_reason_to_outcome(reason),
+                    detail: Some(reason.message().to_string()),
+                    duration_ms: None,
+                });
                 return Ok(StepAction::Skipped(
                     StepResult::skipped(&self.step.name, CheckResult::passed(reason.message())),
                     SkipCategory::Other,
@@ -456,14 +462,21 @@ impl<'a> StepManager<'a> {
         )?;
 
         // ── Emit step completion event ──
+        let duration_ms = exec_result.result.duration.as_millis() as u64;
         match exec_result.result.status() {
             StepStatus::Completed => {
                 event_bus.emit(&BivvyEvent::StepCompleted {
                     name: self.step_name.to_string(),
                     success: true,
                     exit_code: exec_result.result.exit_code,
-                    duration_ms: exec_result.result.duration.as_millis() as u64,
+                    duration_ms,
                     error: None,
+                });
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: StepOutcomeKind::Completed,
+                    detail: None,
+                    duration_ms: Some(duration_ms),
                 });
             }
             StepStatus::Failed => {
@@ -471,18 +484,33 @@ impl<'a> StepManager<'a> {
                     name: self.step_name.to_string(),
                     success: false,
                     exit_code: exec_result.result.exit_code,
-                    duration_ms: exec_result.result.duration.as_millis() as u64,
+                    duration_ms,
                     error: exec_result.result.error.clone(),
+                });
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: StepOutcomeKind::Failed,
+                    detail: exec_result.result.error.clone(),
+                    duration_ms: Some(duration_ms),
                 });
             }
             StepStatus::Skipped => {
+                let reason = exec_result
+                    .result
+                    .recovery_detail
+                    .clone()
+                    .unwrap_or_else(|| "skipped".to_string());
                 event_bus.emit(&BivvyEvent::StepSkipped {
                     name: self.step_name.to_string(),
-                    reason: exec_result
-                        .result
-                        .recovery_detail
-                        .clone()
-                        .unwrap_or_else(|| "skipped".to_string()),
+                    reason: reason.clone(),
+                });
+                // Reaching this branch means the step ran and the user chose
+                // to skip during recovery — that's a `Declined` outcome.
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: StepOutcomeKind::Declined,
+                    detail: Some(reason),
+                    duration_ms: Some(duration_ms),
                 });
             }
             _ => {}
@@ -546,6 +574,17 @@ impl<'a> StepManager<'a> {
             StatusKind::Blocked.format(self.theme, &reason.message())
         ));
 
+        // Every block path — including DependencySkipped, which the workflow
+        // treats as a transitive skip — emits StepOutcome::Blocked. The
+        // detail string carries the user-facing reason ("Skipped (dependency
+        // 'X' skipped)" vs "Blocked (precondition failed: ...)").
+        event_bus.emit(&BivvyEvent::StepOutcome {
+            name: self.step_name.to_string(),
+            outcome: StepOutcomeKind::Blocked,
+            detail: Some(reason.message()),
+            duration_ms: None,
+        });
+
         // For dependency_skipped, return a skip result, not a block
         if matches!(reason, BlockReason::DependencySkipped { .. }) {
             Ok(StepAction::Skipped(
@@ -579,6 +618,12 @@ impl<'a> StepManager<'a> {
         event_bus.emit(&BivvyEvent::StepSkipped {
             name: self.step_name.to_string(),
             reason: eval_result.reason.clone(),
+        });
+        event_bus.emit(&BivvyEvent::StepOutcome {
+            name: self.step_name.to_string(),
+            outcome: StepOutcomeKind::Satisfied,
+            detail: Some(eval_result.reason.clone()),
+            duration_ms: None,
         });
         step_display.message(step_header_text);
         let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
@@ -634,6 +679,12 @@ impl<'a> StepManager<'a> {
                 event_bus.emit(&BivvyEvent::StepSkipped {
                     name: self.step_name.to_string(),
                     reason: eval_result.reason.clone(),
+                });
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: StepOutcomeKind::Satisfied,
+                    detail: Some(eval_result.reason.clone()),
+                    duration_ms: None,
                 });
                 let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
                 step_display.message(&format!(
@@ -693,6 +744,12 @@ impl<'a> StepManager<'a> {
                     name: self.step_name.to_string(),
                     reason: "user_declined_auto_run".to_string(),
                 });
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: StepOutcomeKind::Declined,
+                    detail: Some("user_declined_auto_run".to_string()),
+                    duration_ms: None,
+                });
                 step_display.message(&format!(
                     "{}{}",
                     step_pad,
@@ -750,6 +807,12 @@ impl<'a> StepManager<'a> {
                     name: self.step_name.to_string(),
                     reason: "user_declined".to_string(),
                 });
+                event_bus.emit(&BivvyEvent::StepOutcome {
+                    name: self.step_name.to_string(),
+                    outcome: StepOutcomeKind::Declined,
+                    detail: Some("user_declined".to_string()),
+                    duration_ms: None,
+                });
                 step_display.message(&format!(
                     "{}{}",
                     step_pad,
@@ -798,6 +861,12 @@ impl<'a> StepManager<'a> {
                         name: self.step_name.to_string(),
                         reason: "user_declined_sensitive".to_string(),
                     });
+                    event_bus.emit(&BivvyEvent::StepOutcome {
+                        name: self.step_name.to_string(),
+                        outcome: StepOutcomeKind::Declined,
+                        detail: Some("user_declined_sensitive".to_string()),
+                        duration_ms: None,
+                    });
                     step_display.message(&format!(
                         "{}{}",
                         step_pad,
@@ -825,6 +894,22 @@ impl<'a> StepManager<'a> {
         }
 
         Ok(None) // Fall through to execution
+    }
+}
+
+/// Map a [`SkipReason`] (produced by the decision engine) to the typed
+/// terminal [`StepOutcomeKind`] it represents.
+///
+/// `SkipReason::AutoSatisfied` is handled by `handle_auto_satisfied` and
+/// never reaches the generic skip fall-through, but we map it here for
+/// completeness so a future caller cannot misroute it.
+fn skip_reason_to_outcome(reason: &SkipReason) -> StepOutcomeKind {
+    match reason {
+        SkipReason::CheckPassed | SkipReason::Satisfied | SkipReason::AutoSatisfied => {
+            StepOutcomeKind::Satisfied
+        }
+        SkipReason::UserDeclined | SkipReason::SensitiveDeclined => StepOutcomeKind::Declined,
+        SkipReason::RequirementNotMet => StepOutcomeKind::Blocked,
     }
 }
 

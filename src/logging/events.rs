@@ -184,6 +184,27 @@ pub enum BivvyEvent {
         reason: String,
     },
 
+    /// The terminal outcome of a step. Emitted exactly once per step at the
+    /// point the runtime decides its final state.
+    ///
+    /// This event is the single source of truth for "what happened to step X"
+    /// in any post-hoc consumer (`bivvy last`, `bivvy history`, etc.). It is
+    /// additive — the older fine-grained events (`StepCompleted`, `StepSkipped`,
+    /// `StepFilteredOut`, `StepDecided`, `DependencyBlocked`, ...) still carry
+    /// timing and decision-reasoning detail and continue to be emitted.
+    StepOutcome {
+        /// Step name.
+        name: String,
+        /// Typed terminal state.
+        outcome: StepOutcomeKind,
+        /// Human-readable detail (success message, skip reason, block reason).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        detail: Option<String>,
+        /// Execution duration in milliseconds (only set when the step ran).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<u64>,
+    },
+
     /// A rerun was detected for a step.
     RerunDetected {
         /// Step name.
@@ -338,6 +359,7 @@ impl BivvyEvent {
             BivvyEvent::StepOutput { .. } => "step_output",
             BivvyEvent::StepCompleted { .. } => "step_completed",
             BivvyEvent::StepSkipped { .. } => "step_skipped",
+            BivvyEvent::StepOutcome { .. } => "step_outcome",
             BivvyEvent::RerunDetected { .. } => "rerun_detected",
             BivvyEvent::DependencyBlocked { .. } => "dependency_blocked",
             BivvyEvent::RequirementGap { .. } => "requirement_gap",
@@ -350,6 +372,63 @@ impl BivvyEvent {
             BivvyEvent::RecoveryActionTaken { .. } => "recovery_action_taken",
             BivvyEvent::WorkflowStarted { .. } => "workflow_started",
             BivvyEvent::WorkflowCompleted { .. } => "workflow_completed",
+        }
+    }
+}
+
+/// The terminal state of a step in a workflow run.
+///
+/// Used by [`BivvyEvent::StepOutcome`] to give post-hoc consumers
+/// (`bivvy last`, `bivvy history`) a single typed signal per step that
+/// matches the visual state shown by `bivvy run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum StepOutcomeKind {
+    /// Step ran and succeeded.
+    Completed,
+    /// Step ran and failed.
+    Failed,
+    /// Step's check passed — work was already done, no execution needed.
+    Satisfied,
+    /// User declined to run the step at a prompt.
+    Declined,
+    /// Step was filtered out before execution by `--skip` or environment scoping.
+    FilteredOut,
+    /// Step could not run because a dependency failed, was skipped without
+    /// satisfying its purpose, or a precondition failed.
+    Blocked,
+}
+
+impl StepOutcomeKind {
+    /// Stable string form used in JSONL serialization. Matches the serde
+    /// representation so the same string round-trips through `as_str` and
+    /// the JSON tag.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Completed => "completed",
+            Self::Failed => "failed",
+            Self::Satisfied => "satisfied",
+            Self::Declined => "declined",
+            Self::FilteredOut => "filtered_out",
+            Self::Blocked => "blocked",
+        }
+    }
+}
+
+impl std::str::FromStr for StepOutcomeKind {
+    type Err = ();
+
+    /// Parse the JSON tag form back into a [`StepOutcomeKind`]. Errors
+    /// for any string that is not one of the six known variant tags.
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "completed" => Ok(Self::Completed),
+            "failed" => Ok(Self::Failed),
+            "satisfied" => Ok(Self::Satisfied),
+            "declined" => Ok(Self::Declined),
+            "filtered_out" => Ok(Self::FilteredOut),
+            "blocked" => Ok(Self::Blocked),
+            _ => Err(()),
         }
     }
 }
@@ -1120,6 +1199,135 @@ mod tests {
         let json = serde_json::to_string(&method).unwrap();
         let value: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(value["type"], "typed_input");
+    }
+
+    #[test]
+    fn step_outcome_kind_as_str_round_trips() {
+        use std::str::FromStr;
+        let variants = [
+            StepOutcomeKind::Completed,
+            StepOutcomeKind::Failed,
+            StepOutcomeKind::Satisfied,
+            StepOutcomeKind::Declined,
+            StepOutcomeKind::FilteredOut,
+            StepOutcomeKind::Blocked,
+        ];
+        for v in variants {
+            assert_eq!(StepOutcomeKind::from_str(v.as_str()), Ok(v));
+        }
+    }
+
+    #[test]
+    fn step_outcome_kind_as_str_matches_serde_tag() {
+        // The string returned by as_str() must equal the serde rename for
+        // each variant — that's the contract the JSONL parser relies on.
+        for v in [
+            StepOutcomeKind::Completed,
+            StepOutcomeKind::Failed,
+            StepOutcomeKind::Satisfied,
+            StepOutcomeKind::Declined,
+            StepOutcomeKind::FilteredOut,
+            StepOutcomeKind::Blocked,
+        ] {
+            let serialized = serde_json::to_string(&v).unwrap();
+            // Strip surrounding quotes from the JSON string literal.
+            let trimmed = serialized.trim_matches('"');
+            assert_eq!(trimmed, v.as_str());
+        }
+    }
+
+    #[test]
+    fn step_outcome_kind_from_str_rejects_unknown() {
+        use std::str::FromStr;
+        assert!(StepOutcomeKind::from_str("nope").is_err());
+        assert!(StepOutcomeKind::from_str("").is_err());
+    }
+
+    fn assert_outcome_round_trip(outcome: StepOutcomeKind, detail: Option<&str>, dur: Option<u64>) {
+        let event = BivvyEvent::StepOutcome {
+            name: "step".to_string(),
+            outcome,
+            detail: detail.map(|s| s.to_string()),
+            duration_ms: dur,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"], "step_outcome");
+        assert_eq!(value["name"], "step");
+        assert_eq!(value["outcome"], outcome.as_str());
+        match detail {
+            Some(d) => assert_eq!(value["detail"], d),
+            None => assert!(value.get("detail").is_none()),
+        }
+        match dur {
+            Some(ms) => assert_eq!(value["duration_ms"], ms),
+            None => assert!(value.get("duration_ms").is_none()),
+        }
+    }
+
+    #[test]
+    fn step_outcome_completed_round_trip() {
+        assert_outcome_round_trip(StepOutcomeKind::Completed, Some("ran ok"), Some(420));
+    }
+
+    #[test]
+    fn step_outcome_failed_round_trip() {
+        assert_outcome_round_trip(StepOutcomeKind::Failed, Some("exit code 1"), Some(101));
+    }
+
+    #[test]
+    fn step_outcome_satisfied_round_trip() {
+        assert_outcome_round_trip(
+            StepOutcomeKind::Satisfied,
+            Some("✓ rustc --version succeeded"),
+            None,
+        );
+    }
+
+    #[test]
+    fn step_outcome_declined_round_trip() {
+        assert_outcome_round_trip(StepOutcomeKind::Declined, Some("user_declined"), None);
+    }
+
+    #[test]
+    fn step_outcome_filtered_out_round_trip() {
+        assert_outcome_round_trip(StepOutcomeKind::FilteredOut, Some("skip_flag"), None);
+    }
+
+    #[test]
+    fn step_outcome_blocked_round_trip() {
+        assert_outcome_round_trip(
+            StepOutcomeKind::Blocked,
+            Some("dependency 'build' failed"),
+            None,
+        );
+    }
+
+    #[test]
+    fn step_outcome_omits_none_optional_fields() {
+        let event = BivvyEvent::StepOutcome {
+            name: "x".to_string(),
+            outcome: StepOutcomeKind::Completed,
+            detail: None,
+            duration_ms: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(value.get("detail").is_none());
+        assert!(value.get("duration_ms").is_none());
+    }
+
+    #[test]
+    fn step_outcome_type_name_matches_serde_tag() {
+        let event = BivvyEvent::StepOutcome {
+            name: "x".to_string(),
+            outcome: StepOutcomeKind::Completed,
+            detail: None,
+            duration_ms: None,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        let value: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(value["type"].as_str().unwrap(), event.type_name());
     }
 
     /// Verify that a mock EventConsumer can receive events.
