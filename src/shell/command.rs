@@ -164,13 +164,18 @@ pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult>
     cmd.arg(shell_flag);
     cmd.arg(command);
 
-    // Isolate child in its own process group so zsh's job control
-    // doesn't reclaim the foreground when the child exits.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
+    // Run the child in bivvy's own process group. An earlier attempt
+    // moved the child into its own group via `Command::process_group(0)`
+    // (commit a19bdae) to keep zsh's job control from reclaiming the
+    // foreground when the child exits. That fix exposed a worse hang:
+    // commands whose process trees touch the controlling terminal
+    // (notably `cargo test`, where libtest or its child binaries make
+    // a transient `tcsetpgrp` call and then the temporary foreground
+    // pgid dies) leave every member of the now-background child group
+    // permanently SIGTTOU-stopped. Sharing bivvy's pgroup keeps the
+    // child in the foreground for the duration of its run, and the
+    // `claim_foreground` call after wait still re-asserts ownership
+    // for the zsh edge case.
 
     // Set working directory
     if let Some(cwd) = &options.cwd {
@@ -268,13 +273,18 @@ pub fn execute_streaming(
     cmd.arg(shell_flag);
     cmd.arg(command);
 
-    // Isolate child in its own process group so zsh's job control
-    // doesn't reclaim the foreground when the child exits.
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        cmd.process_group(0);
-    }
+    // Run the child in bivvy's own process group. An earlier attempt
+    // moved the child into its own group via `Command::process_group(0)`
+    // (commit a19bdae) to keep zsh's job control from reclaiming the
+    // foreground when the child exits. That fix exposed a worse hang:
+    // commands whose process trees touch the controlling terminal
+    // (notably `cargo test`, where libtest or its child binaries make
+    // a transient `tcsetpgrp` call and then the temporary foreground
+    // pgid dies) leave every member of the now-background child group
+    // permanently SIGTTOU-stopped. Sharing bivvy's pgroup keeps the
+    // child in the foreground for the duration of its run, and the
+    // `claim_foreground` call after wait still re-asserts ownership
+    // for the zsh edge case.
 
     if let Some(cwd) = &options.cwd {
         cmd.current_dir(cwd);
