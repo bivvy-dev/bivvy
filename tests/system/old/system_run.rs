@@ -742,10 +742,11 @@ workflows:
 
     let combined = format!("{stdout}{stderr}");
     // after-bad should be blocked because its dependency (bad) failed —
-    // assert on the full status string from the summary table.
+    // assert on the full status string from the summary table, including the
+    // specific dep name so users see *which* dependency caused the block.
     assert!(
-        combined.contains("Blocked (dependency failed)"),
-        "Dependent step should show 'Blocked (dependency failed)' status, \
+        combined.contains("Blocked (dependency 'bad' failed)"),
+        "Dependent step should show 'Blocked (dependency 'bad' failed)' status, \
          got stdout: {stdout}, stderr: {stderr}",
     );
     assert_eq!(code, Some(1), "Workflow with failed step should exit 1");

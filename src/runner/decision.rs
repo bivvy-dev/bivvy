@@ -31,23 +31,32 @@ pub enum StepDecision {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BlockReason {
     /// A dependency of this step failed.
-    DependencyFailed,
+    DependencyFailed { dependency: String },
     /// A dependency of this step was skipped by the user and is not satisfied.
-    DependencySkipped,
+    DependencySkipped { dependency: String },
     /// A precondition check failed.
-    PreconditionFailed,
+    PreconditionFailed { description: String },
     /// A dependency was skipped and its `satisfied_when` conditions failed.
-    DependencyUnsatisfied,
+    DependencyUnsatisfied { dependency: String },
 }
 
 impl BlockReason {
-    /// User-facing message for the block reason.
-    pub fn message(&self) -> &'static str {
+    /// User-facing message for the block reason, naming the specific
+    /// dependency or precondition that caused the block.
+    pub fn message(&self) -> String {
         match self {
-            BlockReason::DependencyFailed => "Blocked (dependency failed)",
-            BlockReason::DependencySkipped => "Skipped (dependency skipped)",
-            BlockReason::PreconditionFailed => "Blocked (precondition failed)",
-            BlockReason::DependencyUnsatisfied => "Blocked (dependency not satisfied)",
+            BlockReason::DependencyFailed { dependency } => {
+                format!("Blocked (dependency '{}' failed)", dependency)
+            }
+            BlockReason::DependencySkipped { dependency } => {
+                format!("Skipped (dependency '{}' skipped)", dependency)
+            }
+            BlockReason::PreconditionFailed { description } => {
+                format!("Blocked (precondition failed: {})", description)
+            }
+            BlockReason::DependencyUnsatisfied { dependency } => {
+                format!("Blocked (dependency '{}' not satisfied)", dependency)
+            }
         }
     }
 }
@@ -287,20 +296,32 @@ mod tests {
     #[test]
     fn block_reason_messages() {
         assert_eq!(
-            BlockReason::DependencyFailed.message(),
-            "Blocked (dependency failed)"
+            BlockReason::DependencyFailed {
+                dependency: "build".to_string()
+            }
+            .message(),
+            "Blocked (dependency 'build' failed)"
         );
         assert_eq!(
-            BlockReason::DependencySkipped.message(),
-            "Skipped (dependency skipped)"
+            BlockReason::DependencySkipped {
+                dependency: "build".to_string()
+            }
+            .message(),
+            "Skipped (dependency 'build' skipped)"
         );
         assert_eq!(
-            BlockReason::PreconditionFailed.message(),
-            "Blocked (precondition failed)"
+            BlockReason::PreconditionFailed {
+                description: "git branch is main".to_string()
+            }
+            .message(),
+            "Blocked (precondition failed: git branch is main)"
         );
         assert_eq!(
-            BlockReason::DependencyUnsatisfied.message(),
-            "Blocked (dependency not satisfied)"
+            BlockReason::DependencyUnsatisfied {
+                dependency: "build".to_string()
+            }
+            .message(),
+            "Blocked (dependency 'build' not satisfied)"
         );
     }
 
@@ -357,7 +378,9 @@ mod tests {
         assert!(matches!(prompt, StepDecision::Prompt { .. }));
 
         let block = StepDecision::Block {
-            reason: BlockReason::DependencyFailed,
+            reason: BlockReason::DependencyFailed {
+                dependency: "a".to_string(),
+            },
         };
         assert!(matches!(block, StepDecision::Block { .. }));
     }

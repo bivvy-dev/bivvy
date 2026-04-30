@@ -2320,8 +2320,8 @@ fn run_with_ui_blocked_step_shows_warning() {
         .unwrap();
 
     assert!(!result.success);
-    // The dependent step should show a blocked message
-    assert!(workflow_display.has_message("Blocked (dependency failed)"));
+    // The dependent step should show a blocked message naming the failed dep
+    assert!(workflow_display.has_message("Blocked (dependency 'failing' failed)"));
 }
 
 // --- 1E-2: Gap checking integration tests ---

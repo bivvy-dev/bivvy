@@ -88,7 +88,9 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
         None => {
             return EvaluationResult {
                 decision: StepDecision::Block {
-                    reason: BlockReason::DependencyFailed,
+                    reason: BlockReason::DependencyFailed {
+                        dependency: step_name.to_string(),
+                    },
                 },
                 reason: format!("Step '{}' not found", step_name),
                 satisfaction: None,
@@ -97,16 +99,18 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
     };
 
     // 2. Hard blocks — dependency failed
-    if step
+    if let Some(failed_dep) = step
         .depends_on
         .iter()
-        .any(|dep| ctx.failed_steps.contains(dep))
+        .find(|dep| ctx.failed_steps.contains(*dep))
     {
         let result = EvaluationResult {
             decision: StepDecision::Block {
-                reason: BlockReason::DependencyFailed,
+                reason: BlockReason::DependencyFailed {
+                    dependency: failed_dep.clone(),
+                },
             },
-            reason: "dependency failed".to_string(),
+            reason: format!("dependency '{}' failed", failed_dep),
             satisfaction: None,
         };
         ctx.evaluated.insert(step_name.to_string(), result.clone());
@@ -114,16 +118,18 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
     }
 
     // Hard block — dependency skipped and not satisfied
-    if step
+    if let Some(skipped_dep) = step
         .depends_on
         .iter()
-        .any(|dep| ctx.user_skipped_steps.contains(dep) && !ctx.satisfied_steps.contains(dep))
+        .find(|dep| ctx.user_skipped_steps.contains(*dep) && !ctx.satisfied_steps.contains(*dep))
     {
         let result = EvaluationResult {
             decision: StepDecision::Block {
-                reason: BlockReason::DependencySkipped,
+                reason: BlockReason::DependencySkipped {
+                    dependency: skipped_dep.clone(),
+                },
             },
-            reason: "dependency skipped and not satisfied".to_string(),
+            reason: format!("dependency '{}' skipped and not satisfied", skipped_dep),
             satisfaction: None,
         };
         ctx.evaluated.insert(step_name.to_string(), result.clone());
@@ -138,7 +144,9 @@ pub fn evaluate_step(step_name: &str, ctx: &mut EngineContext<'_>) -> Evaluation
         if !precond_result.passed_check() {
             let result = EvaluationResult {
                 decision: StepDecision::Block {
-                    reason: BlockReason::PreconditionFailed,
+                    reason: BlockReason::PreconditionFailed {
+                        description: precond_result.description.clone(),
+                    },
                 },
                 reason: format!("precondition failed: {}", precond_result.description),
                 satisfaction: None,
@@ -431,9 +439,17 @@ mod tests {
         assert!(matches!(
             result.decision,
             StepDecision::Block {
-                reason: BlockReason::DependencyFailed
+                reason: BlockReason::DependencyFailed { .. }
             }
         ));
+        if let StepDecision::Block {
+            reason: BlockReason::DependencyFailed { dependency },
+        } = &result.decision
+        {
+            assert_eq!(dependency, "a");
+        } else {
+            panic!("expected DependencyFailed with dependency name");
+        }
     }
 
     #[test]
@@ -698,9 +714,17 @@ mod tests {
         assert!(matches!(
             result.decision,
             StepDecision::Block {
-                reason: BlockReason::DependencySkipped
+                reason: BlockReason::DependencySkipped { .. }
             }
         ));
+        if let StepDecision::Block {
+            reason: BlockReason::DependencySkipped { dependency },
+        } = &result.decision
+        {
+            assert_eq!(dependency, "a");
+        } else {
+            panic!("expected DependencySkipped with dependency name");
+        }
     }
 
     #[test]

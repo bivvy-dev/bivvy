@@ -516,29 +516,22 @@ impl<'a> StepManager<'a> {
         reason: &BlockReason,
         step_header_text: &str,
         step_pad: &str,
-        failed_steps: &HashSet<String>,
+        _failed_steps: &HashSet<String>,
         event_bus: &mut EventBus,
         step_display: &mut dyn StepDisplay,
     ) -> Result<StepAction> {
         let reason_str = match reason {
-            BlockReason::DependencyFailed => {
-                let blocked_by = self
-                    .step
-                    .depends_on
-                    .iter()
-                    .find(|d| failed_steps.contains(*d))
-                    .cloned()
-                    .unwrap_or_default();
+            BlockReason::DependencyFailed { dependency } => {
                 event_bus.emit(&BivvyEvent::DependencyBlocked {
                     name: self.step_name.to_string(),
-                    blocked_by,
+                    blocked_by: dependency.clone(),
                     reason: "dependency_failed".to_string(),
                 });
                 "dependency_failed"
             }
-            BlockReason::DependencySkipped => "dependency_skipped",
-            BlockReason::PreconditionFailed => "precondition_failed",
-            BlockReason::DependencyUnsatisfied => "dependency_unsatisfied",
+            BlockReason::DependencySkipped { .. } => "dependency_skipped",
+            BlockReason::PreconditionFailed { .. } => "precondition_failed",
+            BlockReason::DependencyUnsatisfied { .. } => "dependency_unsatisfied",
         };
         event_bus.emit(&BivvyEvent::StepDecided {
             name: self.step_name.to_string(),
@@ -550,11 +543,11 @@ impl<'a> StepManager<'a> {
         step_display.message(&format!(
             "{}{}",
             step_pad,
-            StatusKind::Blocked.format(self.theme, reason.message())
+            StatusKind::Blocked.format(self.theme, &reason.message())
         ));
 
         // For dependency_skipped, return a skip result, not a block
-        if matches!(reason, BlockReason::DependencySkipped) {
+        if matches!(reason, BlockReason::DependencySkipped { .. }) {
             Ok(StepAction::Skipped(
                 StepResult::skipped(&self.step.name, CheckResult::passed("Dependency skipped")),
                 SkipCategory::DependencySkipped,
