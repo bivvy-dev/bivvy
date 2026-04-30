@@ -96,7 +96,7 @@ impl LintCommand {
         if self.args.all {
             return Ok(LintTarget::All);
         }
-        if self.args.config {
+        if self.args.config_only {
             return Ok(LintTarget::ProjectConfig);
         }
         if let Some(ref name) = self.args.target {

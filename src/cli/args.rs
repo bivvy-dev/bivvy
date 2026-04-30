@@ -324,20 +324,22 @@ pub struct LintArgs {
     pub target: Option<String>,
 
     /// Force lookup as a workflow file: .bivvy/workflows/<NAME>.yml
-    #[arg(long, value_name = "NAME", conflicts_with_all = ["step", "config", "all"])]
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["step", "config_only", "all"])]
     pub workflow: Option<String>,
 
     /// Force lookup as a step file: .bivvy/steps/<NAME>.yml
-    #[arg(long, value_name = "NAME", conflicts_with_all = ["workflow", "config", "all"])]
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["workflow", "config_only", "all"])]
     pub step: Option<String>,
 
-    /// Lint .bivvy/config.yml only (the default when no target is given)
-    #[arg(long, conflicts_with_all = ["workflow", "step", "all"])]
-    pub config: bool,
+    /// Lint .bivvy/config.yml only (the default when no target is given).
+    /// Named `--config-only` rather than `--config` to avoid collision
+    /// with the global `-c, --config <PATH>` option.
+    #[arg(long = "config-only", conflicts_with_all = ["workflow", "step", "all"])]
+    pub config_only: bool,
 
     /// Lint every file in the merged state — equivalent to the legacy
     /// "lint everything" behavior, now opt-in
-    #[arg(long, conflicts_with_all = ["workflow", "step", "config"])]
+    #[arg(long, conflicts_with_all = ["workflow", "step", "config_only"])]
     pub all: bool,
 
     /// Output format: human, json, sarif
