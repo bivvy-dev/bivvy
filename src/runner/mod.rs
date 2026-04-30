@@ -3,6 +3,7 @@
 pub mod decision;
 pub mod dependency;
 pub mod diagnostic;
+pub mod display;
 pub mod engine;
 mod execution;
 mod orchestrate;

@@ -169,6 +169,18 @@ When `is_ci()` detects a CI environment (via `CI`, `GITHUB_ACTIONS`, etc.):
 3. Override in `NonInteractiveUI` (`src/ui/non_interactive.rs`) for non-TTY behavior
 4. Add capture support in `MockUI` (`src/ui/mock.rs`) for testing
 
+### Where new UI lives: generic vs run-path
+
+`UserInterface` is the *generic* UI used by every command (`init`, `status`, `list`, `lint`, `add`, `templates`, `last`, `history`, …). It owns scrollback writes (`message`, `success`, `warning`, `error`), prompts, ad-hoc spinners, headers, and progress lines.
+
+The **`run` command** has its own narrower contracts because workflow chrome and per-step rendering must coordinate around a single pinned progress bar:
+
+- **`crate::ui::surface::TerminalSurface`** — the only thing that owns the `MultiProgress`. Exposes regions (pinned bar, transient region above it) and a `with_cursor_freed` helper for prompts. See the `surface.rs` rustdoc.
+- **`crate::runner::display::WorkflowDisplay`** — workflow header, persistent progress bar, run summary. Lives in the *runner*, not in `ui/`, because it's a workflow-runner concern.
+- **`crate::runner::display::StepDisplay`** — per-step header, transient spinner with bounded live-output tail, error block, prompts, final result line. The result label and icon come from `StepStatus::label()` / `StepStatus::display_char()` — never hardcode them.
+
+If the new method is for the run path (touches the spinner, the workflow bar, or per-step output), add it to `WorkflowDisplay` or `StepDisplay`, *not* `UserInterface`.
+
 ## Box Drawing
 
 Use for bordered blocks.

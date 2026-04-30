@@ -50,6 +50,21 @@ impl StepStatus {
             StepStatus::Skipped => '⊘',
         }
     }
+
+    /// Title-case label shown in the run-path step result line.
+    ///
+    /// This is the single source of truth for what appears next to
+    /// `display_char()` on the post-spinner result row, e.g. the
+    /// `Completed` in `      ✓ Completed (43ms)`.
+    pub fn label(&self) -> &'static str {
+        match self {
+            StepStatus::Pending => "Pending",
+            StepStatus::Running => "Running",
+            StepStatus::Completed => "Completed",
+            StepStatus::Failed => "Failed",
+            StepStatus::Skipped => "Skipped",
+        }
+    }
 }
 
 impl std::fmt::Display for StepStatus {

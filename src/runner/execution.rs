@@ -13,12 +13,12 @@ use tracing::warn;
 use crate::config::interpolation::InterpolationContext;
 use crate::error::Result;
 use crate::logging::{BivvyEvent, EventBus};
+use crate::shell::OutputCallback;
 use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
-use crate::ui::spinner::live_output_callback;
-use crate::ui::theme::BivvyTheme;
 use crate::ui::{format_duration, OutputMode, Prompt, PromptOption, PromptType, UserInterface};
 
 use super::diagnostic;
+use super::display::StepDisplay;
 use super::patterns::{self, FixSuggestion, StepContext};
 use super::recovery::{self, RecoveryAction};
 
@@ -58,10 +58,9 @@ pub(super) fn execute_step_with_recovery(
     diagnostic_funnel: bool,
     workflow_state: &diagnostic::WorkflowState<'_>,
     ui: &mut dyn UserInterface,
+    step_display: &mut dyn StepDisplay,
     event_bus: &mut EventBus,
 ) -> Result<StepExecutionResult> {
-    let theme = BivvyTheme::new();
-
     let mut retry_count: u32 = 0;
     let mut fix_history: HashSet<String> = HashSet::new();
     let mut skipped_by_user = false;
@@ -77,47 +76,11 @@ pub(super) fn execute_step_with_recovery(
         } else {
             step.execution.command.clone()
         };
-        let attempt_label = if retry_count > 0 {
-            format!(
-                "Running `{}`... (attempt {}/{})",
-                display_command,
-                retry_count + 1,
-                step.execution.retry + 1
-            )
-        } else {
-            format!("Running `{}`...", display_command)
-        };
-        let mut spinner = ui.start_spinner_indented(&attempt_label, step_indent);
-
-        // Create live output callback:
-        // - Interactive mode: spinner-based ring buffer (3 lines verbose, 2 normal)
-        // - Non-interactive verbose: print all output directly to stdout
-        let output_mode = ui.output_mode();
-        let output_callback = spinner
-            .progress_bar()
-            .and_then(|bar| {
-                let max_lines = match output_mode {
-                    OutputMode::Verbose => 3,
-                    OutputMode::Normal => 2,
-                    _ => return None,
-                };
-                Some(live_output_callback(
-                    bar,
-                    attempt_label.clone(),
-                    6,
-                    max_lines,
-                ))
-            })
-            .or_else(|| {
-                // Non-interactive verbose: stream output through VerboseStreamSink
-                if output_mode == OutputMode::Verbose {
-                    let cb: crate::shell::OutputCallback =
-                        Box::new(crate::ui::VerboseStreamSink::new(6));
-                    Some(cb)
-                } else {
-                    None
-                }
-            });
+        // Mount the transient region with the spinner. The step display
+        // owns the live-output ring buffer.
+        step_display.start_running(&display_command);
+        let output_mode = step_display.output_mode();
+        let output_callback: Option<OutputCallback> = step_display.live_output_callback();
 
         let exec_options = ExecutionOptions {
             force: needs_force,
@@ -125,6 +88,7 @@ pub(super) fn execute_step_with_recovery(
             capture_output: output_callback.is_none(),
             ..Default::default()
         };
+        let _ = step_number;
 
         let step_start = Instant::now();
         let result = match execute_step(
@@ -163,26 +127,27 @@ pub(super) fn execute_step_with_recovery(
                 } else {
                     None
                 };
-                // Clear spinner, then collapse step header → single result line
-                spinner.finish_and_clear();
-                ui.clear_lines(1);
-                ui.message(&format!(
-                    "{} {}",
-                    theme.step_number.apply_to(step_number),
-                    theme.format_success(&format!("{} ({})", step_name, duration_str))
-                ));
+                // Clear the transient region and write the final result
+                // line into scrollback. The label is derived from the
+                // status enum inside `finish`.
+                step_display.finish(
+                    StepStatus::Completed,
+                    Some(result.duration),
+                    detail.as_deref(),
+                );
                 let mut r = result;
                 r.recovery_detail = detail;
                 final_result = Some(r);
                 break 'step_execution;
             }
             StepStatus::Skipped => {
-                spinner.finish_skipped("Skipped");
+                step_display.finish(StepStatus::Skipped, None, None);
                 final_result = Some(result);
                 break 'step_execution;
             }
             StepStatus::Failed => {
-                spinner.finish_error(&format!("Failed ({})", duration_str));
+                step_display.finish(StepStatus::Failed, Some(result.duration), None);
+                let _ = duration_str;
 
                 // Build combined error output for pattern matching and display
                 let combined_output = result
@@ -225,9 +190,9 @@ pub(super) fn execute_step_with_recovery(
                 // Show error block — skip in non-interactive verbose
                 // where output was already streamed to stdout
                 let output_was_streamed =
-                    !ui.is_interactive() && output_mode == OutputMode::Verbose;
+                    !step_display.is_interactive() && output_mode == OutputMode::Verbose;
                 if !output_was_streamed {
-                    ui.show_error_block(
+                    step_display.show_error_block(
                         &step.execution.command,
                         &combined_output,
                         hint.as_deref(),
@@ -244,7 +209,7 @@ pub(super) fn execute_step_with_recovery(
                 // Auto-retry before showing recovery menu
                 if retry_count < step.execution.retry {
                     retry_count += 1;
-                    ui.message(&format!(
+                    step_display.message(&format!(
                         "{}Retrying... (attempt {}/{})",
                         " ".repeat(step_indent),
                         retry_count + 1,
@@ -290,6 +255,7 @@ pub(super) fn execute_step_with_recovery(
                     base_env,
                     process_env,
                     ui,
+                    step_display,
                     event_bus,
                 )?;
                 if final_result.is_some() {
@@ -336,6 +302,7 @@ fn handle_recovery_menu(
     base_env: &HashMap<String, String>,
     process_env: &HashMap<String, String>,
     ui: &mut dyn UserInterface,
+    step_display: &mut dyn StepDisplay,
     event_bus: &mut EventBus,
 ) -> Result<()> {
     let pad = " ".repeat(step_indent);
@@ -384,9 +351,9 @@ fn handle_recovery_menu(
                     let fix_ok = recovery::run_fix(&cmd, project_root, &step.env_vars.env)?;
                     fix_history.insert(cmd.clone());
                     if fix_ok {
-                        ui.message(&format!("{}Fix command succeeded.", pad));
+                        step_display.message(&format!("{}Fix command succeeded.", pad));
                     } else {
-                        ui.message(&format!("{}Fix command failed.", pad));
+                        step_display.message(&format!("{}Fix command failed.", pad));
                     }
                     *retry_count += 1;
                     return Ok(());
@@ -399,7 +366,7 @@ fn handle_recovery_menu(
                     action: "shell".to_string(),
                     command: None,
                 });
-                ui.message(&format!(
+                step_display.message(&format!(
                     "{}Dropping to debug shell (exit to return)...",
                     pad
                 ));

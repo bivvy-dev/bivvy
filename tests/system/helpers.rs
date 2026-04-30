@@ -206,11 +206,7 @@ pub fn spawn_bivvy_with_timeout(args: &[&str], dir: &Path, timeout: Duration) ->
 /// (so state doesn't split across two unrelated directories).  All other
 /// caller-provided vars are applied last and win via `Command::env`'s
 /// last-write-wins semantics.
-pub fn spawn_bivvy_with_env(
-    args: &[&str],
-    dir: &Path,
-    env: &[(&str, &str)],
-) -> Session {
+pub fn spawn_bivvy_with_env(args: &[&str], dir: &Path, env: &[(&str, &str)]) -> Session {
     let bin = cargo_bin("bivvy");
     let mut cmd = Command::new(bin);
     cmd.args(args);

@@ -3,6 +3,7 @@ use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::config::BivvyConfig;
 use crate::logging::EventBus;
+use crate::runner::display::MockWorkflowDisplay;
 use crate::state::SatisfactionCache;
 use crate::steps::{
     ResolvedBehavior, ResolvedEnvironmentVars, ResolvedExecution, ResolvedHooks, ResolvedOutput,
@@ -375,6 +376,7 @@ fn run_with_ui_executes_simple_step() {
     ui.set_interactive(true);
     ui.set_default_prompt_response("yes");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -388,6 +390,7 @@ fn run_with_ui_executes_simple_step() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -428,6 +431,7 @@ fn run_with_ui_interactive_no_check_auto_runs() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -441,6 +445,7 @@ fn run_with_ui_interactive_no_check_auto_runs() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -489,6 +494,7 @@ fn run_with_ui_incomplete_check_auto_runs() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -502,6 +508,7 @@ fn run_with_ui_incomplete_check_auto_runs() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -550,6 +557,7 @@ fn run_with_ui_auto_skips_when_satisfied() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -563,6 +571,7 @@ fn run_with_ui_auto_skips_when_satisfied() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -613,6 +622,7 @@ fn run_with_ui_force_reruns_satisfied_step() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -626,6 +636,7 @@ fn run_with_ui_force_reruns_satisfied_step() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -691,6 +702,7 @@ fn run_with_ui_force_all_reruns_every_satisfied_step() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -706,6 +718,7 @@ fn run_with_ui_force_all_reruns_every_satisfied_step() {
                 "/tmp/bivvy_test_force_all_sat.json",
             )),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -753,6 +766,7 @@ fn run_with_ui_step_level_force_reruns_satisfied_step() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -768,6 +782,7 @@ fn run_with_ui_step_level_force_reruns_satisfied_step() {
                 "/tmp/bivvy_test_step_force_sat.json",
             )),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -852,6 +867,7 @@ fn workflow_force_all_in_yaml_reruns_every_satisfied_step() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -867,6 +883,7 @@ fn workflow_force_all_in_yaml_reruns_every_satisfied_step() {
                 "/tmp/bivvy_test_workflow_force_all_sat.json",
             )),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -944,6 +961,7 @@ fn workflow_force_list_in_yaml_reruns_only_listed_steps() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -959,6 +977,7 @@ fn workflow_force_list_in_yaml_reruns_only_listed_steps() {
                 "/tmp/bivvy_test_workflow_force_list_sat.json",
             )),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1025,6 +1044,7 @@ fn run_with_ui_silent_skip_when_not_interactive() {
     let mut ui = MockUI::new();
     // Not interactive — should silently skip
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1038,6 +1058,7 @@ fn run_with_ui_silent_skip_when_not_interactive() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1087,6 +1108,7 @@ fn run_with_ui_silent_skip_when_prompt_on_rerun_false() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1100,6 +1122,7 @@ fn run_with_ui_silent_skip_when_prompt_on_rerun_false() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1139,6 +1162,7 @@ fn run_with_ui_sensitive_step_prompts() {
     // Only sensitive prompt is shown — no general run prompt
     ui.set_prompt_response("sensitive_deploy", "yes");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1152,6 +1176,7 @@ fn run_with_ui_sensitive_step_prompts() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1192,6 +1217,7 @@ fn run_with_ui_sensitive_not_skippable_declined_errors() {
     // User declines
     ui.set_prompt_response("sensitive_deploy", "no");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner.run_with_ui(
         &options,
         &ctx,
@@ -1204,6 +1230,7 @@ fn run_with_ui_sensitive_not_skippable_declined_errors() {
         None,
         &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
         &mut ui,
+        &mut workflow_display,
         &mut EventBus::new(),
     );
 
@@ -1247,6 +1274,7 @@ fn run_with_ui_workflow_non_interactive_suppresses_prompts() {
     ui.set_interactive(true);
 
     // Even though UI is interactive, workflow_non_interactive should suppress prompts
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1260,6 +1288,7 @@ fn run_with_ui_workflow_non_interactive_suppresses_prompts() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1316,6 +1345,7 @@ fn run_with_ui_step_override_disables_prompt_on_rerun() {
         },
     );
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1329,6 +1359,7 @@ fn run_with_ui_step_override_disables_prompt_on_rerun() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1594,6 +1625,7 @@ fn run_with_ui_step_error_continues_with_allow_failure() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1607,6 +1639,7 @@ fn run_with_ui_step_error_continues_with_allow_failure() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -1646,6 +1679,7 @@ fn run_with_ui_shows_error_output_on_failure() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -1659,13 +1693,14 @@ fn run_with_ui_shows_error_output_on_failure() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(!result.success);
     // Captured stderr should be surfaced as the error output (no internal exit code noise)
-    assert!(ui.has_message("something went wrong"));
+    assert!(workflow_display.has_message("something went wrong"));
 }
 
 /// Error block indent is determined by the step number width. For a single-step
@@ -1692,6 +1727,7 @@ fn run_with_ui_error_block_indent_single_step() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     runner
         .run_with_ui(
             &options,
@@ -1705,11 +1741,13 @@ fn run_with_ui_error_block_indent_single_step() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
 
-    let blocks = ui.error_blocks();
+    let state = workflow_display.state();
+    let blocks = &state.step_error_blocks;
     assert!(
         !blocks.is_empty(),
         "expected an error block from failed step"
@@ -1748,6 +1786,7 @@ fn run_with_ui_error_block_indent_two_digit_total() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     runner
         .run_with_ui(
             &options,
@@ -1761,11 +1800,13 @@ fn run_with_ui_error_block_indent_two_digit_total() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
 
-    let blocks = ui.error_blocks();
+    let state = workflow_display.state();
+    let blocks = &state.step_error_blocks;
     assert!(
         !blocks.is_empty(),
         "expected an error block from failed step"
@@ -1987,6 +2028,7 @@ fn run_with_ui_auto_runs_all_steps_without_prompting() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2000,6 +2042,7 @@ fn run_with_ui_auto_runs_all_steps_without_prompting() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2040,6 +2083,7 @@ fn run_with_ui_confirm_step_skipped_when_declined() {
     ui.set_interactive(true);
     ui.set_prompt_response("confirm_optional", "no");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2053,6 +2097,7 @@ fn run_with_ui_confirm_step_skipped_when_declined() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2090,6 +2135,7 @@ fn run_with_ui_no_prompt_when_not_skippable() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2103,6 +2149,7 @@ fn run_with_ui_no_prompt_when_not_skippable() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2138,6 +2185,7 @@ fn run_with_ui_no_prompt_when_non_interactive() {
     let mut ui = MockUI::new();
     // Not interactive (default)
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2151,6 +2199,7 @@ fn run_with_ui_no_prompt_when_non_interactive() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2195,6 +2244,7 @@ fn run_with_ui_satisfied_step_auto_skips_no_prompts() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2208,6 +2258,7 @@ fn run_with_ui_satisfied_step_auto_skips_no_prompts() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2249,6 +2300,7 @@ fn run_with_ui_blocked_step_shows_warning() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2262,13 +2314,14 @@ fn run_with_ui_blocked_step_shows_warning() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(!result.success);
     // The dependent step should show a blocked message
-    assert!(ui.has_message("Blocked (dependency failed)"));
+    assert!(workflow_display.has_message("Blocked (dependency failed)"));
 }
 
 // --- 1E-2: Gap checking integration tests ---
@@ -2315,6 +2368,7 @@ fn run_with_ui_proceeds_when_all_satisfied() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2328,6 +2382,7 @@ fn run_with_ui_proceeds_when_all_satisfied() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2373,6 +2428,7 @@ fn run_with_ui_warns_on_system_only() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2386,6 +2442,7 @@ fn run_with_ui_warns_on_system_only() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2428,6 +2485,7 @@ fn run_with_ui_errors_on_unknown_requirement() {
     // Non-interactive (default MockUI) → engine skips the step (soft block)
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2441,6 +2499,7 @@ fn run_with_ui_errors_on_unknown_requirement() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2485,6 +2544,7 @@ fn run_with_ui_non_interactive_fails_on_missing() {
     // Non-interactive → engine skips the step (soft block)
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner.run_with_ui(
         &options,
         &ctx,
@@ -2497,6 +2557,7 @@ fn run_with_ui_non_interactive_fails_on_missing() {
         None,
         &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
         &mut ui,
+        &mut workflow_display,
         &mut EventBus::new(),
     );
 
@@ -2542,6 +2603,7 @@ fn run_with_ui_interactive_warns_on_missing() {
     let mut ui = MockUI::new();
     ui.set_interactive(true);
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2555,6 +2617,7 @@ fn run_with_ui_interactive_warns_on_missing() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2592,6 +2655,7 @@ fn run_with_ui_no_gaps_when_requires_empty() {
 
     let mut ui = MockUI::new();
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2605,6 +2669,7 @@ fn run_with_ui_no_gaps_when_requires_empty() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2896,6 +2961,7 @@ fn recovery_retry_succeeds() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_flaky", "retry");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2909,6 +2975,7 @@ fn recovery_retry_succeeds() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -2960,6 +3027,7 @@ fn recovery_skip_does_not_block_dependents() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_failing", "skip");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -2973,6 +3041,7 @@ fn recovery_skip_does_not_block_dependents() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3023,6 +3092,7 @@ fn recovery_abort_stops_workflow() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_failing", "abort");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3036,6 +3106,7 @@ fn recovery_abort_stops_workflow() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3084,6 +3155,7 @@ fn recovery_abort_includes_partial_results() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_bad", "abort");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3097,6 +3169,7 @@ fn recovery_abort_includes_partial_results() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3139,6 +3212,7 @@ fn auto_retry_before_menu() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_flaky", "abort");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3152,6 +3226,7 @@ fn auto_retry_before_menu() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3160,8 +3235,8 @@ fn auto_retry_before_menu() {
     // Recovery prompt should have been shown (after auto-retries exhausted)
     assert!(ui.prompts_shown().contains(&"recovery_flaky".to_string()));
     // Auto-retry messages should appear
-    assert!(ui.has_message("Retrying... (attempt 2/3)"));
-    assert!(ui.has_message("Retrying... (attempt 3/3)"));
+    assert!(workflow_display.has_message("Retrying... (attempt 2/3)"));
+    assert!(workflow_display.has_message("Retrying... (attempt 3/3)"));
 }
 
 #[test]
@@ -3198,6 +3273,7 @@ fn auto_retry_succeeds() {
     ui.set_interactive(true);
     ui.set_default_prompt_response("yes");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3211,6 +3287,7 @@ fn auto_retry_succeeds() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3219,7 +3296,7 @@ fn auto_retry_succeeds() {
     // No recovery prompt should have been shown (auto-retry worked)
     assert!(!ui.prompts_shown().contains(&"recovery_flaky".to_string()));
     // Auto-retry message should appear
-    assert!(ui.has_message("Retrying... (attempt 2/2)"));
+    assert!(workflow_display.has_message("Retrying... (attempt 2/2)"));
 }
 
 #[test]
@@ -3259,6 +3336,7 @@ fn allow_failure_suppresses_menu() {
     ui.set_interactive(true);
     ui.set_default_prompt_response("yes");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3272,6 +3350,7 @@ fn allow_failure_suppresses_menu() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3310,6 +3389,7 @@ fn non_interactive_no_menu() {
     let mut ui = MockUI::new();
     // Not interactive (default)
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3323,6 +3403,7 @@ fn non_interactive_no_menu() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3366,6 +3447,7 @@ fn non_interactive_auto_retry() {
     let mut ui = MockUI::new();
     // Not interactive
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3379,6 +3461,7 @@ fn non_interactive_auto_retry() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3417,6 +3500,7 @@ fn recovery_detail_in_skip() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_failing", "skip");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3430,6 +3514,7 @@ fn recovery_detail_in_skip() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3472,6 +3557,7 @@ fn recovery_detail_in_retry() {
     ui.set_default_prompt_response("yes");
     ui.set_prompt_response("recovery_flaky", "retry");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3485,6 +3571,7 @@ fn recovery_detail_in_retry() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3527,6 +3614,7 @@ fn hint_shown_on_low_confidence() {
 
     let mut ui = MockUI::new();
     // Non-interactive so no recovery menu
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3540,13 +3628,15 @@ fn hint_shown_on_low_confidence() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
 
     assert!(!result.success);
     // Verify hint was passed to show_error_block
-    let blocks = ui.error_blocks();
+    let state = workflow_display.state();
+    let blocks = &state.step_error_blocks;
     assert!(!blocks.is_empty());
     let (_, _, hint, _) = &blocks[0];
     assert!(
@@ -3606,6 +3696,7 @@ fn recovery_fix_confirmed_retries() {
     // Confirm fix execution
     ui.set_prompt_response("confirm_fix_bundler", "yes");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3619,6 +3710,7 @@ fn recovery_fix_confirmed_retries() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();
@@ -3657,6 +3749,7 @@ fn recovery_fix_declined_reprompts() {
     // Decline the fix confirmation
     ui.set_prompt_response("confirm_fix_broken", "no");
 
+    let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
             &options,
@@ -3670,6 +3763,7 @@ fn recovery_fix_declined_reprompts() {
             None,
             &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
             &mut ui,
+            &mut workflow_display,
             &mut EventBus::new(),
         )
         .unwrap();

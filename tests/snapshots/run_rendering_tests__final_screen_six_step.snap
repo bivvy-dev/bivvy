@@ -1,0 +1,27 @@
+---
+source: tests/run_rendering_tests.rs
+expression: final_screen
+---
+[4/6] cargo_help
+
+      ✓ Completed (<dur>)
+
+[5/6] rustup
+
+      ✓ Completed (<dur>)
+
+[6/6] rustc_target
+
+      ✓ Completed (<dur>)
+
+┌─ Summary ──────────────────────────
+│ ✓ rustc                <dur>
+│ ✓ cargo_v              <dur>
+│ ✓ git_v                <dur>
+│ ✓ cargo_help           <dur>
+│ ✓ rustup               <dur>
+│ ✓ rustc_target         <dur>
+├────────────────────────────────────
+│ Total: <dur> · 6 run · 0 skipped
+└────────────────────────────────────
+Run `bivvy status` to verify setup health.

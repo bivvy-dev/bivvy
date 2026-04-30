@@ -28,7 +28,7 @@ fn prompt_theme() -> ColorfulTheme {
 ///
 /// The lookup is case-insensitive on the key side: a prompt with key "bump"
 /// matches env var `BUMP`, `bump`, or `Bump`.
-pub(super) fn env_override(prompt: &Prompt) -> Option<PromptResult> {
+pub(crate) fn env_override(prompt: &Prompt) -> Option<PromptResult> {
     let env_key = prompt.key.to_uppercase();
     let value = std::env::var(&env_key).ok()?;
 

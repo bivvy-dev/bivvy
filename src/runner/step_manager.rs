@@ -24,6 +24,7 @@ use crate::ui::{Prompt, PromptOption, PromptType, StatusKind, UserInterface};
 
 use super::decision::{BlockReason, SkipReason, StepDecision};
 use super::diagnostic;
+use super::display::StepDisplay;
 use super::engine::{self, EngineContext, EvaluationResult};
 use super::execution::{config_prompt_to_ui_prompt, execute_step_with_recovery};
 use super::patterns::StepContext;
@@ -133,7 +134,7 @@ impl<'a> StepManager<'a> {
     }
 
     /// Format the step display line with optional title.
-    fn step_display(&self) -> String {
+    fn step_header_text(&self) -> String {
         let step_number = self.step_number();
         let step_header = format!(
             "{} {}",
@@ -180,10 +181,11 @@ impl<'a> StepManager<'a> {
         named_check_results: &mut HashMap<String, CheckResult>,
         results: &[StepResult],
         ui: &mut dyn UserInterface,
+        step_display: &mut dyn StepDisplay,
         event_bus: &mut EventBus,
     ) -> Result<StepAction> {
         let step_pad = self.step_pad();
-        let step_display = self.step_display();
+        let step_header = self.step_header_text();
 
         // Emit step planned
         event_bus.emit(&BivvyEvent::StepPlanned {
@@ -280,11 +282,11 @@ impl<'a> StepManager<'a> {
             StepDecision::Block { reason } => {
                 return self.handle_block(
                     reason,
-                    &step_display,
+                    &step_header,
                     &step_pad,
                     failed_steps,
                     event_bus,
-                    ui,
+                    step_display,
                 );
             }
 
@@ -293,16 +295,16 @@ impl<'a> StepManager<'a> {
             } => {
                 return self.handle_auto_satisfied(
                     &eval_result,
-                    &step_display,
+                    &step_header,
                     &step_pad,
                     needs_force,
                     event_bus,
-                    ui,
+                    step_display,
                 );
             }
 
             StepDecision::Prompt { prompt_key } => {
-                ui.message(&step_display);
+                step_display.message(&step_header);
 
                 if opts.interactive {
                     let outcome = self.handle_prompt(
@@ -312,6 +314,7 @@ impl<'a> StepManager<'a> {
                         needs_force,
                         event_bus,
                         ui,
+                        step_display,
                     )?;
                     if let Some(outcome) = outcome {
                         return Ok(outcome);
@@ -322,12 +325,12 @@ impl<'a> StepManager<'a> {
             }
 
             StepDecision::AutoRun | StepDecision::Run => {
-                ui.message(&step_display);
+                step_display.message(&step_header);
             }
 
             StepDecision::Skip { reason } => {
-                ui.message(&step_display);
-                ui.message(&format!(
+                step_display.message(&step_header);
+                step_display.message(&format!(
                     "{}{}",
                     step_pad,
                     StatusKind::Skipped.format(self.theme, reason.message())
@@ -448,6 +451,7 @@ impl<'a> StepManager<'a> {
             opts.diagnostic_funnel,
             &ws,
             ui,
+            step_display,
             event_bus,
         )?;
 
@@ -510,11 +514,11 @@ impl<'a> StepManager<'a> {
     fn handle_block(
         &self,
         reason: &BlockReason,
-        step_display: &str,
+        step_header_text: &str,
         step_pad: &str,
         failed_steps: &HashSet<String>,
         event_bus: &mut EventBus,
-        ui: &mut dyn UserInterface,
+        step_display: &mut dyn StepDisplay,
     ) -> Result<StepAction> {
         let reason_str = match reason {
             BlockReason::DependencyFailed => {
@@ -542,8 +546,8 @@ impl<'a> StepManager<'a> {
             reason: Some(reason_str.to_string()),
             trace: None,
         });
-        ui.message(step_display);
-        ui.message(&format!(
+        step_display.message(step_header_text);
+        step_display.message(&format!(
             "{}{}",
             step_pad,
             StatusKind::Blocked.format(self.theme, reason.message())
@@ -564,11 +568,11 @@ impl<'a> StepManager<'a> {
     fn handle_auto_satisfied(
         &self,
         eval_result: &EvaluationResult,
-        step_display: &str,
+        step_header_text: &str,
         step_pad: &str,
         needs_force: bool,
         event_bus: &mut EventBus,
-        ui: &mut dyn UserInterface,
+        step_display: &mut dyn StepDisplay,
     ) -> Result<StepAction> {
         event_bus.emit(&BivvyEvent::StepDecided {
             name: self.step_name.to_string(),
@@ -583,9 +587,9 @@ impl<'a> StepManager<'a> {
             name: self.step_name.to_string(),
             reason: eval_result.reason.clone(),
         });
-        ui.message(step_display);
+        step_display.message(step_header_text);
         let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
-        ui.message(&format!(
+        step_display.message(&format!(
             "{}{}",
             step_pad,
             StatusKind::Success.format(self.theme, &skip_label)
@@ -601,6 +605,7 @@ impl<'a> StepManager<'a> {
 
     /// Handle a prompt decision. Returns `Some(StepAction)` if the step should
     /// not proceed to execution (user declined), or `None` to fall through.
+    #[allow(clippy::too_many_arguments)]
     fn handle_prompt(
         &self,
         prompt_key: &str,
@@ -609,6 +614,7 @@ impl<'a> StepManager<'a> {
         _needs_force: bool,
         event_bus: &mut EventBus,
         ui: &mut dyn UserInterface,
+        step_display: &mut dyn StepDisplay,
     ) -> Result<Option<StepAction>> {
         if prompt_key.starts_with("rerun_") {
             let prompt_text = format!("{}. Run again?", eval_result.reason);
@@ -630,14 +636,14 @@ impl<'a> StepManager<'a> {
                 default: Some("no".to_string()),
             };
             let answer = ui.prompt(&prompt)?;
-            ui.clear_lines(2);
+            // clear_lines removed — surface tracks regions
             if answer.as_string() != "yes" {
                 event_bus.emit(&BivvyEvent::StepSkipped {
                     name: self.step_name.to_string(),
                     reason: eval_result.reason.clone(),
                 });
                 let skip_label = crate::ui::satisfaction_label(&eval_result.reason);
-                ui.message(&format!(
+                step_display.message(&format!(
                     "{}{}",
                     step_pad,
                     StatusKind::Success.format(self.theme, &skip_label)
@@ -683,7 +689,7 @@ impl<'a> StepManager<'a> {
                 method: crate::logging::InputMethod::ArrowSelect,
             });
             if answer_str != "yes" {
-                ui.clear_lines(2);
+                // clear_lines removed — surface tracks regions
                 event_bus.emit(&BivvyEvent::StepDecided {
                     name: self.step_name.to_string(),
                     decision: "skip".to_string(),
@@ -694,7 +700,7 @@ impl<'a> StepManager<'a> {
                     name: self.step_name.to_string(),
                     reason: "user_declined_auto_run".to_string(),
                 });
-                ui.message(&format!(
+                step_display.message(&format!(
                     "{}{}",
                     step_pad,
                     self.theme.format_skipped("Skipped")
@@ -707,7 +713,7 @@ impl<'a> StepManager<'a> {
                     SkipCategory::UserDeclined,
                 )));
             }
-            ui.clear_lines(2);
+            // clear_lines removed — surface tracks regions
         } else if prompt_key.starts_with("confirm_") {
             let prompt_text = format!("{}?", self.step.title);
             let prompt = Prompt {
@@ -740,7 +746,7 @@ impl<'a> StepManager<'a> {
                 method: crate::logging::InputMethod::ArrowSelect,
             });
             if answer_str != "yes" {
-                ui.clear_lines(2);
+                // clear_lines removed — surface tracks regions
                 event_bus.emit(&BivvyEvent::StepDecided {
                     name: self.step_name.to_string(),
                     decision: "skip".to_string(),
@@ -751,7 +757,7 @@ impl<'a> StepManager<'a> {
                     name: self.step_name.to_string(),
                     reason: "user_declined".to_string(),
                 });
-                ui.message(&format!(
+                step_display.message(&format!(
                     "{}{}",
                     step_pad,
                     self.theme.format_skipped("Skipped")
@@ -761,7 +767,7 @@ impl<'a> StepManager<'a> {
                     SkipCategory::UserDeclined,
                 )));
             }
-            ui.clear_lines(2);
+            // clear_lines removed — surface tracks regions
         } else if prompt_key.starts_with("sensitive_") {
             let prompt_text = "Handles sensitive data. Continue?";
             let prompt = Prompt {
@@ -799,7 +805,7 @@ impl<'a> StepManager<'a> {
                         name: self.step_name.to_string(),
                         reason: "user_declined_sensitive".to_string(),
                     });
-                    ui.message(&format!(
+                    step_display.message(&format!(
                         "{}{}",
                         step_pad,
                         self.theme

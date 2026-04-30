@@ -22,6 +22,7 @@ use crate::state::StateStore;
 use crate::ui::theme::BivvyTheme;
 use crate::ui::UserInterface;
 
+use super::display::WorkflowDisplay;
 use super::plan::build_execution_plan;
 use super::step_manager::{SkipCategory, StepAction, StepExecutionOptions, StepManager};
 use super::workflow::{RunOptions, WorkflowResult, WorkflowRunner};
@@ -49,6 +50,7 @@ impl<'a> WorkflowRunner<'a> {
         state: Option<&mut StateStore>,
         satisfaction_cache: &mut SatisfactionCache,
         ui: &mut dyn UserInterface,
+        workflow_display: &mut dyn WorkflowDisplay,
         event_bus: &mut EventBus,
     ) -> Result<WorkflowResult> {
         let start = Instant::now();
@@ -107,7 +109,7 @@ impl<'a> WorkflowRunner<'a> {
         let mut workflow_aborted = false;
 
         // Initialize the persistent progress bar (pinned at terminal bottom).
-        ui.init_workflow_progress(total);
+        workflow_display.start_progress(total);
 
         for (index, step_name) in plan.steps_to_run.iter().enumerate() {
             let step =
@@ -120,7 +122,10 @@ impl<'a> WorkflowRunner<'a> {
 
             // Update progress bar immediately — before execution, so the user
             // sees "Step N/M" the moment iteration reaches this step.
-            ui.show_workflow_progress(index + 1, total, start.elapsed());
+            workflow_display.update_progress(index + 1, total, start.elapsed());
+
+            // Hand off to the step display for this iteration.
+            let mut step_display = workflow_display.begin_step(index, total);
 
             // Create StepManager and delegate step-level execution
             let step_mgr = StepManager::new(step, step_name, index, total, &theme);
@@ -152,6 +157,7 @@ impl<'a> WorkflowRunner<'a> {
                 &mut named_check_results,
                 &results,
                 ui,
+                step_display.as_mut(),
                 event_bus,
             )?;
 
@@ -219,7 +225,7 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             // Update progress bar after step completes (reflects final position)
-            ui.show_workflow_progress(index + 1, total, start.elapsed());
+            workflow_display.update_progress(index + 1, total, start.elapsed());
         }
 
         // Flush satisfaction cache to disk
@@ -230,7 +236,7 @@ impl<'a> WorkflowRunner<'a> {
         }
 
         // Finish progress bar (clear before summary)
-        ui.finish_workflow_progress();
+        workflow_display.finish_progress();
 
         let mut all_skipped: Vec<String> = plan.flag_skipped.into_iter().collect();
         all_skipped.extend(plan.env_skipped);

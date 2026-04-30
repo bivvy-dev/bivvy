@@ -1,17 +1,20 @@
 //! Interactive terminal UI.
+//!
+//! [`TerminalUI`] is the generic interactive UI used by every command
+//! (init, status, list, run, …). For run-path workflow chrome and step
+//! rendering, see [`crate::runner::display`].
 
 use console::Term;
-use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 use std::io::Write;
-use std::time::Duration;
+use std::sync::Arc;
 
 use crate::error::Result;
+use crate::ui::surface::TerminalSurface;
 
-use super::progress::format_duration;
 use super::{
     prompt_user, should_use_colors, BivvyTheme, NonInteractiveUI, OutputMode, OutputWriter,
-    ProgressDisplay, ProgressSpinner, Prompt, PromptResult, Prompter, RunSummary, SpinnerFactory,
-    SpinnerHandle, UiState, UserInterface, WorkflowDisplay,
+    ProgressDisplay, ProgressSpinner, Prompt, PromptResult, Prompter, SpinnerFactory,
+    SpinnerHandle, UiState, UserInterface,
 };
 
 #[cfg(unix)]
@@ -19,17 +22,16 @@ use crate::shell::command::claim_foreground;
 
 /// Interactive terminal UI implementation.
 ///
-/// When a workflow is running, a [`MultiProgress`] pins a progress bar at the
-/// bottom of the terminal. All other output is printed *above* it via
-/// `multi.println()`, so the bar stays in place and updates after each step.
+/// During a workflow run an [`Arc<TerminalSurface>`] is attached via
+/// [`TerminalUI::with_surface`]; output then flows through the surface
+/// so it stays coordinated with the workflow's pinned bar and the
+/// active step's transient region. Outside of a run the surface is
+/// `None` and output is written directly to the terminal.
 pub struct TerminalUI {
     term: Term,
     theme: BivvyTheme,
     mode: OutputMode,
-    /// Active multi-progress manager (set during workflow runs).
-    multi: Option<MultiProgress>,
-    /// The pinned workflow progress bar (child of `multi`).
-    workflow_bar: Option<ProgressBar>,
+    surface: Option<Arc<TerminalSurface>>,
 }
 
 impl TerminalUI {
@@ -45,16 +47,15 @@ impl TerminalUI {
             term: Term::stdout(),
             theme,
             mode,
-            multi: None,
-            workflow_bar: None,
+            surface: None,
         }
     }
 
-    /// Print a line above the pinned progress bar, or directly to the terminal
-    /// if no multi-progress is active.
+    /// Print a line through the surface (above bars) or directly to
+    /// the terminal if no surface is attached.
     fn println(&mut self, line: &str) {
-        if let Some(ref multi) = self.multi {
-            multi.println(line).ok();
+        if let Some(surface) = &self.surface {
+            surface.println(line);
         } else {
             writeln!(self.term, "{}", line).ok();
         }
@@ -145,35 +146,26 @@ impl OutputWriter for TerminalUI {
 
 impl Prompter for TerminalUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
-        // Re-claim the terminal foreground process group before each prompt.
-        // Child processes (check commands, step commands) may steal the
-        // foreground group when they run. After they exit, nobody restores
-        // it, so our next read_key() call gets EIO. Fix: always re-claim
-        // before prompting.
+        // Re-claim foreground process group: child commands may have
+        // stolen it on exit, leaving us unable to read input.
         #[cfg(unix)]
         claim_foreground();
 
-        // Suspend the multi-progress so dialoguer can draw its own prompts
-        // without conflicting with the pinned progress bar.
-        if let Some(ref multi) = self.multi {
-            multi.set_draw_target(indicatif::ProgressDrawTarget::hidden());
+        if let Some(surface) = &self.surface {
+            surface.with_cursor_freed(|| prompt_user(prompt, &self.term))
+        } else {
+            prompt_user(prompt, &self.term)
         }
-        let result = prompt_user(prompt, &self.term);
-        if let Some(ref multi) = self.multi {
-            multi.set_draw_target(indicatif::ProgressDrawTarget::stderr());
-        }
-        result
     }
 }
 
 impl SpinnerFactory for TerminalUI {
     fn start_spinner(&mut self, message: &str) -> Box<dyn SpinnerHandle> {
         if self.mode.shows_spinners() {
-            let spinner = match self.multi {
-                Some(ref multi) => ProgressSpinner::with_multi(message, 0, multi),
-                None => ProgressSpinner::new(message),
-            };
-            Box::new(spinner)
+            // Outside a run path: ad-hoc spinner with no surface
+            // coordination. Used by init/status/etc. for one-off
+            // operations.
+            Box::new(ProgressSpinner::new(message))
         } else {
             Box::new(ProgressSpinner::hidden())
         }
@@ -181,11 +173,7 @@ impl SpinnerFactory for TerminalUI {
 
     fn start_spinner_indented(&mut self, message: &str, indent: usize) -> Box<dyn SpinnerHandle> {
         if self.mode.shows_spinners() {
-            let spinner = match self.multi {
-                Some(ref multi) => ProgressSpinner::with_multi(message, indent, multi),
-                None => ProgressSpinner::with_indent(message, indent),
-            };
-            Box::new(spinner)
+            Box::new(ProgressSpinner::with_indent(message, indent))
         } else {
             Box::new(ProgressSpinner::hidden())
         }
@@ -212,181 +200,6 @@ impl ProgressDisplay for TerminalUI {
     }
 }
 
-impl WorkflowDisplay for TerminalUI {
-    fn show_run_header(
-        &mut self,
-        app_name: &str,
-        workflow: &str,
-        step_count: usize,
-        version: &str,
-        env_name: &str,
-    ) {
-        if self.mode.shows_status() {
-            let step_label = if step_count == 1 { "step" } else { "steps" };
-            self.println(&format!(
-                "\n{} {} {} {} {} {} {}\n",
-                self.theme.header.apply_to("⛺"),
-                self.theme.highlight.apply_to(app_name),
-                self.theme.dim.apply_to(format!("v{}", version)),
-                self.theme.dim.apply_to("·"),
-                self.theme.dim.apply_to(format!("{} workflow", workflow)),
-                self.theme
-                    .dim
-                    .apply_to(format!("· {} {}", step_count, step_label)),
-                self.theme.dim.apply_to(format!("· env: {}", env_name)),
-            ));
-        }
-    }
-
-    fn init_workflow_progress(&mut self, total: usize) {
-        if !self.mode.shows_status() {
-            return;
-        }
-        let multi = MultiProgress::new();
-        let bar = multi.add(ProgressBar::new(total as u64));
-        bar.set_style(ProgressStyle::default_bar().template("{msg}").unwrap());
-        // Set initial message (0/N)
-        let bar_text = Self::format_bar_message(&self.theme, 0, total, Duration::ZERO);
-        bar.set_message(bar_text);
-        self.workflow_bar = Some(bar);
-        self.multi = Some(multi);
-    }
-
-    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
-        if !self.mode.shows_status() {
-            return;
-        }
-        if let Some(ref bar) = self.workflow_bar {
-            let bar_text = Self::format_bar_message(&self.theme, current, total, elapsed);
-            bar.set_message(bar_text);
-        } else {
-            // Fallback for calls without init (shouldn't happen in practice)
-            let filled = if total > 0 { (current * 16) / total } else { 0 };
-            let empty = 16 - filled;
-            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
-            self.println(&format!(
-                "{} {}/{} steps {} {}",
-                self.theme.info.apply_to(format!("[{}]", bar)),
-                current,
-                total,
-                self.theme.dim.apply_to("·"),
-                self.theme
-                    .duration
-                    .apply_to(format!("{} elapsed", format_duration(elapsed))),
-            ));
-        }
-    }
-
-    fn finish_workflow_progress(&mut self) {
-        if let Some(bar) = self.workflow_bar.take() {
-            bar.finish_and_clear();
-        }
-        if let Some(multi) = self.multi.take() {
-            multi.clear().ok();
-        }
-    }
-
-    fn show_run_summary(&mut self, summary: &RunSummary) {
-        if !self.mode.shows_status() {
-            return;
-        }
-
-        let b = &self.theme.border;
-        let mut lines = vec![
-            String::new(),
-            format!(
-                "{} {}",
-                b.apply_to("┌─"),
-                b.apply_to("Summary ──────────────────────────")
-            ),
-        ];
-
-        for step in &summary.step_results {
-            let icon = step.status.styled(&self.theme);
-            let duration_str = step.duration.map(format_duration).unwrap_or_default();
-            let detail_str = step.detail.as_deref().unwrap_or("");
-
-            let right_side = if !duration_str.is_empty() {
-                self.theme.duration.apply_to(duration_str).to_string()
-            } else if !detail_str.is_empty() {
-                self.theme.dim.apply_to(detail_str).to_string()
-            } else {
-                String::new()
-            };
-
-            lines.push(format!(
-                "{} {} {:<20} {}",
-                b.apply_to("│"),
-                icon,
-                step.name,
-                right_side,
-            ));
-        }
-
-        // Footer
-        let satisfied_part = if summary.steps_satisfied > 0 {
-            format!(
-                " {} {} already satisfied",
-                self.theme.dim.apply_to("·"),
-                summary.steps_satisfied,
-            )
-        } else {
-            String::new()
-        };
-        lines.push(
-            b.apply_to("├────────────────────────────────────")
-                .to_string(),
-        );
-        lines.push(format!(
-            "{} Total: {} {} {} run {} {} skipped{}",
-            b.apply_to("│"),
-            self.theme
-                .duration
-                .apply_to(format_duration(summary.total_duration)),
-            self.theme.dim.apply_to("·"),
-            summary.steps_run,
-            self.theme.dim.apply_to("·"),
-            summary.steps_skipped,
-            satisfied_part,
-        ));
-        lines.push(
-            b.apply_to("└────────────────────────────────────")
-                .to_string(),
-        );
-
-        for line in &lines {
-            self.println(line);
-        }
-    }
-}
-
-impl TerminalUI {
-    /// Format the progress bar message string.
-    ///
-    /// Produces: `\n[██████░░░░░░░░░░] 2/5 steps · 1.2s elapsed`
-    /// The leading blank line provides visual padding between step output and the bar.
-    fn format_bar_message(
-        theme: &BivvyTheme,
-        current: usize,
-        total: usize,
-        elapsed: Duration,
-    ) -> String {
-        let filled = if total > 0 { (current * 16) / total } else { 0 };
-        let empty = 16 - filled;
-        let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
-        format!(
-            "\n{} {}/{} steps {} {}",
-            theme.info.apply_to(format!("[{}]", bar)),
-            current,
-            total,
-            theme.dim.apply_to("·"),
-            theme
-                .duration
-                .apply_to(format!("{} elapsed", format_duration(elapsed))),
-        )
-    }
-}
-
 impl UiState for TerminalUI {
     fn output_mode(&self) -> OutputMode {
         self.mode
@@ -396,19 +209,16 @@ impl UiState for TerminalUI {
         self.term.is_term()
     }
 
-    fn clear_lines(&mut self, count: usize) {
-        // When multi-progress is active, lines printed via multi.println()
-        // are above the progress bar and can't be cleared with term ops.
-        // The clear_lines calls in the orchestrator are used to collapse
-        // prompt output after a selection — this still works because prompts
-        // suspend the multi-progress and draw directly to the terminal.
-        if !super::is_dumb_term() {
-            self.term.clear_last_lines(count).ok();
-        }
-    }
-
     fn set_output_mode(&mut self, mode: OutputMode) {
         self.mode = mode;
+    }
+
+    fn attach_surface(&mut self, surface: Arc<TerminalSurface>) {
+        self.surface = Some(surface);
+    }
+
+    fn detach_surface(&mut self) {
+        self.surface = None;
     }
 }
 
@@ -453,5 +263,15 @@ mod tests {
     fn create_ui_verbose_mode() {
         let ui = create_ui(false, OutputMode::Verbose);
         assert_eq!(ui.output_mode(), OutputMode::Verbose);
+    }
+
+    #[test]
+    fn attach_surface_routes_output() {
+        let mut ui = TerminalUI::new(OutputMode::Normal);
+        let surface = TerminalSurface::hidden();
+        UiState::attach_surface(&mut ui, Arc::clone(&surface));
+        ui.message("hello");
+        // No assertion — hidden surface drops output. Verifies no panic.
+        UiState::detach_surface(&mut ui);
     }
 }

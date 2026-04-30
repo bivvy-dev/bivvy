@@ -27,6 +27,7 @@ pub mod presenter;
 pub mod progress;
 pub mod prompts;
 pub mod spinner;
+pub mod surface;
 pub mod table;
 pub mod terminal;
 pub mod theme;
@@ -43,11 +44,10 @@ pub use presenter::EventPresenter;
 pub use progress::{format_duration, format_relative_time, StepProgress};
 pub use prompts::prompt_user;
 pub use spinner::{step_spinner, ProgressSpinner};
+pub use surface::TerminalSurface;
 pub use table::Table;
 pub use terminal::{create_ui, TerminalUI};
 pub use theme::{should_use_colors, BivvyTheme};
-
-use std::time::Duration;
 
 /// Returns true when `TERM=dumb`.
 ///
@@ -124,55 +124,6 @@ pub trait ProgressDisplay {
     fn show_progress(&mut self, current: usize, total: usize);
 }
 
-/// Workflow-level display: run headers, progress bars, and summaries.
-///
-/// All methods have default implementations that delegate to
-/// [`OutputWriter`] and [`ProgressDisplay`].
-pub trait WorkflowDisplay: OutputWriter + ProgressDisplay {
-    /// Show a rich run header with app name, version, workflow, step count, and environment.
-    fn show_run_header(
-        &mut self,
-        app_name: &str,
-        workflow: &str,
-        step_count: usize,
-        version: &str,
-        env_name: &str,
-    ) {
-        let _ = (workflow, step_count, version, env_name);
-        self.show_header(app_name);
-    }
-
-    /// Initialize a persistent workflow progress bar.
-    ///
-    /// Called once before the step loop begins. Implementations that support
-    /// a pinned progress bar (e.g., `TerminalUI`) create it here.
-    fn init_workflow_progress(&mut self, _total: usize) {}
-
-    /// Show/update workflow progress bar.
-    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
-        let _ = elapsed;
-        self.show_progress(current, total);
-    }
-
-    /// Finish and remove the workflow progress bar.
-    fn finish_workflow_progress(&mut self) {}
-
-    /// Show a run summary with step results.
-    fn show_run_summary(&mut self, summary: &RunSummary) {
-        if summary.success {
-            self.success(&format!(
-                "Setup complete! ({} run, {} skipped)",
-                summary.steps_run, summary.steps_skipped
-            ));
-        } else {
-            self.error(&format!(
-                "Setup failed at: {}",
-                summary.failed_steps.join(", ")
-            ));
-        }
-    }
-}
-
 /// Output mode and interactivity state.
 pub trait UiState {
     /// Get the current output mode.
@@ -181,60 +132,33 @@ pub trait UiState {
     /// Check if running in interactive mode.
     fn is_interactive(&self) -> bool;
 
-    /// Clear the last `count` lines from terminal output.
-    ///
-    /// Used to collapse step headers and prompt output after a spinner finishes.
-    /// No-op in non-interactive or mock UIs.
-    fn clear_lines(&mut self, _count: usize) {}
-
     /// Change the output mode at runtime.
     fn set_output_mode(&mut self, mode: OutputMode);
+
+    /// Attach a [`crate::ui::surface::TerminalSurface`] for the
+    /// duration of a run. Default impl is a no-op for UIs that have no
+    /// surface concept (mock, non-interactive). Only `TerminalUI`
+    /// overrides this.
+    fn attach_surface(&mut self, _surface: std::sync::Arc<crate::ui::surface::TerminalSurface>) {}
+
+    /// Detach the surface attached by [`Self::attach_surface`].
+    fn detach_surface(&mut self) {}
 }
 
-/// Combined trait for all user interface interactions.
+/// Combined trait for all generic user interface interactions.
 ///
-/// This trait allows mocking the UI in tests. It is automatically
-/// implemented for any type that implements all six sub-traits.
+/// Run-path workflow chrome and per-step rendering are *not* part of
+/// this trait — see [`crate::runner::display`] for those concerns. This
+/// trait is intentionally narrow so that init / status / list / lint
+/// commands can mock it without dragging in workflow types.
 pub trait UserInterface:
-    OutputWriter + Prompter + SpinnerFactory + ProgressDisplay + WorkflowDisplay + UiState
+    OutputWriter + Prompter + SpinnerFactory + ProgressDisplay + UiState
 {
 }
 
 impl<T> UserInterface for T where
-    T: OutputWriter + Prompter + SpinnerFactory + ProgressDisplay + WorkflowDisplay + UiState
+    T: OutputWriter + Prompter + SpinnerFactory + ProgressDisplay + UiState
 {
-}
-
-/// Summary of a workflow run, used by `show_run_summary`.
-#[derive(Debug, Clone)]
-pub struct RunSummary {
-    /// Per-step results in execution order.
-    pub step_results: Vec<StepSummary>,
-    /// Total run duration.
-    pub total_duration: Duration,
-    /// Number of steps that ran.
-    pub steps_run: usize,
-    /// Number of steps skipped.
-    pub steps_skipped: usize,
-    /// Number of steps auto-skipped because already satisfied.
-    pub steps_satisfied: usize,
-    /// Whether all steps succeeded.
-    pub success: bool,
-    /// Names of failed steps.
-    pub failed_steps: Vec<String>,
-}
-
-/// Summary of a single step's result.
-#[derive(Debug, Clone)]
-pub struct StepSummary {
-    /// Step name.
-    pub name: String,
-    /// Step status.
-    pub status: StatusKind,
-    /// How long the step took.
-    pub duration: Option<Duration>,
-    /// Additional context (e.g., check description like "rustc --version").
-    pub detail: Option<String>,
 }
 
 /// Handle for controlling a spinner.

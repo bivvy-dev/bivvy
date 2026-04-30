@@ -1,23 +1,22 @@
 //! Non-interactive UI for CI/headless environments.
 
-use std::time::Duration;
-
 use crate::error::{BivvyError, Result};
 
-use super::progress::format_duration;
 use super::theme::BivvyTheme;
 use super::{
     OutputMode, OutputWriter, ProgressDisplay, Prompt, PromptResult, PromptType, Prompter,
-    RunSummary, SpinnerFactory, SpinnerHandle, StatusKind, UiState, WorkflowDisplay,
+    SpinnerFactory, SpinnerHandle, UiState,
 };
 
 /// UI implementation for non-interactive mode.
 ///
-/// When running in CI (detected via `is_ci()`), the progress bar is
-/// suppressed since it produces noisy output in log-based environments.
-/// All other output (headers, summaries, errors) is preserved.
+/// Used by every command (init, status, list, run, …) when running
+/// without a TTY. Run-path workflow chrome lives in
+/// [`crate::runner::display::NonInteractiveWorkflowDisplay`] — this
+/// type only handles generic [`UserInterface`] traits.
 pub struct NonInteractiveUI {
     mode: OutputMode,
+    #[allow(dead_code)]
     is_ci: bool,
 }
 
@@ -141,94 +140,6 @@ impl ProgressDisplay for NonInteractiveUI {
     fn show_progress(&mut self, current: usize, total: usize) {
         if self.mode.shows_status() {
             println!("[{}/{}]", current, total);
-        }
-    }
-}
-
-impl WorkflowDisplay for NonInteractiveUI {
-    fn show_run_header(
-        &mut self,
-        app_name: &str,
-        workflow: &str,
-        step_count: usize,
-        version: &str,
-        env_name: &str,
-    ) {
-        if self.mode.shows_status() {
-            let step_label = if step_count == 1 { "step" } else { "steps" };
-            println!(
-                "\n⛺ {} v{} · {} workflow · {} {} · env: {}\n",
-                app_name, version, workflow, step_count, step_label, env_name
-            );
-        }
-    }
-
-    fn show_workflow_progress(&mut self, current: usize, total: usize, elapsed: Duration) {
-        if self.is_ci {
-            return;
-        }
-        if self.mode.shows_status() {
-            let filled = if total > 0 { (current * 16) / total } else { 0 };
-            let empty = 16 - filled;
-            let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
-            println!(
-                "  [{}] {}/{} steps · {} elapsed",
-                bar,
-                current,
-                total,
-                format_duration(elapsed),
-            );
-        }
-    }
-
-    fn show_run_summary(&mut self, summary: &RunSummary) {
-        if !self.mode.shows_status() {
-            return;
-        }
-
-        println!();
-        println!("  ┌─ Summary ──────────────────────────");
-
-        for step in &summary.step_results {
-            let icon = step.status.icon();
-            let duration_str = step.duration.map(format_duration).unwrap_or_default();
-            let detail_str = step.detail.as_deref().unwrap_or("");
-
-            let right_side = if !duration_str.is_empty() {
-                duration_str
-            } else if !detail_str.is_empty() {
-                detail_str.to_string()
-            } else {
-                String::new()
-            };
-
-            println!("  │ {} {:<20} {}", icon, step.name, right_side);
-        }
-
-        println!("  ├────────────────────────────────────");
-        let satisfied_part = if summary.steps_satisfied > 0 {
-            format!(" · {} already satisfied", summary.steps_satisfied)
-        } else {
-            String::new()
-        };
-        println!(
-            "  │ Total: {} · {} run · {} skipped{}",
-            format_duration(summary.total_duration),
-            summary.steps_run,
-            summary.steps_skipped,
-            satisfied_part,
-        );
-        println!("  └────────────────────────────────────");
-
-        if summary.success {
-            println!("  ✓ Setup complete!");
-        } else {
-            let status = StatusKind::Failed;
-            eprintln!(
-                "  {} Setup failed: {}",
-                status.icon(),
-                summary.failed_steps.join(", ")
-            );
         }
     }
 }
@@ -404,17 +315,5 @@ mod tests {
     fn non_ci_mode_when_explicit() {
         let ui = NonInteractiveUI::with_ci(OutputMode::Normal, false);
         assert!(!ui.is_ci);
-    }
-
-    #[test]
-    fn ci_mode_suppresses_workflow_progress() {
-        // In CI mode, show_workflow_progress should return early.
-        // We verify this doesn't panic and the method is callable.
-        // (stdout output is suppressed by the early return, which we
-        // can't easily capture, but the is_ci flag test above confirms
-        // the flag is set correctly for the early return path.)
-        let mut ui = NonInteractiveUI::with_ci(OutputMode::Normal, true);
-        ui.show_workflow_progress(1, 5, Duration::from_secs(1));
-        // No panic = success. In CI mode this is a no-op.
     }
 }
