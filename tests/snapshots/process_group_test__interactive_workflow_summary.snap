@@ -2,14 +2,31 @@
 source: tests/process_group_test.rs
 expression: normalize_for_snapshot(&summary)
 ---
-⛺ ProcessGroupTest v1.9.0 · default workflow · 3 steps · env: development
+⛺ ProcessGroupTest v1.10.0 · default workflow · 3 steps · env: development
 
+  [█████░░░░░░░░░░░] 1/3 steps · [TIME] elapsed
+[1/3] check-toolchain — Check toolchain
+      Running `rustc --version > .step1.txt`...
+      ✓ Completed ([TIME])
+  [█████░░░░░░░░░░░] 1/3 steps · [TIME] elapsed
+  [██████████░░░░░░] 2/3 steps · [TIME] elapsed
 
-┌─ Summary ──────────────────────────
-│ ✓ check-toolchain      [TIME]
-│ ✓ check-git            [TIME]
-│ ✓ check-cargo          [TIME]
-├────────────────────────────────────
-│ Total: [TIME] · 3 run · 0 skipped
-└────────────────────────────────────
-Run `bivvy status` to verify setup health.
+[2/3] check-git — Check git
+      Running `git --version > .step2.txt`...
+      ✓ Completed ([TIME])
+  [██████████░░░░░░] 2/3 steps · [TIME] elapsed
+  [████████████████] 3/3 steps · [TIME] elapsed
+
+[3/3] check-cargo — Check cargo
+      Running `cargo --version > .step3.txt`...
+      ✓ Completed ([TIME])
+  [████████████████] 3/3 steps · [TIME] elapsed
+
+  ┌─ Summary ──────────────────────────
+  │ ✓ check-toolchain      [TIME]
+  │ ✓ check-git            [TIME]
+  │ ✓ check-cargo          [TIME]
+  ├────────────────────────────────────
+  │ Total: [TIME] · 3 run · 0 skipped
+  └────────────────────────────────────
+  💡 Run `bivvy status` to verify setup health.

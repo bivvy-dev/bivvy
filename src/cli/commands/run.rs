@@ -375,9 +375,13 @@ impl Command for RunCommand {
 
         // Construct the workflow display. Interactive runs get a
         // TerminalSurface that the UI shares so all output stays
-        // above the pinned bar.
+        // above the pinned bar. `TerminalSurface::try_new` returns
+        // `None` on dumb terminals (TERM=dumb, NO_COLOR, non-TTY stderr)
+        // because indicatif silently hides MultiProgress output in
+        // those cases — falling through to NonInteractiveWorkflowDisplay
+        // ensures plain text output still reaches the user.
         let surface: Option<std::sync::Arc<TerminalSurface>> = if ui.is_interactive() {
-            Some(TerminalSurface::new())
+            TerminalSurface::try_new()
         } else {
             None
         };

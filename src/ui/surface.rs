@@ -55,6 +55,21 @@ impl TerminalSurface {
         })
     }
 
+    /// Try to create a surface for the current terminal.
+    ///
+    /// Returns `None` when the terminal can't render progress bars —
+    /// non-TTY stderr, `NO_COLOR`, or `TERM=dumb`. In those cases
+    /// `MultiProgress::stderr()` is silently hidden by indicatif and
+    /// every `println` call becomes a no-op, swallowing all output.
+    /// Callers should fall back to plain stdout writes (typically by
+    /// using [`crate::runner::display::NonInteractiveWorkflowDisplay`]).
+    pub fn try_new() -> Option<Arc<Self>> {
+        if !console::Term::stderr().features().colors_supported() {
+            return None;
+        }
+        Some(Self::new())
+    }
+
     /// Create a hidden surface for tests — no output is drawn.
     pub fn hidden() -> Arc<Self> {
         Arc::new(Self {
@@ -230,6 +245,13 @@ mod tests {
         // Both clones share the same inner multi-progress.
         let clone = Arc::clone(&surface);
         assert!(Arc::ptr_eq(&surface, &clone));
+    }
+
+    #[test]
+    fn try_new_does_not_panic_in_test_environment() {
+        // In a typical test runner stderr is not attended, so try_new
+        // should return None. Either way, calling it must not panic.
+        let _ = TerminalSurface::try_new();
     }
 
     #[test]

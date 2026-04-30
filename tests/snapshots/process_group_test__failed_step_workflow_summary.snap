@@ -4,10 +4,10 @@ expression: normalize_for_snapshot(&summary)
 ---
   › Abort
 
-┌─ Summary ──────────────────────────
-│ ✓ will-succeed         [TIME]
-│ ✗ will-fail            [TIME]
-├────────────────────────────────────
-│ Total: [TIME] · 2 run · 0 skipped
-└────────────────────────────────────
-Workflow aborted by user. Re-run to resume.
+  ┌─ Summary ──────────────────────────
+  │ ✓ will-succeed         [TIME]
+  │ ✗ will-fail            [TIME]
+  ├────────────────────────────────────
+  │ Total: [TIME] · 2 run · 0 skipped
+  └────────────────────────────────────
+  💡 Workflow aborted by user. Re-run to resume.
