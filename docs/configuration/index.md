@@ -13,6 +13,13 @@ Configuration is loaded and merged in this order (later overrides earlier):
 5. Workflow file for the active workflow (`.bivvy/workflows/<name>.yml`)
 6. Local overrides (`.bivvy/config.local.yml`) — gitignored
 
+On the first invocation, Bivvy creates `~/.bivvy/config.yml` automatically
+if it doesn't already exist. The seeded file contains commented-out
+examples of the supported `settings:` keys to make global options
+discoverable. Edit it to enable machine-wide defaults, or delete it
+freely — Bivvy will recreate it (with only the commented examples) on
+the next run, and existing content is never overwritten.
+
 When `bivvy run <workflow>` executes, only the workflow file matching
 the requested name participates in the merge. Other workflow files in
 `.bivvy/workflows/` are not parsed, so a broken sibling cannot prevent

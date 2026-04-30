@@ -79,6 +79,8 @@ steps:
 
 Change detection computes a SHA-256 hash of the target and compares it to the stored baseline. If the hashes differ, the step re-runs. Baselines are stored in `~/.bivvy/projects/{hash}/snapshots/` and updated after each successful execution.
 
+> Still using the legacy `watches:` field? See the [Migrate to the New Check Schema](../guides/migrate-to-checks.md) guide to convert it (along with `completed_check:` and `prompt_if_complete:`) to the modern check fields.
+
 ## Preferences
 
 User choices are saved in `preferences.yml`:

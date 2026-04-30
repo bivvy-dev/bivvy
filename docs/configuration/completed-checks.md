@@ -4,6 +4,8 @@ Checks report facts about the external world: "does this file exist?", "does thi
 
 Checks can also be used in [`satisfied_when`](#satisfied_when) conditions, which declare when a step's purpose is already fulfilled.
 
+> Migrating from an older config? See the [Migrate to the New Check Schema](../guides/migrate-to-checks.md) guide for converting `completed_check:`, `watches:`, and `prompt_if_complete:` to the modern fields.
+
 ## Check Types
 
 ### Presence

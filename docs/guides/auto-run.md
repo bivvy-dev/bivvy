@@ -16,6 +16,14 @@ outcomes:
 | **Prompt** | You are asked whether to run or skip |
 | **Block** | The step cannot proceed (dependency failed or precondition failed) |
 
+When a step is blocked, Bivvy names the specific dependency or precondition
+that caused it, so you can see exactly what to fix. For example:
+
+```
+Blocked (dependency 'release-preflight' failed)
+Blocked (precondition failed: git branch is main)
+```
+
 This page explains how those decisions are made and how to configure them.
 
 ## How satisfaction is determined

@@ -13,6 +13,9 @@ settings:
   log_retention_mb: 500    # Max total size of log files in MB (default: 500)
 ```
 
+See [Event log](../guides/event-log.md) for the file location, retention
+settings, and event format.
+
 ## Output Modes
 
 | Mode | Description |

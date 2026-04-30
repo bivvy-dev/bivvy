@@ -43,10 +43,14 @@ steps:
     template: brew
   ruby:
     template: bundler
-    watches: [Gemfile.lock]
+    check:
+      type: change
+      target: "Gemfile.lock"
   node:
     template: yarn
-    watches: [yarn.lock]
+    check:
+      type: change
+      target: "yarn.lock"
   docker:
     template: docker/compose
   db:
@@ -92,7 +96,9 @@ Run `bivvy run` and it only runs what's needed.
 ```yaml
 ruby:
   template: bundler
-  watches: [Gemfile.lock]
+  check:
+    type: change
+    target: "Gemfile.lock"
 ```
 
 Changed `Gemfile.lock`? Ruby step is stale. Didn't change it? Skip.

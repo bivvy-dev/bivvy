@@ -99,6 +99,23 @@ Run with a specific workflow:
 bivvy run --workflow=production
 ```
 
+## Progress Display
+
+While a workflow runs, Bivvy pins a progress bar at the bottom of the
+terminal showing overall workflow progress (`X/Y steps`) and elapsed
+time. Step output and status messages scroll above it, so the bar
+stays visible without disrupting log output.
+
+The pinned bar is suppressed when:
+
+- The terminal can't render progress (e.g. `TERM=dumb`, `NO_COLOR`, or non-TTY stderr)
+- The run is non-interactive (`--non-interactive`, `--ci`) or auto-detected CI — see [CI Integration](/guides/ci-integration/)
+- Output mode is `silent`
+
+## Configuration Loading
+
+`bivvy run` performs a two-phase load. Phase 1 reads only `.bivvy/config.yml` to resolve the workflow name (honoring the active environment's `default_workflow`). Phase 2 then walks the full resolution chain — `extends:` → `~/.bivvy/config.yml` → `.bivvy/config.yml` → `.bivvy/steps/*.yml` → the named `.bivvy/workflows/<name>.yml` → `.bivvy/config.local.yml` — with only the requested workflow file in the chain. Sibling workflow files are not parsed, so a malformed neighbor cannot break a run of an unrelated workflow. See [Portable Workflow Files](../configuration/workflows.md#portable-workflow-files) for the full resolution order.
+
 ## Failure Recovery
 
 When a step fails, Bivvy analyzes the error output and presents an interactive

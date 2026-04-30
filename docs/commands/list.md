@@ -14,6 +14,14 @@ bivvy list
 ```
 
 ```bash
+bivvy list <workflow>
+```
+
+```bash
+bivvy list --all
+```
+
+```bash
 bivvy list --steps-only
 ```
 
@@ -57,14 +65,33 @@ When using `--env ci`, steps restricted to other environments are shown as skipp
     always_run — echo always
 ```
 
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<workflow>` | Optional. Show details for a single workflow file (`.bivvy/workflows/<name>.yml`), with steps from the project file and the workflow file merged for context. |
+
 ## Flags
 
 | Flag | Description |
 |------|-------------|
+| `--all` | Show every step and workflow from the fully merged configuration (legacy behavior). Without this flag, output is built from filesystem discovery and lightweight workflow headers, and does not deep-merge. |
 | `--steps-only` | Show only the steps section |
 | `--workflows-only` | Show only the workflows section |
 | `--json` | Output as JSON instead of styled text |
 | `--env <ENV>` | Target environment (e.g., `development`, `ci`, `staging`) |
+
+## Discovery vs Full Merge
+
+`bivvy list` defaults to a fast **discovery-based** view of your configuration:
+
+- Step names come from `.bivvy/config.yml` plus the filename stems under `.bivvy/steps/`.
+- Workflow names come from `.bivvy/config.yml` plus the filenames under `.bivvy/workflows/`. Each workflow file's `description` and step list are read from a lightweight header — the file is not fully parsed against the schema.
+- `~/.bivvy/`, remote `extends:` URLs, and `.bivvy/config.local.yml` are not loaded.
+
+Pass `--all` to opt into the full merged view: every file the loader can find is parsed and merged together, exactly like `bivvy run` sees it. Use this when you want to inspect the final merged result, including overrides from `config.local.yml` or user-global config.
+
+Passing a positional `<workflow>` switches to a per-workflow detail view: the project file plus the named workflow file are loaded together, and other workflow files are skipped.
 
 ## Output Format
 

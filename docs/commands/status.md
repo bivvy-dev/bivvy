@@ -14,6 +14,10 @@ bivvy status
 ```
 
 ```bash
+bivvy status <workflow>
+```
+
+```bash
 bivvy status --json
 ```
 
@@ -25,6 +29,12 @@ bivvy status --step=name
 bivvy status --env ci
 ```
 
+## Arguments
+
+| Argument | Description |
+|----------|-------------|
+| `<workflow>` | Optional. Show status for a specific workflow. When provided, steps bundled inside the matching `.bivvy/workflows/<name>.yml` are visible alongside the project-level ones. |
+
 ## Flags
 
 | Flag | Description |
@@ -32,6 +42,13 @@ bivvy status --env ci
 | `--json` | Output status as JSON instead of styled text |
 | `--step <name>` | Show status for a specific step only |
 | `--env <ENV>` | Check status for a specific environment |
+
+## Scope and Load Profile
+
+`bivvy status` chooses its loader based on what you ask for:
+
+- **No positional**: cheap project-only load (`.bivvy/config.yml` only) — fast enough for a status overview.
+- **Positional `<workflow>`**: same loader as `bivvy run`. Walks the full resolution chain (`extends:` → `~/.bivvy/config.yml` → `.bivvy/config.yml` → `.bivvy/steps/*.yml` → the named `.bivvy/workflows/<name>.yml` → `.bivvy/config.local.yml`) so workflow-bundled steps and overrides are visible.
 
 ## Example Output
 

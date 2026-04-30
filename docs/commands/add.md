@@ -49,6 +49,8 @@ bivvy add pre-commit --no-workflow
 5. Adds the step to the specified workflow's step list
 6. Preserves all existing comments and formatting
 
+`bivvy add` only edits `.bivvy/config.yml`, so it uses a project-only loader — `~/.bivvy/`, remote `extends:` URLs, split files, and `.bivvy/config.local.yml` are not consulted when validating the new step name.
+
 The generated step block matches the format from `bivvy init` — a template reference with commented-out details:
 
 ```yaml

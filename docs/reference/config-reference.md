@@ -31,9 +31,9 @@ Complete reference for every configurable field in Bivvy. See the annotated YAML
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
 | `defaults.output` | `verbose` \| `quiet` \| `silent` | `verbose` | Output verbosity |
-| `logging` | bool | `true` | Enable JSONL event logging to `~/.bivvy/logs/` |
-| `log_retention_days` | int | `30` | Max age of log files in days |
-| `log_retention_mb` | int | `500` | Max total size of log files in MB |
+| `logging` | bool | `true` | Enable JSONL event logging to `~/.bivvy/logs/`. See [Event log](../guides/event-log.md). |
+| `log_retention_days` | int | `30` | Max age of log files in days. See [Event log](../guides/event-log.md#retention). |
+| `log_retention_mb` | int | `500` | Max total size of log files in MB. See [Event log](../guides/event-log.md#retention). |
 | `env` | map | `{}` | Global environment variables |
 | `env_file` | path | — | Global env file to load |
 | `secret_env` | list | `[]` | Additional patterns to mask in output |
