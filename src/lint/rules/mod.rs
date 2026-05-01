@@ -5,6 +5,7 @@
 pub mod app_name;
 pub mod check_fields;
 pub mod circular_dependency;
+pub mod dead_environment;
 pub mod deprecated_fields;
 pub mod required_fields;
 pub mod self_dependency;
@@ -24,6 +25,7 @@ pub mod workflow_singular_typo;
 pub use app_name::AppNameRule;
 pub use check_fields::CheckFieldsMutualExclusivityRule;
 pub use circular_dependency::CircularDependencyRule;
+pub use dead_environment::DeadEnvironmentRule;
 pub use deprecated_fields::DeprecatedFieldsRule;
 pub use required_fields::RequiredFieldsRule;
 pub use self_dependency::SelfDependencyRule;

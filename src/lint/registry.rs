@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use super::rule::{LintRule, RuleId};
 use super::rules::{
     AppNameRule, CheckFieldsMutualExclusivityRule, CircularDependencyRule,
-    CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule, DeprecatedFieldsRule,
-    EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
+    CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule, DeadEnvironmentRule,
+    DeprecatedFieldsRule, EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
     InstallTemplateMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
     RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
     StepNameCollisionRule, UndefinedDependencyRule, UndefinedWorkflowForceRule,
@@ -64,6 +64,7 @@ impl RuleRegistry {
         registry.register(Box::new(StepNameCollisionRule));
         registry.register(Box::new(UnusedStepRule));
         registry.register(Box::new(UnusedTemplateSourceRule));
+        registry.register(Box::new(DeadEnvironmentRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
