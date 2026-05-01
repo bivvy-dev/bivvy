@@ -155,17 +155,20 @@ Overridable fields:
 | `description` | Human-readable description |
 | `command` | Shell command |
 | `env` | Environment variables (`null` value removes a key) |
-| `check` / `checks` | Completion detection |
+| `check` | Completion detection |
+| `precondition` | Gate that must pass before the step runs |
 | `skippable` | Whether user can skip |
 | `allow_failure` | Continue on failure |
 | `requires_sudo` | Needs elevated permissions |
 | `sensitive` | Hide command and output |
+| `confirm` | Always prompt before running |
+| `auto_run` | Auto-run override (`true`/`false`) |
 | `before` | Pre-step hooks |
 | `after` | Post-step hooks |
 | `depends_on` | Step dependencies |
-| `requires` | System requirements |
-| `satisfied_when` | Satisfaction conditions |
+| `tools` | System requirements (alias `requires`) |
 | `retry` | Retry attempts |
+| `rerun_window` | How long a successful run counts as satisfied |
 
 ## Provided requirements
 

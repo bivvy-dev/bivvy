@@ -7,6 +7,7 @@ Workflows define which steps run and in what order.
 ```yaml
 workflows:
   default:
+    description: "Standard project setup"
     steps: [deps, db, assets]
 
   ci:
@@ -15,6 +16,9 @@ workflows:
   reset:
     steps: [db_drop, db_create, db_migrate, db_seed]
 ```
+
+`description` is optional and shown in `bivvy list` to help teammates
+pick the right workflow.
 
 ## Running Workflows
 
@@ -37,14 +41,14 @@ Use `depends_on` to ensure steps run in order:
 ```yaml
 steps:
   tools:
-    template: asdf
+    template: mise-tools
 
   deps:
-    template: yarn
+    template: yarn-install
     depends_on: [tools]
 
   db:
-    template: postgres
+    template: postgres-install
     depends_on: [tools]
 
   assets:
@@ -56,7 +60,10 @@ workflows:
     steps: [tools, deps, db, assets]
 ```
 
-Bivvy resolves dependencies automatically. Steps without dependencies between them may run in parallel (future feature).
+Bivvy resolves dependencies automatically. Steps without dependencies
+between each other can run concurrently when parallel execution is
+enabled — see
+[Parallel Execution](settings.md#parallel-execution).
 
 ## Before/After Hooks
 
@@ -74,6 +81,8 @@ steps:
 
 ## Skipping Steps
 
+Skip steps from the command line:
+
 ```bash
 bivvy --skip deps
 ```
@@ -84,14 +93,21 @@ bivvy --only db,assets
 
 ### Skip Behavior
 
-When a step is skipped, its dependents can be handled differently:
+When you skip a step with `--skip`, Bivvy needs to decide what to do
+with steps that depend on it. The `--skip-behavior` flag controls
+this:
 
-```yaml
-settings:
-  skip_behavior: skip_with_dependents  # Also skip steps that depend on skipped step
-  # OR
-  skip_behavior: run_dependents        # Still try to run dependent steps
+```bash
+bivvy run --skip deps --skip-behavior skip_with_dependents
 ```
+
+| Value | Effect |
+|---|---|
+| `skip_with_dependents` | Skip the listed step **and** every step that depends on it (default) |
+| `skip_only` | Skip only the listed step; let dependents try to run |
+| `run_anyway` | Skip the listed step but run all dependents normally |
+
+This option is **CLI-only** — it is not configured in YAML.
 
 ## Workflow Environment Variables
 
@@ -117,17 +133,63 @@ see [Environment Variable Precedence](steps.md#environment-variable-precedence).
 
 ## Workflow Settings
 
-Override global settings per workflow:
+Override interactive behavior for a specific workflow with the
+`settings:` block. The only supported field is `non_interactive`:
 
 ```yaml
 workflows:
   ci:
     steps: [deps, test]
     settings:
-      defaults:
-        output: quiet
-      fail_fast: true
+      non_interactive: true
 ```
+
+Setting `non_interactive: true` forces the workflow into the same
+mode as `bivvy run --non-interactive` — no prompts, all interactive
+choices use their defaults. This is useful for workflows that should
+never prompt, even when run from a developer's machine.
+
+## Workflow-Level Auto-Run
+
+Override the auto-run setting for every step in a workflow with
+`auto_run_steps`. Individual step overrides still take precedence:
+
+```yaml
+workflows:
+  release:
+    description: "Cut a release"
+    steps: [build, test, tag, publish]
+    auto_run_steps: false   # prompt before each step in this workflow
+```
+
+`auto_run_steps: true` makes the workflow auto-run every step;
+`auto_run_steps: false` prompts before each one. See
+[Auto-Run and the Decision Engine](../guides/auto-run.md).
+
+## Per-Step Overrides
+
+A workflow can override a small set of behavior flags on individual
+steps without redefining the step itself. Use the `overrides:` map,
+keyed by step name:
+
+```yaml
+workflows:
+  release:
+    steps: [build, test, publish]
+    overrides:
+      publish:
+        auto_run: false        # always prompt before publish in this workflow
+        prompt_on_rerun: true
+        rerun_window: "0"      # never trust a previous successful run
+```
+
+Supported override fields:
+
+| Field | Description |
+|---|---|
+| `auto_run` | Override the step's auto-run flag for this workflow |
+| `prompt_on_rerun` | Override whether re-runs prompt |
+| `rerun_window` | Override the step's rerun window |
 
 ## Forcing Steps in a Workflow
 

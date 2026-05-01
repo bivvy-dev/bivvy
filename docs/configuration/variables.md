@@ -62,12 +62,16 @@ using this priority order (highest to lowest):
 1. **Prompt values** from the current run
 2. **Saved preferences** from previous runs
 3. **User-defined variables** (`vars:`)
-4. **Environment variables**
-5. **Built-in variables** (`project_name`, `project_root`, `bivvy_version`)
+4. **Template inputs** — the resolved `inputs:` map for the
+   currently-running step (only visible while that step is being
+   prepared and executed)
+5. **Environment variables**
+6. **Built-in variables** (`project_name`, `project_root`,
+   `bivvy_version`)
 
 This means a prompt answer always wins over a `vars:` definition,
-and a `vars:` definition wins over an environment variable with the
-same name.
+and a `vars:` definition wins over a template input or environment
+variable with the same name.
 
 ## Escaping
 

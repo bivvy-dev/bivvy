@@ -404,7 +404,7 @@ steps:
   ruby_deps:
     # Reference a template from the registry
     # Type: string (template name)
-    template: bundler
+    template: bundle-install
 
     # Pass inputs to the template
     # Available inputs depend on the template

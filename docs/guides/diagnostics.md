@@ -158,6 +158,11 @@ settings:
   diagnostic_funnel: false   # Disable diagnostics, use legacy pattern matching
 ```
 
+`diagnostic_funnel` lives directly under `settings:`, not under a nested
+`settings.execution:` block. Bivvy's settings schema flattens execution
+options into `settings`, so wrapping this key in `execution:` will fail
+validation with an "unknown field" error.
+
 ### With CLI Flags
 
 ```bash

@@ -43,9 +43,13 @@ bivvy last --output
     ○ seeds                skipped
 ```
 
+The skipped row uses the same dim `○` glyph that `bivvy status` and the run
+summary use for any `Skipped` status.
+
 ## JSON Output
 
-With `--json`, the run data is printed as a JSON object:
+With `--json`, the run data is printed as a JSON object reconstructed from
+the most recent JSONL event log:
 
 ```bash
 bivvy last --json
@@ -55,13 +59,38 @@ bivvy last --json
 {
   "timestamp": "2024-01-15T14:32:05Z",
   "workflow": "default",
+  "success": true,
+  "aborted": false,
+  "steps_run_count": 3,
+  "steps_skipped_count": 1,
   "duration_ms": 135000,
-  "status": "Success",
   "steps_run": ["brew", "mise", "ruby_deps"],
-  "steps_skipped": ["seeds"],
-  "error": null
+  "steps_skipped": ["seeds"]
 }
 ```
+
+Field summary:
+
+| Field | Type | Notes |
+|-------|------|-------|
+| `timestamp` | string (RFC 3339) | When the workflow completed |
+| `workflow` | string | Workflow name |
+| `success` | bool | `true` if every step succeeded |
+| `aborted` | bool | `true` when the user interrupted the run |
+| `steps_run_count` | integer | Total number of steps that ran |
+| `steps_skipped_count` | integer | Total number of steps that were skipped |
+| `duration_ms` | integer | Total wall-clock duration in milliseconds |
+| `steps_run` | string[] | Names of steps that ran (omitted when empty) |
+| `steps_skipped` | string[] | Names of steps that were skipped (omitted when empty) |
+| `error` | string | First captured error message (only on failure) |
+
+When combined with `--all`, the output is a JSON array of objects with the
+same shape, ordered most-recent first.
+
+There is no top-level `status` field — derive it from `success` and
+`aborted` (`success: true` → success; `aborted: true` → interrupted; else
+failed). The styled terminal output uses the same logic to decide between
+`✓ Success`, `✗ Failed`, and `Interrupted`.
 
 ## Filtering by Step
 
@@ -71,7 +100,8 @@ Use `--step` to show only a single step's result:
 bivvy last --step brew
 ```
 
-If the step was not part of the last run, an error is shown:
+If the step was not part of the last run, an error is shown and the command
+exits with code 1:
 
 ```
 Step 'unknown' was not part of the last run.

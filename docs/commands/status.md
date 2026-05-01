@@ -33,7 +33,7 @@ bivvy status --env ci
 
 | Argument | Description |
 |----------|-------------|
-| `<workflow>` | Optional. Show status for a specific workflow. When provided, steps bundled inside the matching `.bivvy/workflows/<name>.yml` are visible alongside the project-level ones. |
+| `<workflow>` | Optional. Show status for a specific workflow. When provided, the workflow's portable steps are loaded alongside the project-level ones, so steps bundled inside `.bivvy/workflows/<workflow>.yml` are visible. Without it, only project-level steps are shown. |
 
 ## Flags
 
@@ -57,14 +57,18 @@ bivvy status --env ci
 
   Environment: development (default)
 
-  Last run: 3 hours ago · default workflow
+  Last activity: 3 hours ago
 
   Steps:
-    ✓ hello                 1.2s
-    ✗ world                 0.8s
+    ✓ hello                1.2s
+    ✗ world                0.8s
     ◌ database
-    ⊘ ci_only               (skipped in development)
+    ⊘ ci_only              (skipped in development)
 ```
+
+The `Last activity` line is shown only when at least one step in the project
+has a recorded `last_run` timestamp. It reflects the most recent step
+timestamp regardless of which workflow ran it; no workflow name is printed.
 
 ## Status Indicators
 
@@ -122,26 +126,27 @@ bivvy status --json
     "name": "development",
     "source": "default"
   },
-  "last_run": {
-    "timestamp": "2026-03-30T10:00:00Z",
-    "workflow": "default"
-  },
   "steps": [
     {
       "name": "hello",
       "status": "success",
-      "last_run": "2026-03-30T10:00:00Z",
+      "last_run": "2026-03-30T10:00:00+00:00",
       "duration_ms": 1200
     },
     {
       "name": "world",
       "status": "failed",
-      "last_run": "2026-03-30T10:00:00Z",
+      "last_run": "2026-03-30T10:00:00+00:00",
       "duration_ms": 800
     },
     {
       "name": "database",
       "status": "pending"
+    },
+    {
+      "name": "ci_only",
+      "status": "skipped",
+      "reason": "skipped in development"
     }
   ],
   "requirements": [
@@ -157,5 +162,13 @@ bivvy status --json
 }
 ```
 
-Step statuses in JSON are: `"success"`, `"failed"`, `"pending"`, or `"skipped"`.
-Requirement statuses are: `"satisfied"`, `"warning"`, `"missing"`, or `"unknown"`.
+The top-level keys are `app_name`, `environment`, `steps`, and (only when
+the config declares any `requires:` entries) `requirements`. There is no
+top-level `last_run` field — per-step `last_run` and `duration_ms` are only
+emitted on steps that have run before.
+
+Step statuses in JSON are: `"success"`, `"failed"`, `"pending"`, or
+`"skipped"`. Steps that the active environment excludes are reported with
+`"status": "skipped"` and a `"reason"` string explaining the exclusion
+(e.g. `"skipped in development"`). Requirement statuses are: `"satisfied"`,
+`"warning"`, `"missing"`, or `"unknown"`, with an optional `"detail"` field.

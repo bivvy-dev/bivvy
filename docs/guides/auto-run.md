@@ -110,6 +110,24 @@ settings:
     prompt_on_rerun: false  # default for all steps
 ```
 
+### `confirm`
+
+Some steps are destructive enough that you always want an explicit
+confirmation before they run, even when `auto_run` would otherwise let them
+proceed silently. Set `confirm: true` to require a yes/no confirmation
+before execution:
+
+```yaml
+steps:
+  database_reset:
+    command: rails db:reset
+    confirm: true   # always ask before running this step
+```
+
+`confirm` does not change satisfaction. If the step is satisfied it is still
+skipped (or prompted on rerun, depending on `prompt_on_rerun`); the
+confirmation only fires when Bivvy would actually execute the command.
+
 ### `rerun_window`
 
 How long a previous successful run counts as "recent enough" to consider a
@@ -144,7 +162,7 @@ Accepted values:
 | `"never"` or `"0"` | Execution history never satisfies the step |
 | `"forever"` | A previous success always satisfies the step |
 
-Set the global default:
+Set the global default under `settings.defaults`:
 
 ```yaml
 settings:
@@ -152,13 +170,17 @@ settings:
     rerun_window: "8h"
 ```
 
-Or under execution settings (equivalent):
+You can also set the global default with the top-level
+`default_rerun_window` key (equivalent):
 
 ```yaml
 settings:
-  execution:
-    default_rerun_window: "8h"
+  default_rerun_window: "8h"
 ```
+
+Both forms live directly under `settings:`. Bivvy's settings schema is flat
+-- there is no nested `settings.execution:` block, and wrapping these keys
+in one will fail validation with an "unknown field" error.
 
 ### `satisfied_when`
 
@@ -216,6 +238,38 @@ Override precedence (highest to lowest):
 2. Step-level setting (`steps.<name>.auto_run`)
 3. Global default (`settings.defaults.auto_run`)
 
+## Forcing a re-run from the CLI
+
+Sometimes you want to run a step (or every step) regardless of what the
+decision engine thinks. Bivvy exposes three CLI flags for this:
+
+| Flag | Effect |
+|------|--------|
+| `--force <step>[,<step>...]` | Force-run the named steps, bypassing satisfaction checks. Other steps follow the normal decision flow. |
+| `--force-all` | Force-run every step in the workflow, bypassing all checks and step-level configuration. |
+| `--fresh` | Discard all persisted satisfaction records and re-evaluate every step from scratch. |
+
+Examples:
+
+```bash
+# Re-run a single step even if it looks satisfied
+bivvy run --force install_deps
+
+# Re-run several steps in one go
+bivvy run --force install_deps,build
+
+# Re-run the whole workflow, ignoring checks and step config
+bivvy run --force-all
+
+# Throw away cached satisfaction state, then evaluate normally
+bivvy run --fresh
+```
+
+`--force` / `--force-all` always run the listed steps. `--fresh` clears
+prior state but still respects `check`, `satisfied_when`, and `auto_run`
+once it re-evaluates -- so a step whose `check` passes will still be
+considered satisfied after `--fresh`.
+
 ## Examples
 
 ### Fast CI workflow
@@ -261,6 +315,7 @@ steps:
 
   database_reset:
     command: rails db:reset
-    auto_run: false  # always ask first
+    auto_run: false    # always ask first
+    confirm: true      # and require explicit confirmation
     rerun_window: "never"  # never skip based on history
 ```

@@ -31,6 +31,7 @@ bivvy run -w ci
 | `--skip-behavior` | | How to handle skipped dependencies |
 | `--force` | `-f` | Force re-run of specified steps (comma-separated) |
 | `--force-all` | | Force re-run of every step, bypassing all checks and step-level configuration |
+| `--fresh` | | Discard all persisted satisfaction records and evaluate every step from scratch |
 | `--resume` | | Resume interrupted run |
 | `--save-preferences` | | Save prompt answers |
 | `--dry-run` | | Preview without executing |
@@ -73,6 +74,14 @@ step-level configuration:
 
 ```bash
 bivvy run --force-all
+```
+
+Discard cached satisfaction state and re-evaluate every step from scratch
+(unlike `--force-all`, this still consults each step's check configuration —
+it just doesn't trust previous "satisfied" records):
+
+```bash
+bivvy run --fresh
 ```
 
 Preview what would run:

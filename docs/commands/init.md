@@ -43,7 +43,11 @@ bivvy init --from=../other-project
 5. Updates `.gitignore` for local overrides
 6. Offers to run setup immediately (interactive mode only)
 
-When running interactively, after generating the config Bivvy prompts "Run setup now?" with options to run immediately or exit. Choosing "Yes" chains directly into `bivvy run`. Choosing "No" (the default) shows a hint to run `bivvy run` later.
+When running interactively, after generating the config Bivvy presents a
+"Run setup now?" picker with two options — `No (n)` (default) and
+`Yes (y)`. Choosing `Yes` chains directly into `bivvy run` with every
+generated step forced. Choosing `No` (or pressing Enter) shows a hint to
+run `bivvy run` later.
 
 ## Examples
 
@@ -85,43 +89,52 @@ bivvy init --from=../other-project
 
 ## Detection
 
-Bivvy automatically detects technologies and maps them to built-in templates:
+Bivvy automatically detects technologies and maps them to built-in templates.
+The table below mirrors the project-type detection in
+`src/detection/project.rs` and reflects every marker file the detector
+inspects:
 
 | Category | Detected via | Template |
 |----------|-------------|----------|
-| System | Brewfile | `brew-bundle` |
-| Ruby | Gemfile | `bundle-install` |
-| Ruby (Rails) | bin/rails, config/routes.rb | `rails-db` |
-| Node.js | yarn.lock, package-lock.json, pnpm-lock.yaml, bun.lockb | `yarn-install`, `npm-install`, `pnpm-install`, `bun-install` |
-| Node.js (Next.js) | next.config.js, next.config.mjs | `nextjs-build` |
-| Node.js (Vite) | vite.config.ts, vite.config.js | `vite-build` |
-| Node.js (Remix) | remix.config.js | `remix-build` |
-| Python | requirements.txt, poetry.lock, uv.lock | `pip-install`, `poetry-install`, `uv-sync` |
-| Python (Django) | manage.py | `django-migrate` |
-| Python (Alembic) | alembic.ini | `alembic-migrate` |
-| Rust | Cargo.toml | `cargo-build` |
-| Rust (Diesel) | diesel.toml | `diesel-migrate` |
-| Go | go.mod | `go-mod-download` |
-| Swift | Package.swift | `swift-resolve` |
-| Java (Maven) | pom.xml | `maven-resolve` |
-| Java (Spring Boot) | application.properties, application.yml | `spring-boot-build` |
-| .NET | *.sln, *.csproj | `dotnet-restore` |
-| Dart / Flutter | pubspec.yaml | `dart-pub-get`, `flutter-pub-get` |
-| Deno | deno.json, deno.jsonc | `deno-install` |
-| Database (Prisma) | prisma/schema.prisma | `prisma-migrate` |
-| Containers | compose.yml, docker-compose.yml | `docker-compose-up` |
-| Kubernetes | Chart.yaml | `helm-deps` |
-| IaC (Pulumi) | Pulumi.yaml | `pulumi-install` |
-| IaC (Ansible) | ansible.cfg, playbook.yml | `ansible-install` |
-| Cross-cutting | .env.example | `env-copy` |
-| Cross-cutting | .pre-commit-config.yaml | `pre-commit-install` |
-| Monorepo | nx.json | `nx-build` |
-| Monorepo | turbo.json | `turbo-build` |
-| Monorepo | lerna.json | `lerna-bootstrap` |
-| Version managers | .mise.toml, .tool-versions, volta | `mise-tools`, `asdf-tools`, `volta-setup` |
-| Version managers | .nvmrc, .node-version | `nvm-node`, `fnm-node` |
-| Version managers | .ruby-version | `rbenv-ruby` |
-| Version managers | .python-version | `pyenv-python` |
+| Ruby | `Gemfile` | `bundle-install` |
+| Ruby (Rails) | `config/routes.rb`, `config/application.rb` | `rails-db` |
+| Node.js | `package.json` (template chosen by lockfile) | `yarn-install` (yarn.lock), `pnpm-install` (pnpm-lock.yaml), `bun-install` (bun.lockb), `npm-install` (default) |
+| Node.js (Next.js) | `next.config.js`, `next.config.mjs`, `next.config.ts` | `nextjs-build` |
+| Node.js (Vite) | `vite.config.js`, `vite.config.ts`, `vite.config.mjs` | `vite-build` |
+| Node.js (Remix) | `remix.config.js`, `remix.config.ts`, `app/root.tsx` | `remix-build` |
+| Python | `pyproject.toml`, `requirements.txt`, `setup.py` | `poetry-install` (poetry.lock), `uv-sync` (uv.lock), `pip-install` (default) |
+| Python (Alembic) | `alembic.ini`, `alembic/env.py` | `alembic-migrate` |
+| Python (Django) | `manage.py` | `django-migrate` |
+| Rust | `Cargo.toml` | `cargo-build` |
+| Rust (Diesel) | `diesel.toml` | `diesel-migrate` |
+| Go | `go.mod` | `go-mod-download` |
+| PHP | `composer.json` | `composer-install` |
+| PHP (Laravel) | `artisan` | `laravel-setup` |
+| Kotlin / JVM (Gradle) | `build.gradle`, `build.gradle.kts` | `gradle-deps` |
+| Spring Boot | `src/main/resources/application.properties`, `src/main/resources/application.yml` | `spring-boot-build` |
+| Elixir | `mix.exs` | `mix-deps-get` |
+| Swift | `Package.swift` | `swift-resolve` |
+| Terraform | `main.tf`, `terraform.tf`, `versions.tf` | `terraform-init` |
+| AWS CDK | `cdk.json` | `cdk-synth` |
+| Java (Maven) | `pom.xml` | `maven-resolve` |
+| .NET | `*.sln`, `*.csproj` | `dotnet-restore` |
+| Dart | `pubspec.yaml` (no platform dirs) | `dart-pub-get` |
+| Flutter | `pubspec.yaml` + `android/`, `ios/`, `web/`, `macos/`, `linux/`, or `windows/` directory | `flutter-pub-get` |
+| Deno | `deno.json`, `deno.jsonc`, `deno.lock` | `deno-install` |
+| Database (Prisma) | `prisma/schema.prisma` | `prisma-migrate` |
+| Containers | `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml` | `docker-compose-up` |
+| Kubernetes (Helm) | `Chart.yaml` | `helm-deps` |
+| IaC (Pulumi) | `Pulumi.yaml` | `pulumi-install` |
+| IaC (Ansible) | `ansible.cfg`, `playbook.yml`, `playbook.yaml`, `site.yml`, `site.yaml` | `ansible-install` |
+| Cross-cutting | `.env.example`, `.env.sample`, `.env.template` (and no `.env`) | `env-copy` |
+| Cross-cutting | `.pre-commit-config.yaml` | `pre-commit-install` |
+| Monorepo | `nx.json` | `nx-build` |
+| Monorepo | `turbo.json` | `turbo-build` |
+| Monorepo | `lerna.json` | `lerna-bootstrap` |
+
+Version-manager detection is layered separately by the package-manager
+detector and resolves system-wide to one of: `mise-tools`, `asdf-tools`,
+`volta-setup`, `fnm-setup`, `nvm-node`, `rbenv-ruby`, `pyenv-python`.
 
 ## Enriched Output
 

@@ -23,7 +23,12 @@ gem install bivvy
 |----|--------------|
 | macOS | x64 (Intel), arm64 (Apple Silicon) |
 | Linux | x64, arm64 |
-| Windows | x64 |
+
+> **Windows is not yet supported via gem.** The gem's native extension
+> hook downloads a `.tar.gz` archive during installation, but the
+> Windows release artifact is distributed as a `.zip`. Windows users
+> should install Bivvy under [WSL](https://learn.microsoft.com/windows/wsl/)
+> or use one of the [other installation methods](./index.md).
 
 ## How It Works
 

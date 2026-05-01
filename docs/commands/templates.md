@@ -64,7 +64,7 @@ Local and remote templates that aren't in the built-in manifest appear under a *
 
 ## Categories
 
-Bivvy ships with templates organized in these categories:
+Bivvy ships with templates organized in these 23 categories:
 
 | Category | Description |
 |----------|-------------|
@@ -80,12 +80,14 @@ Bivvy ships with templates organized in these categories:
 | `swift` | Swift ecosystem |
 | `gradle` | Gradle/Spring Boot |
 | `elixir` | Elixir ecosystem (mix) |
+| `iac` | Infrastructure as Code (terraform, aws-cdk, pulumi, ansible) |
 | `java` | Java ecosystem (maven) |
 | `dotnet` | .NET ecosystem |
+| `kotlin` | Kotlin ecosystem (version-bump) |
 | `dart` | Dart and Flutter |
 | `deno` | Deno runtime |
-| `iac` | Infrastructure as Code (terraform, aws-cdk, pulumi, ansible) |
 | `containers` | Container orchestration (docker-compose, helm) |
+| `audit` | Build artifact security audits (per-language `*-artifact-audit` templates) |
 | `common` | Cross-cutting concerns (env-copy, pre-commit) |
 | `monorepo` | Monorepo tools (nx, turborepo, lerna) |
 | `install` | Runtime and tool installers |

@@ -22,7 +22,7 @@ settings, and event format.
 |------|-------------|
 | `verbose` | Show all output (default) |
 | `quiet` | Show only step names and errors |
-| `silent` | Show only errors |
+| `silent` | Show only errors (set via the `output: silent` config; no equivalent CLI flag) |
 
 Override per-run:
 
@@ -34,9 +34,8 @@ bivvy --verbose
 bivvy --quiet
 ```
 
-```bash
-bivvy --silent
-```
+The CLI exposes `--verbose` and `--quiet`. There is no `--silent`
+flag — the `silent` output mode can only be set in YAML.
 
 ## Global Environment Variables
 
@@ -62,6 +61,21 @@ and step values override them, and shell-exported variables override
 everything. See
 [Environment Variable Precedence](steps.md#environment-variable-precedence).
 
+### Custom Secret Patterns
+
+Add extra environment variable names to be masked in all output:
+
+```yaml
+settings:
+  secret_env:
+    - MY_CUSTOM_SECRET
+    - VENDOR_CREDENTIALS
+```
+
+Entries are matched **exactly** (no wildcards or globbing). For
+pattern-style matching see the built-in patterns documented in
+[Secret Masking](secrets.md).
+
 ## Parallel Execution
 
 ```yaml
@@ -70,12 +84,34 @@ settings:
   max_parallel: 4     # Maximum concurrent steps (default: 4)
 ```
 
+When `parallel: true`, steps without dependencies between them can
+run concurrently. `max_parallel` caps how many run at once.
+
 ## History Retention
 
 ```yaml
 settings:
   history_retention: 50  # Keep last 50 runs (default)
 ```
+
+## Default Rerun Window
+
+`default_rerun_window` is the project-wide default for how long a
+successful run keeps a step satisfied. Steps and workflow overrides
+can opt in to a different window.
+
+```yaml
+settings:
+  default_rerun_window: "4h"   # default — accepts duration strings
+```
+
+Accepted values:
+
+| Value | Meaning |
+|---|---|
+| `"4h"`, `"30m"`, `"7d"` | Duration string |
+| `"0"` or `"never"` | Always treat the step as if it had never run |
+| `"forever"` | Never re-prompt; the step stays satisfied indefinitely |
 
 ## Diagnostic Funnel
 

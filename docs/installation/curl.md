@@ -28,12 +28,22 @@ curl -fsSL https://bivvy.dev/install | sh
 | Linux | x64, arm64 |
 | Windows (WSL) | x64 |
 
+Native Windows is **not supported** by this installer. The script
+downloads `.tar.gz` archives, but the Windows release artifact is
+distributed as a `.zip`. Windows users should install Bivvy under
+[WSL](https://learn.microsoft.com/windows/wsl/) — which uses the Linux
+binary — or use one of the [other installation methods](./index.md).
+
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BIVVY_VERSION` | `latest` | Version to install (e.g., `v1.0.0`) |
+| `BIVVY_VERSION` | `latest` | Version to install (e.g., `1.10.0`) |
 | `BIVVY_INSTALL_DIR` | `~/.local/bin` | Installation directory |
+
+Release tags are bare version numbers without a `v` prefix
+(`1.10.0`, not `v1.10.0`). See [GitHub Releases](https://github.com/bivvy-dev/bivvy/releases)
+for the list of available versions.
 
 ## Examples
 
@@ -46,7 +56,7 @@ curl -fsSL https://bivvy.dev/install | sh
 Install specific version:
 
 ```bash
-BIVVY_VERSION=v1.0.0 curl -fsSL https://bivvy.dev/install | sh
+BIVVY_VERSION=1.10.0 curl -fsSL https://bivvy.dev/install | sh
 ```
 
 Install to custom directory:
@@ -76,7 +86,7 @@ rm ~/.local/bin/bivvy
 : Your platform is not supported. See [Supported Platforms](#supported-platforms).
 
 **"Could not find release for platform"**
-: The version you requested may not exist. Check [GitHub Releases](https://github.com/bivvy-dev/bivvy/releases).
+: The version you requested may not exist. Check [GitHub Releases](https://github.com/bivvy-dev/bivvy/releases). Remember tags are bare versions (`1.10.0`), not `v`-prefixed.
 
 **Permission denied**
 : You may need to create the install directory first: `mkdir -p ~/.local/bin`

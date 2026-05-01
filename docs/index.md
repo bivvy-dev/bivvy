@@ -40,19 +40,19 @@ app_name: myapp
 
 steps:
   brew:
-    template: brew
+    template: brew-bundle
   ruby:
-    template: bundler
+    template: bundle-install
     check:
       type: change
       target: "Gemfile.lock"
   node:
-    template: yarn
+    template: yarn-install
     check:
       type: change
       target: "yarn.lock"
   docker:
-    template: docker/compose
+    template: docker-compose-up
   db:
     command: "rails db:prepare"
     depends_on: [docker]
@@ -79,14 +79,18 @@ bivvy status
 Bivvy remembers what's done.
 
 ```
-$ bivvy status
-myapp - Status
+  ⛺ myapp — Status
 
-  [✓] brew         2 hours ago
-  [!] ruby         stale (Gemfile.lock changed)
-  [✓] node         2 hours ago
-  [✓] docker       running
-  [pending] db     not yet run
+  Environment: development (default)
+
+  Last activity: 2 hours ago
+
+  Steps:
+    ✓ brew                 2h ago
+    ⚠ ruby                 stale
+    ✓ node                 2h ago
+    ✓ docker               2h ago
+    ◌ db                   never run
 ```
 
 Run `bivvy run` and it only runs what's needed.
@@ -95,7 +99,7 @@ Run `bivvy run` and it only runs what's needed.
 
 ```yaml
 ruby:
-  template: bundler
+  template: bundle-install
   check:
     type: change
     target: "Gemfile.lock"
@@ -130,7 +134,7 @@ Stop copying the same setup logic between projects:
 # Your config just references templates
 steps:
   ruby:
-    template: bundler
+    template: bundle-install
 ```
 
 Templates are reusable, shareable, and overridable. Bivvy ships with common ones. You can add your own. Teams can share them.
@@ -152,13 +156,11 @@ steps:
 
 Platform team updates the template. Every project gets the update. No more copy-paste drift.
 
-### 6. Two UI Modes
+### 6. CI-Aware Output
 
-Interactive terminal? Full-screen TUI with keyboard navigation.
+In an interactive terminal, Bivvy renders progress with spinners, color, and a recovery menu when steps fail.
 
-CI pipeline? Clean line-based output with non-zero exit codes.
-
-Bivvy detects which to use. Or you tell it: `--tui` / `--no-tui`.
+In a CI pipeline, it auto-detects non-interactive environments (`CI`, `GITHUB_ACTIONS`, etc.) and switches to clean line-based output with non-zero exit codes -- no progress bars to clutter logs. You can force it either way with `--non-interactive` (or, equivalently, `--env ci`).
 
 ## How Bivvy Compares
 

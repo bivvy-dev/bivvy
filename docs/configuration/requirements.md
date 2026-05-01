@@ -12,38 +12,49 @@ to install missing ones.
 
 ## Declaring requirements
 
-Add a `requires` list to any step:
+Add a `tools:` list to any step. The canonical field name is `tools`;
+the legacy name `requires` is still accepted as an alias.
 
 ```yaml
 steps:
   bundle_install:
     command: bundle install
-    requires:
+    tools:
       - ruby
 
   database_setup:
     command: rails db:setup
-    requires:
+    tools:
       - ruby
       - postgres-server
 ```
 
 ## Built-in requirements
 
-Bivvy ships with 10 built-in requirement definitions:
+Bivvy ships with 33 built-in requirement definitions covering language
+runtimes, version managers, services, and common CLI tools.
 
 ### Language runtimes
 
+These requirements are version-manager-aware: Bivvy checks for managed
+installs (mise, rbenv, nvm, pyenv, asdf, volta, fnm) before falling
+back to system paths.
+
 | Name | Check | Install template |
 |------|-------|------------------|
-| `ruby` | Ruby available via version manager or system | `mise-ruby` |
-| `node` | Node.js available via version manager or system | `mise-node` |
-| `python` | Python available via version manager or system | `mise-python` |
+| `ruby` | Ruby available via version manager or system path | `mise-ruby` |
+| `node` | Node.js available via version manager or system path | `mise-node` |
+| `python` | Python (3 or 2) available via version manager or system path | `mise-python` |
 | `rust` | `rustc --version` succeeds | `rust-install` |
-
-Runtime requirements are version-manager-aware. Bivvy detects whether the
-runtime is managed by mise, rbenv, nvm, pyenv, or volta, and adjusts its
-checks accordingly.
+| `go` | `go version` succeeds | — (hint only) |
+| `java` | `java -version` succeeds | — (hint only) |
+| `elixir` | `elixir --version` succeeds | — (hint only) |
+| `swift` | `swift --version` succeeds | — (hint only) |
+| `dart` | `dart --version` succeeds | — (hint only) |
+| `flutter` | `flutter --version` succeeds | — (hint only) |
+| `dotnet` | `dotnet --version` succeeds | — (hint only) |
+| `deno` | `deno --version` succeeds | — (hint only) |
+| `php` | `php --version` succeeds | — (hint only) |
 
 ### Database client tools
 
@@ -64,12 +75,35 @@ checks accordingly.
 |------|-------|------------------|
 | `docker` | `docker info` succeeds | `docker-install` |
 
-### Package / version managers
+### Build / package tools
+
+| Name | Check | Install template |
+|------|-------|------------------|
+| `bundler` | `bundle --version` succeeds | — (depends on `ruby`) |
+| `mvn` | `mvn --version` succeeds | — (depends on `java`) |
+| `terraform` | `terraform version` succeeds | — (hint only) |
+| `helm` | `helm version` succeeds | — (hint only) |
+| `ansible` | `ansible --version` succeeds | — (hint only) |
+| `pulumi` | `pulumi version` succeeds | — (hint only) |
+| `pre-commit` | `pre-commit --version` succeeds | — (hint only) |
+| `diesel` | `diesel --version` succeeds | — (depends on `rust`) |
+
+### Package and version managers
 
 | Name | Check | Install template |
 |------|-------|------------------|
 | `brew` | `brew --version` succeeds | `brew-install` |
 | `mise` | `mise --version` succeeds | `mise-install` |
+| `asdf` | `asdf --version` succeeds | — (hint only) |
+| `rbenv` | `rbenv --version` succeeds | — (hint only) |
+| `nvm` | `nvm --version` succeeds | — (hint only) |
+| `fnm` | `fnm --version` succeeds | — (hint only) |
+| `pyenv` | `pyenv --version` succeeds | — (hint only) |
+| `volta` | `volta --version` succeeds | — (hint only) |
+
+Requirements without an install template (`— (hint only)`) cannot be
+auto-installed by Bivvy. Bivvy will print the install hint and
+prompt the user to install manually before continuing.
 
 ## What happens when a requirement is missing
 
@@ -87,7 +121,7 @@ In interactive mode, Bivvy offers to fix each gap before running the
 step. For example:
 
 ```
-⚠ ruby is not installed
+ruby is not installed
   Install Ruby using mise? [Y/n]
 ```
 

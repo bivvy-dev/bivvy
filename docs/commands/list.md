@@ -37,6 +37,14 @@ bivvy list --json
 bivvy list --env ci
 ```
 
+```bash
+bivvy list <workflow-name>
+```
+
+```bash
+bivvy list --all
+```
+
 ## Example Output
 
 ```
@@ -69,7 +77,7 @@ When using `--env ci`, steps restricted to other environments are shown as skipp
 
 | Argument | Description |
 |----------|-------------|
-| `<workflow>` | Optional. Show details for a single workflow file (`.bivvy/workflows/<name>.yml`), with steps from the project file and the workflow file merged for context. |
+| `<workflow>` | Optional. When given, only that workflow is parsed (from `.bivvy/workflows/<name>.yml`) and shown alongside its bundled steps. Without a target, Bivvy lists everything from discovery + headers without deep-merging. |
 
 ## Flags
 
@@ -111,12 +119,18 @@ Each workflow shows:
 
 ### JSON Output
 
-When using `--json`, output is a JSON object with `environment`, `steps`, and `workflows` fields. The `--steps-only` and `--workflows-only` flags control which sections are included.
+When using `--json`, output is a JSON object with `environment`, `steps`, and `workflows` fields. The `--steps-only` and `--workflows-only` flags control which sections are included. Steps that are excluded by the active environment include `"skipped": true`.
 
 ```json
 {
   "environment": "development",
   "steps": [
+    {
+      "name": "ci_only",
+      "command": "echo ci",
+      "title": "CI only",
+      "skipped": true
+    },
     {
       "name": "install",
       "template": "yarn-install"
@@ -124,7 +138,7 @@ When using `--json`, output is a JSON object with `environment`, `steps`, and `w
     {
       "name": "build",
       "command": "npm run build",
-      "description": "Compiles the project",
+      "title": "Compiles the project",
       "depends_on": ["install"]
     }
   ],

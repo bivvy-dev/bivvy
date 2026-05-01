@@ -18,6 +18,10 @@ steps:
     description: Install Node.js dependencies from package.json
 ```
 
+`title` is the short label shown in CLI output and progress
+indicators; `description` is a longer human-readable explanation
+shown in `bivvy list` and other reflective commands.
+
 ## Sensitive Steps
 
 Mark steps that handle sensitive data:
@@ -84,6 +88,47 @@ steps:
 Preconditions still apply — they are never bypassed by force. See
 [Forcing Re-run](completed-checks.md#forcing-re-run) for the related
 CLI flags.
+
+## Continuing After Failure
+
+Set `allow_failure: true` to let a step fail without aborting the
+workflow. The run continues with the next step, and the failure is
+reported in the summary.
+
+```yaml
+steps:
+  optional_lint:
+    command: "yarn lint"
+    allow_failure: true
+```
+
+Use this for non-critical steps where the workflow should still finish
+even if the step exits non-zero.
+
+## Retries
+
+Re-attempt a step if its command exits non-zero. `retry` is the number
+of additional attempts after the first failure (so `retry: 2` runs the
+command up to three times total before reporting failure):
+
+```yaml
+steps:
+  flaky_test:
+    command: "yarn test:e2e"
+    retry: 2
+```
+
+## Elevated Permissions
+
+Mark steps that require sudo so Bivvy can warn ahead of time and avoid
+mid-run password prompts in unexpected places.
+
+```yaml
+steps:
+  install_system_pkg:
+    command: "sudo apt-get install -y postgresql-client"
+    requires_sudo: true
+```
 
 ## Completed Checks
 
@@ -208,6 +253,34 @@ steps:
       NODE_ENV: test
       CI: "true"
     env_file: .env.test
+    env_file_optional: false   # default: fail if env_file is missing
+```
+
+Set `env_file_optional: true` to silently skip a missing env file
+instead of failing — useful when the file may exist on developer
+machines but not in CI:
+
+```yaml
+steps:
+  dev_only:
+    command: bin/dev
+    env_file: .env.local
+    env_file_optional: true
+```
+
+### Required Environment Variables
+
+`required_env` lists environment variable names that must be present
+(non-empty) when the step runs. If any are missing, the step fails
+before its `command` executes:
+
+```yaml
+steps:
+  deploy:
+    command: bin/deploy
+    required_env:
+      - DEPLOY_KEY
+      - TARGET_HOST
 ```
 
 ### Environment Variable Precedence
@@ -215,9 +288,9 @@ steps:
 Bivvy layers env vars from broadest scope to narrowest, then lets the
 shell win on top. Lowest priority first:
 
-1. `settings.env_vars.env_file` — global file declared in
+1. `settings.env_file` — global file declared in
    [project settings](settings.md#global-environment-variables)
-2. `settings.env_vars.env` — global inline values
+2. `settings.env` — global inline values
 3. `workflow.env_file` — file declared on the active workflow
 4. `workflow.env` — inline values declared on the active workflow
 5. `step.env_file` — file declared on the step
@@ -247,9 +320,9 @@ steps:
 
 ## Requirements
 
-Declare system-level prerequisites that must be available before a step
-runs. The canonical field name is `tools`; the old name `requires` is
-accepted as an alias:
+Declare system-level prerequisites that must be available before a
+step runs. The canonical field name is `tools`; the old name
+`requires` is accepted as an alias for backward compatibility.
 
 ```yaml
 steps:

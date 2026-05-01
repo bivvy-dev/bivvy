@@ -25,7 +25,7 @@ bivvy schema --output bivvy-schema.json
 
 ## What It Does
 
-Outputs the JSON Schema that describes the structure of Bivvy configuration files. The schema follows the [JSON Schema Draft-07](http://json-schema.org/draft-07/schema#) specification and covers all config properties including `app_name`, `settings`, `steps`, and `workflows`.
+Outputs the JSON Schema that describes the structure of Bivvy configuration files. The schema follows the [JSON Schema 2020-12](https://json-schema.org/draft/2020-12/schema) specification (the document is emitted with `"$schema": "https://json-schema.org/draft/2020-12/schema"`) and covers all config properties including `app_name`, `settings`, `steps`, and `workflows`.
 
 By default the schema is printed to stdout so you can pipe it to a file or another tool. With `--output`, Bivvy writes the schema directly to the specified path and confirms with a success message.
 

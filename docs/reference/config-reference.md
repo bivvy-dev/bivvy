@@ -192,11 +192,15 @@ Used inside `workflows.<name>.overrides.<step>` to tweak step behavior for a spe
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `skip_prompt` | bool | `false` | Skip prompts, just run |
-| `required` | bool | — | Override step's `required` flag |
 | `auto_run` | bool | — | Override step's `auto_run` flag |
 | `prompt_on_rerun` | bool | — | Override step's `prompt_on_rerun` flag |
 | `rerun_window` | string | — | Override step's `rerun_window` |
+
+> **Note:** The schema also accepts `skip_prompt` (bool) and `required` (bool)
+> for backward compatibility, but these fields are not read by the runner —
+> setting them on a workflow override has no effect. To mark a step as
+> non-skippable, set `required: true` on the step itself; to always prompt
+> before a step runs, set `confirm: true` on the step itself.
 
 ### Workflow Settings
 
@@ -309,6 +313,32 @@ Tagged union — the `type` field determines which other fields apply.
 | `command_succeeds` | `command` | Run command, pass on exit 0 |
 | `file_exists` | `path` | Check if file/directory exists |
 | `service_reachable` | `command` | Run command that probes a service |
+
+---
+
+## Workflow File (`.bivvy/workflows/<name>.yml`)
+
+A self-contained workflow file. The file stem becomes the workflow name, so
+`.bivvy/workflows/release.yml` defines a workflow named `release` that you
+can run with `bivvy run release`.
+
+A workflow file may carry its own step definitions, vars, and workflow
+declaration. When loaded, its contents are spliced into the merged config at
+the workflow-file slot of the resolution chain (between split steps and
+`config.local.yml`), so steps and vars defined here override the same names
+from `.bivvy/config.yml` for that run.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `description` | string | — | Human-readable description (shown in `bivvy list`) |
+| `steps` | map of [Step](#step) | `{}` | Step definitions private to this workflow file |
+| `vars` | map of [VarDefinition](#var-definition) | `{}` | Variables available during interpolation when this workflow runs (merged into the global vars table) |
+| `workflow` | [Workflow](#workflow) | `{}` | The workflow declaration itself: ordering, env, force directives |
+
+Note that `.bivvy/workflows/<name>.yml` is a different shape from a
+`workflows.<name>` entry in `.bivvy/config.yml`. The inline form *is* a
+[Workflow](#workflow); the file form wraps that under a `workflow:` key and
+adds optional `description`, `steps`, and `vars`.
 
 ---
 

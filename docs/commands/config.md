@@ -66,12 +66,12 @@ settings:
 
 steps:
   brew:
-    template: brew
+    template: brew-bundle
   mise:
-    template: mise
+    template: mise-tools
     depends_on: [brew]
   ruby_deps:
-    template: bundler
+    template: bundle-install
     depends_on: [mise]
 
 workflows:

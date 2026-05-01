@@ -212,6 +212,42 @@ steps:
 
 ---
 
+### undefined-workflow-force
+
+**Severity:** Error
+**Auto-fix:** No
+
+Ensures every step name in a workflow's `force:` list refers to a defined step.
+
+**Checks:**
+- Each entry in `workflows.<name>.force` must exist in `steps`
+
+**Example - Invalid:**
+```yaml
+steps:
+  build:
+    command: cargo build
+workflows:
+  release:
+    steps: [build]
+    force: [nonexistent]  # Error: step doesn't exist
+```
+
+**Example - Valid:**
+```yaml
+steps:
+  build:
+    command: cargo build
+workflows:
+  release:
+    steps: [build]
+    force: [build]
+```
+
+**Diagnostic:** Reports the workflow name and the undefined step (e.g., "Workflow 'release' force list references undefined step 'nonexistent'").
+
+---
+
 ### undefined-template
 
 **Severity:** Error
@@ -278,6 +314,96 @@ steps:
       packages: [git, node]
       enabled: true
 ```
+
+---
+
+### check-fields-exclusive
+
+**Severity:** Error
+**Auto-fix:** No
+
+Ensures a step does not set both `check` (singular) and `checks` (list) at the
+same time. Pick one form per step.
+
+**Checks:**
+- A step with `check` set must not also have a non-empty `checks` list
+
+**Example - Invalid:**
+```yaml
+steps:
+  build:
+    command: cargo build
+    check:
+      type: presence
+      target: target/debug/myapp
+    checks:
+      - type: execution
+        command: cargo build --offline
+```
+
+**Example - Valid:**
+```yaml
+steps:
+  build:
+    command: cargo build
+    checks:
+      - type: presence
+        target: target/debug/myapp
+      - type: execution
+        command: cargo build --offline
+```
+
+**Diagnostic:** "Step '<name>' has both 'check' and 'checks' fields. Use only one."
+
+---
+
+### deprecated-fields
+
+**Severity:** Warning
+**Auto-fix:** No
+
+Detects deprecated YAML field names and `type:` values. Because old field
+names have been removed from the typed schema, serde would silently ignore
+them — this rule scans the raw YAML text so renamed fields do not become
+silent no-ops.
+
+**Detected fields:**
+
+| Deprecated | Replacement |
+|------------|-------------|
+| `completed_check:` | `check:` or `checks:` |
+| `type: marker` | Use a specific check type, or remove the check |
+| `type: file_exists` | `type: presence` |
+| `type: command_succeeds` | `type: execution` |
+| `watches:` | `check: { type: change, target: ... }` |
+| `prompt_if_complete:` | `prompt_on_rerun:` |
+| `log_path:` (in output settings) | Removed — JSONL logs are written to `~/.bivvy/logs/` automatically |
+
+**Example - Invalid:**
+```yaml
+steps:
+  setup:
+    command: bundle install
+    completed_check:        # Warning: deprecated, use 'check' or 'checks'
+      type: file_exists     # Warning: use 'type: presence' instead
+      path: Gemfile.lock
+    prompt_if_complete: true  # Warning: use 'prompt_on_rerun' instead
+```
+
+**Example - Valid:**
+```yaml
+steps:
+  setup:
+    command: bundle install
+    check:
+      type: presence
+      target: Gemfile.lock
+    prompt_on_rerun: true
+```
+
+**Diagnostic:** Each deprecated field is reported with its file, line number, and the suggested replacement.
+
+---
 
 ### unknown-requirement
 

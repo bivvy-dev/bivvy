@@ -1,166 +1,170 @@
 # Built-in Templates
 
-Bivvy includes 45+ built-in templates for common development tools. When you run `bivvy init`, these are auto-detected based on files in your project.
+Bivvy ships dozens of built-in templates for common development tools. When you run `bivvy init`, applicable templates are auto-detected based on files in your project, and you can also reference them by name in `.bivvy/config.yml`.
+
+> Every template is referenced by its full name (`yarn-install`, `bundle-install`, `cargo-build`, …). There are no short-name aliases. When two categories define the same name (e.g. `version-bump`), prefix it with the category (`rust/version-bump`).
 
 ## System Package Managers
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `brew` | macOS, Linux | `Brewfile` | `brew bundle install` |
-| `apt` | Linux | `apt-get` available | `sudo apt-get install -y` |
-| `yum` | Linux | `yum` available | `sudo yum install -y` |
-| `pacman` | Linux | `pacman` available | `sudo pacman -S --noconfirm` |
+| `brew-bundle` | macOS, Linux | `Brewfile` | `brew bundle install` |
+| `apt-install` | Linux | `apt-get` available | `sudo apt-get install -y` |
+| `yum-install` | Linux | `yum` available | `sudo yum install -y` |
+| `pacman-install` | Linux | `pacman` available | `sudo pacman -S --noconfirm` |
 
 ## Windows Package Managers
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `chocolatey` | Windows | `choco` available | `choco install -y` |
-| `scoop` | Windows | `scoop` available | `scoop install` |
+| `choco-install` | Windows | `choco` available | `choco install -y` |
+| `scoop-install` | Windows | `scoop` available | `scoop install` |
 
 ## Version Managers
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `mise` | macOS, Linux, Windows | `.mise.toml`, `mise.toml` | `mise install` |
-| `asdf` | macOS, Linux | `.tool-versions` | `asdf install` |
-| `volta` | macOS, Linux, Windows | `volta` available | `volta install node` |
-| `nvm` | macOS, Linux | `.nvmrc` | `nvm install` |
-| `fnm` | macOS, Linux, Windows | `.nvmrc`, `.node-version` | `fnm install` |
-| `rbenv` | macOS, Linux | `.ruby-version` | `rbenv install` |
-| `pyenv` | macOS, Linux | `.python-version` | `pyenv install` |
+| `mise-tools` | macOS, Linux, Windows | `.mise.toml`, `mise.toml` | `mise install` |
+| `asdf-tools` | macOS, Linux | `.tool-versions` | `asdf install` |
+| `volta-setup` | macOS, Linux, Windows | `volta` available | `volta install node` |
+| `fnm-setup` | macOS, Linux, Windows | `.nvmrc`, `.node-version` | `fnm install && fnm use` |
+| `nvm-node` | macOS, Linux | `.nvmrc` | `nvm install` |
+| `rbenv-ruby` | macOS, Linux | `.ruby-version` | `rbenv install --skip-existing` |
+| `pyenv-python` | macOS, Linux | `.python-version` | `pyenv install --skip-existing` |
 
 ## Ruby
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `bundler` | macOS, Linux, Windows | `Gemfile` | `bundle install` |
-| `rails-db` | macOS, Linux, Windows | `bin/rails`, `config/routes.rb` | `bin/rails db:prepare` |
+| `bundle-install` | macOS, Linux, Windows | `Gemfile` | `bundle install` |
+| `rails-db` | macOS, Linux, Windows | `bin/rails`, `config/routes.rb` | `bundle exec rails db:prepare` |
+| `ruby/version-bump` | macOS, Linux, Windows | — | `bump "${bump}" --no-commit --no-tag` |
 
 ## Node.js
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `yarn` | macOS, Linux, Windows | `yarn.lock` | `yarn install` |
-| `npm` | macOS, Linux, Windows | `package-lock.json` | `npm install` |
-| `pnpm` | macOS, Linux, Windows | `pnpm-lock.yaml` | `pnpm install` |
-| `bun` | macOS, Linux, Windows | `bun.lockb` | `bun install` |
-| `next` | macOS, Linux, Windows | `next.config.js`, `next.config.mjs` | `npm run dev` |
-| `vite` | macOS, Linux, Windows | `vite.config.ts`, `vite.config.js` | `npm run dev` |
-| `remix` | macOS, Linux, Windows | `remix.config.js` | `npm run dev` |
+| `yarn-install` | macOS, Linux, Windows | `yarn.lock` | `yarn install` |
+| `npm-install` | macOS, Linux, Windows | `package-lock.json`, `package.json` | `npm install` |
+| `pnpm-install` | macOS, Linux, Windows | `pnpm-lock.yaml` | `pnpm install` |
+| `bun-install` | macOS, Linux, Windows | `bun.lockb` | `bun install` |
+| `nextjs-build` | macOS, Linux, Windows | `next.config.js`, `next.config.mjs`, `next.config.ts` | `npx next build` |
+| `vite-build` | macOS, Linux, Windows | `vite.config.ts`, `vite.config.js`, `vite.config.mjs` | `npx vite build` |
+| `remix-build` | macOS, Linux, Windows | `remix.config.js`, `remix.config.ts` | `npx remix build` |
+| `node/version-bump` | macOS, Linux, Windows | — | `npm version "${bump}" --no-git-tag-version` |
 
 ## Python
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `pip` | macOS, Linux, Windows | `requirements.txt` | `pip install -r requirements.txt` |
-| `poetry` | macOS, Linux, Windows | `poetry.lock` | `poetry install` |
-| `uv` | macOS, Linux, Windows | `uv.lock` | `uv sync` |
-| `django` | macOS, Linux, Windows | `manage.py` | `python manage.py migrate` |
-| `alembic` | macOS, Linux, Windows | `alembic.ini` | `alembic upgrade head` |
+| `pip-install` | macOS, Linux, Windows | `requirements.txt`, `pyproject.toml` | `pip install -r requirements.txt` |
+| `poetry-install` | macOS, Linux, Windows | `poetry.lock` | `poetry install` |
+| `uv-sync` | macOS, Linux, Windows | `uv.lock` | `uv sync` |
+| `django-migrate` | macOS, Linux, Windows | `manage.py` | `python manage.py migrate` |
+| `alembic-migrate` | macOS, Linux, Windows | `alembic.ini` | `alembic upgrade head` |
+| `python/version-bump` | macOS, Linux, Windows | — | `bump-my-version bump "${bump}" --no-commit --no-tag` |
+
+## PHP
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `composer-install` | macOS, Linux, Windows | `composer.json` | `composer install` |
+| `laravel-setup` | macOS, Linux, Windows | Laravel project files | `cp -n .env.example .env; php artisan key:generate --force` |
+| `php/version-bump` | macOS, Linux, Windows | — | Updates `version` in `composer.json` |
 
 ## Rust
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `cargo` | macOS, Linux, Windows | `Cargo.toml` | `cargo build` |
-| `version-bump` | macOS, Linux, Windows | — | `cargo set-version` |
-
-### version-bump
-
-Bumps the version in `Cargo.toml` and updates `Cargo.lock`. Requires [cargo-edit](https://github.com/killercup/cargo-edit) (`cargo install cargo-edit`).
-
-**Input:** `bump` (required) — `patch`, `minor`, `major`, or an explicit semver string like `1.5.0`.
-
-Three ways to provide the `bump` value:
-
-1. **Interactive prompt** — add a `prompts:` section to your step config
-2. **Template input** — `inputs: { bump: "minor" }` in your step config
-3. **Environment variable** — `BUMP=minor bivvy run --workflow release`
-
-```yaml
-steps:
-  version-bump:
-    template: version-bump
-    prompts:
-      - key: bump
-        question: "Version bump type"
-        type: select
-        options:
-          - label: "Patch (x.y.Z)"
-            value: patch
-          - label: "Minor (x.Y.0)"
-            value: minor
-          - label: "Major (X.0.0)"
-            value: major
-```
-
-## Java
-
-| Template | Platforms | Detects | Command |
-|----------|-----------|---------|---------|
-| `maven` | macOS, Linux, Windows | `pom.xml` | `mvn install` |
-| `spring-boot` | macOS, Linux, Windows | `application.properties`, `application.yml` | `./gradlew bootRun` |
-
-## .NET
-
-| Template | Platforms | Detects | Command |
-|----------|-----------|---------|---------|
-| `dotnet` | macOS, Linux, Windows | `*.sln`, `*.csproj` | `dotnet restore` |
-
-## Dart / Flutter
-
-| Template | Platforms | Detects | Command |
-|----------|-----------|---------|---------|
-| `dart` | macOS, Linux, Windows | `pubspec.yaml` | `dart pub get` |
-| `flutter` | macOS, Linux, Windows | `pubspec.yaml` (with Flutter SDK) | `flutter pub get` |
-
-## Deno
-
-| Template | Platforms | Detects | Command |
-|----------|-----------|---------|---------|
-| `deno` | macOS, Linux, Windows | `deno.json`, `deno.jsonc` | `deno cache` |
+| `cargo-build` | macOS, Linux, Windows | `Cargo.toml` | `cargo build` |
+| `diesel-migrate` | macOS, Linux, Windows | `diesel.toml` | `diesel setup && diesel migration run` |
+| `rust/version-bump` | macOS, Linux, Windows | — | `cargo set-version` (requires [cargo-edit](https://github.com/killercup/cargo-edit)) |
 
 ## Go
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `go` | macOS, Linux, Windows | `go.mod` | `go mod download` |
+| `go-mod-download` | macOS, Linux, Windows | `go.mod` | `go mod download` |
+| `go/version-bump` | macOS, Linux, Windows | — | Computes the next semver Git tag (`vX.Y.Z`) |
 
 ## Swift
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `swift` | macOS, Linux | `Package.swift` | `swift package resolve` |
+| `swift-resolve` | macOS, Linux | `Package.swift` | `swift package resolve` |
+| `swift/version-bump` | macOS | — | `agvtool new-marketing-version …` |
+
+## Java
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `maven-resolve` | macOS, Linux, Windows | `pom.xml` | `mvn dependency:resolve` |
+| `java/version-bump` | macOS, Linux, Windows | — | `mvn versions:set -DnewVersion="${bump}" -DgenerateBackupPoms=false` |
+
+## Kotlin / Gradle
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `gradle-deps` | macOS, Linux, Windows | `build.gradle`, `build.gradle.kts`, `settings.gradle*` | `./gradlew dependencies` |
+| `spring-boot-build` | macOS, Linux, Windows | `application.properties`, `application.yml` | `./gradlew build -x test` |
+| `kotlin/version-bump` | macOS, Linux, Windows | — | Updates `version` in `gradle.properties` or `build.gradle.kts` |
+
+## Elixir
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `mix-deps-get` | macOS, Linux, Windows | `mix.exs` | `mix deps.get` |
+| `elixir/version-bump` | macOS, Linux, Windows | — | Updates `version:` in `mix.exs` |
+
+## .NET
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `dotnet-restore` | macOS, Linux, Windows | `*.sln`, `*.csproj` | `dotnet restore` |
+| `dotnet/version-bump` | macOS, Linux, Windows | — | Updates `<Version>` in `*.csproj` |
+
+## Dart / Flutter
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `dart-pub-get` | macOS, Linux, Windows | `pubspec.yaml` | `dart pub get` |
+| `flutter-pub-get` | macOS, Linux, Windows | `pubspec.yaml` (with Flutter SDK) | `flutter pub get` |
+
+## Deno
+
+| Template | Platforms | Detects | Command |
+|----------|-----------|---------|---------|
+| `deno-install` | macOS, Linux, Windows | `deno.json`, `deno.jsonc` | `deno install` |
 
 ## Database Migrations
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `rails-db` | macOS, Linux, Windows | `bin/rails`, `config/routes.rb` | `bin/rails db:prepare` |
-| `prisma` | macOS, Linux, Windows | `prisma/schema.prisma` | `npx prisma migrate dev` |
-| `diesel` | macOS, Linux, Windows | `diesel.toml` | `diesel migration run` |
-| `alembic` | macOS, Linux, Windows | `alembic.ini` | `alembic upgrade head` |
+| `rails-db` | macOS, Linux, Windows | `bin/rails`, `config/routes.rb` | `bundle exec rails db:prepare` |
+| `prisma-migrate` | macOS, Linux, Windows | `prisma/schema.prisma` | `npx prisma migrate dev` |
+| `diesel-migrate` | macOS, Linux, Windows | `diesel.toml` | `diesel setup && diesel migration run` |
+| `alembic-migrate` | macOS, Linux, Windows | `alembic.ini` | `alembic upgrade head` |
+| `django-migrate` | macOS, Linux, Windows | `manage.py` | `python manage.py migrate` |
 
 ## Containers & Orchestration
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `docker-compose` | macOS, Linux, Windows | `compose.yml`, `docker-compose.yml` | `docker compose up -d` |
-| `helm` | macOS, Linux, Windows | `Chart.yaml` | `helm dependency build` |
+| `docker-compose-up` | macOS, Linux, Windows | `compose.yml`, `docker-compose.yml` | `docker compose up -d` |
+| `helm-deps` | macOS, Linux, Windows | `Chart.yaml` | `helm dependency update` |
 
 ## Infrastructure as Code
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `pulumi` | macOS, Linux, Windows | `Pulumi.yaml` | `pulumi up` |
-| `ansible` | macOS, Linux | `ansible.cfg`, `playbook.yml` | `ansible-playbook playbook.yml` |
+| `terraform-init` | macOS, Linux, Windows | `*.tf` | `terraform init` |
+| `cdk-synth` | macOS, Linux, Windows | `cdk.json` | `cdk synth` |
+| `pulumi-install` | macOS, Linux, Windows | `Pulumi.yaml` | `pulumi install` |
+| `ansible-install` | macOS, Linux | `ansible.cfg`, `playbook.yml` | `ansible-galaxy install -r requirements.yml` |
 
 ## Artifact Audits
 
-Post-build security audits that scan for source maps, secrets, debug symbols,
-and other files that should not ship to production. See the
-[Artifact Audits guide](../guides/artifact-audits.md) for usage examples.
+Post-build security audits that scan for source maps, secrets, debug symbols, and other files that should not ship to production. See the [Artifact Audits guide](../guides/artifact-audits.md) for usage examples.
 
 | Template | Platforms | Detects | Checks |
 |----------|-----------|---------|--------|
@@ -180,28 +184,28 @@ and other files that should not ship to production. See the
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `env-copy` | macOS, Linux, Windows | `.env.example` | `cp .env.example .env` |
-| `pre-commit` | macOS, Linux, Windows | `.pre-commit-config.yaml` | `pre-commit install` |
+| `env-copy` | macOS, Linux, Windows | `.env.example`, `.env.sample`, `.env.template` | `cp -n .env.example .env` (and fallbacks) |
+| `pre-commit-install` | macOS, Linux | `.pre-commit-config.yaml` | `pre-commit install` |
 
 ## Monorepo / Workspace
 
 | Template | Platforms | Detects | Command |
 |----------|-----------|---------|---------|
-| `nx` | macOS, Linux, Windows | `nx.json` | `npx nx run-many --target=build` |
-| `turborepo` | macOS, Linux, Windows | `turbo.json` | `npx turbo run build` |
-| `lerna` | macOS, Linux, Windows | `lerna.json` | `npx lerna bootstrap` |
+| `nx-build` | macOS, Linux, Windows | `nx.json` | `npx nx reset && npx nx run-many --target=build --all --skip-nx-cache` |
+| `turbo-build` | macOS, Linux, Windows | `turbo.json` | `npx turbo build` |
+| `lerna-bootstrap` | macOS, Linux, Windows | `lerna.json` | `npx lerna bootstrap` |
 
 ## Example Usage
 
 ```yaml
 steps:
   deps:
-    template: brew
+    template: brew-bundle
   ruby:
-    template: bundler
+    template: bundle-install
     depends_on: [deps]
   node:
-    template: yarn
+    template: yarn-install
     depends_on: [deps]
 ```
 
@@ -209,12 +213,12 @@ steps:
 
 Each template provides:
 
-- **Command** - The shell command to run
-- **Completed check** - How to tell if the step already ran (skip if so)
-- **Watches** - Files that trigger a re-run when changed
-- **Environment impact** - PATH or shell changes the step makes
+- **Command** — the shell command to run
+- **Completed checks** — how Bivvy decides the step is already done (it skips when checks pass)
+- **Watches** — files whose changes mark the step dirty and force a re-run
+- **Environment impact** — `PATH` or shell config changes the step makes
 
-### brew
+### brew-bundle
 
 Installs Homebrew packages from a Brewfile.
 
@@ -224,7 +228,7 @@ Installs Homebrew packages from a Brewfile.
 - **Completion check**: `brew bundle check`
 - **Watches**: `Brewfile`, `Brewfile.lock.json`
 
-### bundler
+### bundle-install
 
 Installs Ruby gems from a Gemfile.
 
@@ -234,18 +238,18 @@ Installs Ruby gems from a Gemfile.
 - **Completion check**: `bundle check`
 - **Watches**: `Gemfile`, `Gemfile.lock`
 
-### yarn
+### yarn-install
 
 Installs Node.js dependencies using Yarn.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `yarn.lock`, `package.json`
+- **Detects**: `yarn.lock`
 - **Command**: `yarn install`
 - **Completion check**: `yarn check --verify-tree`
 - **Watches**: `yarn.lock`, `package.json`
-- **Environment**: Sets `NODE_ENV=development`
+- **Environment**: sets `NODE_ENV=development`
 
-### npm
+### npm-install
 
 Installs Node.js dependencies using npm.
 
@@ -254,9 +258,9 @@ Installs Node.js dependencies using npm.
 - **Command**: `npm install`
 - **Completion check**: `node_modules` directory exists
 - **Watches**: `package.json`, `package-lock.json`
-- **Environment**: Sets `NODE_ENV=development`
+- **Environment**: sets `NODE_ENV=development`
 
-### pnpm
+### pnpm-install
 
 Installs Node.js dependencies using pnpm.
 
@@ -265,9 +269,9 @@ Installs Node.js dependencies using pnpm.
 - **Command**: `pnpm install`
 - **Completion check**: `node_modules` directory exists
 - **Watches**: `package.json`, `pnpm-lock.yaml`
-- **Environment**: Sets `NODE_ENV=development`
+- **Environment**: sets `NODE_ENV=development`
 
-### bun
+### bun-install
 
 Installs Node.js dependencies using Bun.
 
@@ -277,9 +281,9 @@ Installs Node.js dependencies using Bun.
 - **Completion check**: `node_modules` directory exists
 - **Watches**: `package.json`, `bun.lockb`
 
-### volta
+### volta-setup
 
-Installs pinned Node.js version using Volta.
+Installs the pinned Node.js toolchain using Volta.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `volta` command available
@@ -287,7 +291,7 @@ Installs pinned Node.js version using Volta.
 - **Completion check**: `volta which node`
 - **Watches**: `package.json`
 
-### mise
+### mise-tools
 
 Installs tool versions using mise.
 
@@ -297,7 +301,7 @@ Installs tool versions using mise.
 - **Completion check**: `mise current`
 - **Watches**: `.mise.toml`, `mise.toml`
 
-### asdf
+### asdf-tools
 
 Installs tool versions using asdf.
 
@@ -307,17 +311,17 @@ Installs tool versions using asdf.
 - **Completion check**: `asdf current`
 - **Watches**: `.tool-versions`
 
-### pip
+### pip-install
 
-Installs Python packages from requirements.txt.
+Installs Python packages from `requirements.txt`.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `requirements.txt`
+- **Detects**: `requirements.txt`, `pyproject.toml`
 - **Command**: `pip install -r requirements.txt`
 - **Completion check**: `pip check`
 - **Watches**: `requirements.txt`
 
-### poetry
+### poetry-install
 
 Installs Python dependencies using Poetry.
 
@@ -327,7 +331,7 @@ Installs Python dependencies using Poetry.
 - **Completion check**: `poetry check`
 - **Watches**: `pyproject.toml`, `poetry.lock`
 
-### uv
+### uv-sync
 
 Syncs Python dependencies using uv.
 
@@ -337,7 +341,27 @@ Syncs Python dependencies using uv.
 - **Completion check**: `.venv` directory exists
 - **Watches**: `pyproject.toml`, `uv.lock`
 
-### cargo
+### composer-install
+
+Installs PHP packages from `composer.json`.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `composer.json`
+- **Command**: `composer install`
+- **Completion check**: `vendor` directory exists
+- **Watches**: `composer.json`, `composer.lock`
+
+### laravel-setup
+
+Bootstraps a Laravel project: creates `.env` from `.env.example` and generates the application key.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: Laravel project files
+- **Command**: `cp -n .env.example .env 2>/dev/null; php artisan key:generate --force`
+- **Completion check**: `.env` file exists
+- **Watches**: `.env.example`
+
+### cargo-build
 
 Builds a Rust project using Cargo.
 
@@ -347,7 +371,7 @@ Builds a Rust project using Cargo.
 - **Completion check**: `target` directory exists
 - **Watches**: `Cargo.toml`, `Cargo.lock`
 
-### go
+### go-mod-download
 
 Downloads Go module dependencies.
 
@@ -357,7 +381,7 @@ Downloads Go module dependencies.
 - **Completion check**: `go mod verify`
 - **Watches**: `go.mod`, `go.sum`
 
-### swift
+### swift-resolve
 
 Resolves Swift Package Manager dependencies.
 
@@ -367,77 +391,96 @@ Resolves Swift Package Manager dependencies.
 - **Completion check**: `.build` directory exists
 - **Watches**: `Package.swift`, `Package.resolved`
 
-### nvm
+### nvm-node
 
-Installs Node.js version using nvm.
+Installs the Node.js version pinned in `.nvmrc` using nvm.
 
 - **Platforms**: macOS, Linux
 - **Detects**: `.nvmrc`
 - **Command**: `nvm install`
-- **Completion check**: `nvm current`
 - **Watches**: `.nvmrc`
 
-### fnm
+### fnm-setup
 
-Installs Node.js version using fnm (Fast Node Manager).
+Installs and activates the Node.js version pinned by `.nvmrc` or `.node-version` using fnm.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `.nvmrc`, `.node-version`
-- **Command**: `fnm install`
+- **Detects**: `.nvmrc`, `.node-version`, or `fnm` available
+- **Command**: `fnm install && fnm use`
 - **Completion check**: `fnm current`
 - **Watches**: `.nvmrc`, `.node-version`
 
-### rbenv
+### rbenv-ruby
 
-Installs Ruby version using rbenv.
+Installs the Ruby version pinned in `.ruby-version` using rbenv.
 
 - **Platforms**: macOS, Linux
 - **Detects**: `.ruby-version`
-- **Command**: `rbenv install`
+- **Command**: `rbenv install --skip-existing`
 - **Completion check**: `rbenv version`
 - **Watches**: `.ruby-version`
 
-### pyenv
+### pyenv-python
 
-Installs Python version using pyenv.
+Installs the Python version pinned in `.python-version` using pyenv.
 
 - **Platforms**: macOS, Linux
 - **Detects**: `.python-version`
-- **Command**: `pyenv install`
+- **Command**: `pyenv install --skip-existing`
 - **Completion check**: `pyenv version`
 - **Watches**: `.python-version`
 
-### maven
+### maven-resolve
 
-Installs Java dependencies using Maven.
+Resolves Java dependencies using Maven.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `pom.xml`
-- **Command**: `mvn install`
+- **Command**: `mvn dependency:resolve`
 - **Completion check**: `target` directory exists
 - **Watches**: `pom.xml`
 
-### spring-boot
+### gradle-deps
 
-Sets up a Spring Boot project (Gradle-based).
+Downloads Gradle project dependencies via the Gradle wrapper.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `build.gradle`, `build.gradle.kts`, `settings.gradle`, `settings.gradle.kts`
+- **Command**: `./gradlew dependencies`
+- **Completion check**: `.gradle` directory exists
+- **Watches**: `build.gradle`, `build.gradle.kts`, `settings.gradle*`, `gradle.properties`
+
+### spring-boot-build
+
+Builds a Spring Boot Gradle project (skipping tests).
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `application.properties`, `application.yml`
-- **Command**: `./gradlew bootRun`
-- **Completion check**: `build` directory exists
-- **Watches**: `build.gradle`, `build.gradle.kts`, `application.properties`, `application.yml`
+- **Command**: `./gradlew build -x test`
+- **Completion check**: `build/libs` directory exists
+- **Watches**: `build.gradle`, `build.gradle.kts`, `src/main/resources/application.properties`, `src/main/resources/application.yml`
 
-### dotnet
+### mix-deps-get
+
+Installs Elixir project dependencies.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `mix.exs`
+- **Command**: `mix deps.get`
+- **Completion check**: `deps` directory exists
+- **Watches**: `mix.exs`, `mix.lock`
+
+### dotnet-restore
 
 Restores .NET project dependencies.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `*.sln`, `*.csproj`
 - **Command**: `dotnet restore`
-- **Completion check**: `dotnet build --no-restore` succeeds
+- **Completion check**: `dotnet restore --no-restore` reports nothing to do
 - **Watches**: `*.sln`, `*.csproj`, `Directory.Build.props`
 
-### dart
+### dart-pub-get
 
 Installs Dart package dependencies.
 
@@ -447,7 +490,7 @@ Installs Dart package dependencies.
 - **Completion check**: `.dart_tool` directory exists
 - **Watches**: `pubspec.yaml`, `pubspec.lock`
 
-### flutter
+### flutter-pub-get
 
 Installs Flutter package dependencies.
 
@@ -457,55 +500,54 @@ Installs Flutter package dependencies.
 - **Completion check**: `.dart_tool` directory exists
 - **Watches**: `pubspec.yaml`, `pubspec.lock`
 
-### deno
+### deno-install
 
-Caches Deno module dependencies.
+Caches Deno project dependencies.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `deno.json`, `deno.jsonc`
-- **Command**: `deno cache`
-- **Completion check**: `deno info` succeeds
+- **Command**: `deno install`
+- **Completion check**: `deno.lock` file exists
 - **Watches**: `deno.json`, `deno.jsonc`, `deno.lock`
 
-### next
+### nextjs-build
 
-Detects a Next.js project. Uses the project's Node.js package manager for dependency installation.
+Builds a Next.js application to verify setup.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `next.config.js`, `next.config.mjs`
-- **Command**: `npm run dev`
+- **Detects**: `next.config.js`, `next.config.mjs`, `next.config.ts`
+- **Command**: `npx next build`
 - **Completion check**: `.next` directory exists
-- **Watches**: `next.config.js`, `next.config.mjs`, `package.json`
+- **Watches**: `next.config.js`, `next.config.mjs`, `next.config.ts`
 
-### vite
+### vite-build
 
-Detects a Vite project. Uses the project's Node.js package manager for dependency installation.
-
-- **Platforms**: macOS, Linux, Windows
-- **Detects**: `vite.config.ts`, `vite.config.js`
-- **Command**: `npm run dev`
-- **Completion check**: `node_modules` directory exists
-- **Watches**: `vite.config.ts`, `vite.config.js`, `package.json`
-
-### remix
-
-Detects a Remix project. Uses the project's Node.js package manager for dependency installation.
+Builds a Vite project to verify setup.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `remix.config.js`
-- **Command**: `npm run dev`
-- **Completion check**: `node_modules` directory exists
-- **Watches**: `remix.config.js`, `package.json`
+- **Detects**: `vite.config.ts`, `vite.config.js`, `vite.config.mjs`
+- **Command**: `npx vite build`
+- **Completion check**: `dist` directory exists
+- **Watches**: `vite.config.js`, `vite.config.ts`, `vite.config.mjs`
 
-### django
+### remix-build
+
+Builds a Remix application to verify setup.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `remix.config.js`, `remix.config.ts`
+- **Command**: `npx remix build`
+- **Completion check**: `build` directory exists
+- **Watches**: `remix.config.js`, `remix.config.ts`, `app/root.tsx`
+
+### django-migrate
 
 Runs Django database migrations.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `manage.py`
 - **Command**: `python manage.py migrate`
-- **Completion check**: `python manage.py showmigrations --plan` shows no unapplied migrations
-- **Watches**: `manage.py`, `*/migrations/*.py`
+- **Watches**: `manage.py`, `*/migrations`
 
 ### rails-db
 
@@ -513,147 +555,223 @@ Prepares the Rails database (creates, migrates, seeds).
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `bin/rails`, `config/routes.rb`
-- **Command**: `bin/rails db:prepare`
-- **Completion check**: `bin/rails db:version` succeeds
-- **Watches**: `db/migrate/*`, `db/schema.rb`, `db/seeds.rb`
+- **Command**: `bundle exec rails db:prepare`
+- **Precondition**: `config/database.yml` is present
+- **Watches**: `db/migrate`, `db/seeds.rb`, `config/database.yml`
 
-### prisma
+### prisma-migrate
 
-Runs Prisma database migrations.
+Runs Prisma database migrations and regenerates the Prisma Client.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `prisma/schema.prisma`
 - **Command**: `npx prisma migrate dev`
-- **Completion check**: `npx prisma migrate status` shows no pending migrations
-- **Watches**: `prisma/schema.prisma`, `prisma/migrations/*`
+- **Watches**: `prisma/schema.prisma`, `prisma/migrations`
 
-### diesel
+### diesel-migrate
 
-Runs Diesel database migrations (Rust).
+Sets up the database and runs pending Diesel migrations (Rust).
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `diesel.toml`
-- **Command**: `diesel migration run`
-- **Completion check**: `diesel migration pending` returns empty
-- **Watches**: `diesel.toml`, `migrations/*`
+- **Command**: `diesel setup && diesel migration run`
+- **Watches**: `diesel.toml`, `migrations`
 
-### alembic
+### alembic-migrate
 
-Runs Alembic database migrations (Python/SQLAlchemy).
+Upgrades the database to the latest Alembic migration revision.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `alembic.ini`
 - **Command**: `alembic upgrade head`
-- **Completion check**: `alembic current` matches head
-- **Watches**: `alembic.ini`, `alembic/versions/*`
+- **Watches**: `alembic.ini`, `alembic/versions`
 
-### docker-compose
+### docker-compose-up
 
 Starts services defined in a Docker Compose file.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `compose.yml`, `docker-compose.yml`
+- **Detects**: `compose.yml`, `compose.yaml`, `docker-compose.yml`, `docker-compose.yaml`
 - **Command**: `docker compose up -d`
-- **Completion check**: `docker compose ps` shows running services
-- **Watches**: `compose.yml`, `docker-compose.yml`, `Dockerfile`
+- **Completion check**: `docker compose ps` reports a running service
+- **Watches**: `compose.yml`, `compose.yaml`, `docker-compose.yml`, `docker-compose.yaml`
 
-### helm
+### helm-deps
 
-Builds Helm chart dependencies for Kubernetes deployments.
+Updates Helm chart dependencies.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `Chart.yaml`
-- **Command**: `helm dependency build`
+- **Command**: `helm dependency update`
 - **Completion check**: `charts/` directory exists
-- **Watches**: `Chart.yaml`, `Chart.lock`, `values.yaml`
+- **Watches**: `Chart.yaml`, `Chart.lock`
 
-### pulumi
+### terraform-init
 
-Deploys infrastructure using Pulumi.
+Initializes a Terraform working directory.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `*.tf`
+- **Command**: `terraform init`
+- **Completion check**: `.terraform` directory exists
+- **Watches**: `*.tf`, `.terraform.lock.hcl`
+
+### cdk-synth
+
+Synthesizes CloudFormation templates from AWS CDK code.
+
+- **Platforms**: macOS, Linux, Windows
+- **Detects**: `cdk.json`
+- **Command**: `cdk synth`
+- **Completion check**: `cdk.out` directory exists
+- **Watches**: `cdk.json`
+
+### pulumi-install
+
+Installs Pulumi project plugins and dependencies.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `Pulumi.yaml`
-- **Command**: `pulumi up`
-- **Completion check**: `pulumi stack` succeeds
-- **Watches**: `Pulumi.yaml`, `Pulumi.*.yaml`
+- **Command**: `pulumi install`
+- **Completion check**: `pulumi plugin ls` reports installed plugins
+- **Watches**: `Pulumi.yaml`, `Pulumi.lock`
 
-### ansible
+### ansible-install
 
-Runs an Ansible playbook.
+Installs Ansible Galaxy roles and collections from a `requirements.yml` file.
 
 - **Platforms**: macOS, Linux
 - **Detects**: `ansible.cfg`, `playbook.yml`
-- **Command**: `ansible-playbook playbook.yml`
-- **Completion check**: Command succeeds
-- **Watches**: `ansible.cfg`, `playbook.yml`, `inventory/*`, `roles/*`
+- **Command**: `ansible-galaxy install -r requirements.yml`
+- **Precondition**: `requirements.yml` is present
+- **Watches**: `requirements.yml`, `ansible.cfg`
 
 ### env-copy
 
-Copies `.env.example` to `.env` if it doesn't already exist.
+Copies an environment template (`.env.example`, `.env.sample`, or `.env.template`) to `.env` if it does not already exist.
 
 - **Platforms**: macOS, Linux, Windows
-- **Detects**: `.env.example`
-- **Command**: `cp .env.example .env`
+- **Detects**: `.env.example`, `.env.sample`, `.env.template`
+- **Command**: tries `cp -n .env.example .env`, then falls back to `.env.sample` and `.env.template`
 - **Completion check**: `.env` file exists
-- **Watches**: `.env.example`
+- **Watches**: `.env.example`, `.env.sample`, `.env.template`
 
-### pre-commit
+### pre-commit-install
 
 Installs pre-commit hook scripts into your Git repository.
 
-- **Platforms**: macOS, Linux, Windows
+- **Platforms**: macOS, Linux
 - **Detects**: `.pre-commit-config.yaml`
 - **Command**: `pre-commit install`
 - **Completion check**: `.git/hooks/pre-commit` file exists
 - **Watches**: `.pre-commit-config.yaml`
 
-### nx
+### nx-build
 
-Sets up an Nx monorepo workspace.
+Initializes an Nx workspace and builds all projects.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `nx.json`
-- **Command**: `npx nx run-many --target=build`
-- **Completion check**: `node_modules` directory exists
-- **Watches**: `nx.json`, `workspace.json`, `package.json`
+- **Command**: `npx nx reset && npx nx run-many --target=build --all --skip-nx-cache`
+- **Completion check**: `node_modules/.cache/nx` directory exists
+- **Watches**: `nx.json`, `workspace.json`
 
-### turborepo
+### turbo-build
 
-Sets up a Turborepo monorepo workspace.
+Builds all packages in a Turborepo workspace.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `turbo.json`
-- **Command**: `npx turbo run build`
-- **Completion check**: `node_modules` directory exists
-- **Watches**: `turbo.json`, `package.json`
+- **Command**: `npx turbo build`
+- **Completion check**: `node_modules/.cache/turbo` directory exists
+- **Watches**: `turbo.json`, `packages/*/package.json`
 
-### lerna
+### lerna-bootstrap
 
 Bootstraps a Lerna monorepo workspace.
 
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `lerna.json`
 - **Command**: `npx lerna bootstrap`
-- **Completion check**: `node_modules` directory exists
-- **Watches**: `lerna.json`, `package.json`
+- **Watches**: `lerna.json`, `packages/*/package.json`
+
+## version-bump templates
+
+Each language category provides its own `version-bump` template that updates the version in that ecosystem's manifest. They share the same input shape:
+
+- **Input**: `bump` (required) — `patch`, `minor`, `major`, or an explicit semver string like `1.5.0`.
+
+Reference the language-specific template by qualifying it with the category, since the unqualified `version-bump` resolves to the first match the registry finds:
+
+```yaml
+steps:
+  bump-version:
+    template: rust/version-bump
+    inputs:
+      bump: minor
+```
+
+Available variants: `ruby/version-bump`, `node/version-bump`, `python/version-bump`, `php/version-bump`, `rust/version-bump`, `go/version-bump`, `swift/version-bump`, `java/version-bump`, `kotlin/version-bump`, `elixir/version-bump`, `dotnet/version-bump`.
+
+Two ways to provide the `bump` value:
+
+1. **Template input** — set `inputs: { bump: minor }` directly on the step.
+2. **Interactive prompt** — add a `prompts:` block on the step.
+
+Inputs are case-sensitive map keys, not environment variables, so something like `BUMP=minor bivvy run` does not feed the input.
+
+```yaml
+steps:
+  bump-version:
+    template: rust/version-bump
+    prompts:
+      - key: bump
+        question: "Version bump type"
+        type: select
+        options:
+          - label: "Patch (x.y.Z)"
+            value: patch
+          - label: "Minor (x.Y.0)"
+            value: minor
+          - label: "Major (X.0.0)"
+            value: major
+```
+
+The Rust variant requires [cargo-edit](https://github.com/killercup/cargo-edit) (`cargo install cargo-edit`); the Python variant requires [bump-my-version](https://github.com/callowayproject/bump-my-version); the Java variant uses the Maven [versions plugin](https://www.mojohaus.org/versions/versions-maven-plugin/); the Swift variant uses `agvtool`. The Go variant computes the next semver Git tag and prints it to stdout — wire it into your release workflow to actually create the tag.
 
 ## Install Templates
 
-Install templates are used by the requirements system to install missing
-tools. They are triggered automatically when a requirement gap is detected
-and the user accepts the install prompt.
+Install templates are used by the requirements system to install missing tools. They are triggered automatically when a requirement gap is detected and the user accepts the install prompt.
 
 | Template | Description | Platforms |
 |----------|-------------|-----------|
 | `brew-install` | Install Homebrew package manager | macOS, Linux |
-| `docker-install` | Install Docker Desktop or Docker Engine | macOS, Linux, Windows |
+| `brew-elixir` | Install Elixir using Homebrew | macOS, Linux |
+| `brew-go` | Install Go using Homebrew | macOS, Linux |
+| `brew-node` | Install Node.js using Homebrew | macOS, Linux |
+| `brew-php` | Install PHP using Homebrew | macOS, Linux |
+| `brew-python` | Install Python using Homebrew | macOS, Linux |
+| `brew-ruby` | Install Ruby using Homebrew | macOS, Linux |
 | `mise-install` | Install mise version manager | macOS, Linux |
+| `mise-elixir` | Install Elixir using mise | macOS, Linux |
 | `mise-node` | Install Node.js using mise | macOS, Linux |
+| `mise-php` | Install PHP using mise | macOS, Linux |
 | `mise-python` | Install Python using mise | macOS, Linux |
 | `mise-ruby` | Install Ruby using mise | macOS, Linux |
+| `asdf-elixir` | Install Elixir using asdf | macOS, Linux |
+| `asdf-node` | Install Node.js using asdf | macOS, Linux |
+| `asdf-php` | Install PHP using asdf | macOS, Linux |
+| `asdf-python` | Install Python using asdf | macOS, Linux |
+| `asdf-ruby` | Install Ruby using asdf | macOS, Linux |
+| `fnm-node` | Install Node.js using fnm | macOS, Linux, Windows |
+| `nvm-node` | Install Node.js using nvm | macOS, Linux |
+| `volta-node` | Install Node.js using Volta | macOS, Linux, Windows |
+| `pyenv-python` | Install Python using pyenv | macOS, Linux |
+| `rbenv-ruby` | Install Ruby using rbenv | macOS, Linux |
+| `rust-install` | Install Rust toolchain via rustup | macOS, Linux, Windows |
+| `docker-install` | Install Docker Desktop or Docker Engine | macOS, Linux, Windows |
 | `postgres-install` | Install PostgreSQL server and client tools | macOS, Linux |
 | `redis-install` | Install Redis in-memory data store | macOS, Linux |
-| `rust-install` | Install Rust toolchain via rustup | macOS, Linux, Windows |
 
 ### brew-install
 
@@ -665,10 +783,10 @@ Installs Homebrew package manager.
 
 ### docker-install
 
-Installs Docker Desktop (macOS) or Docker Engine (Linux).
+Installs Docker Desktop (macOS) or Docker Engine (Linux). On macOS, the template prints download instructions and exits with an error rather than installing automatically.
 
 - **Platforms**: macOS, Linux, Windows
-- **Command**: Platform-specific (manual on macOS, `curl -fsSL https://get.docker.com | sh` on Linux)
+- **Command**: Platform-specific (manual on macOS, `curl -fsSL https://get.docker.com | sh` on Debian/Ubuntu)
 - **Completion check**: `docker info`
 
 ### mise-install
@@ -679,39 +797,78 @@ Installs the mise version manager.
 - **Command**: `curl https://mise.run | sh`
 - **Completion check**: `mise --version`
 
-### mise-node
+### mise-node / mise-python / mise-ruby / mise-php / mise-elixir
 
-Installs Node.js using mise. Requires `mise` to be installed first.
-
-- **Platforms**: macOS, Linux
-- **Requires**: `mise`
-- **Command**: `mise install node`
-- **Completion check**: `mise where node`
-
-### mise-python
-
-Installs Python using mise. Requires `mise` to be installed first.
+Installs the named language using mise. Requires `mise` to be installed first.
 
 - **Platforms**: macOS, Linux
 - **Requires**: `mise`
-- **Command**: `mise install python`
-- **Completion check**: `mise where python`
+- **Command**: `mise install <language>`
+- **Completion check**: `mise where <language>`
 
-### mise-ruby
+### asdf-node / asdf-python / asdf-ruby / asdf-php / asdf-elixir
 
-Installs Ruby using mise. Requires `mise` to be installed first.
+Adds the asdf plugin (if missing) and installs the project's pinned version. Requires `asdf` to be installed first.
 
 - **Platforms**: macOS, Linux
-- **Requires**: `mise`
-- **Command**: `mise install ruby`
-- **Completion check**: `mise where ruby`
+- **Requires**: `asdf`
+- **Command**: `asdf plugin add <language> 2>/dev/null; asdf install <language>`
+- **Completion check**: `asdf where <language>`
+
+### brew-node / brew-python / brew-ruby / brew-go / brew-php / brew-elixir
+
+Installs the named language using Homebrew. Requires `brew` to be installed first.
+
+- **Platforms**: macOS, Linux
+- **Requires**: `brew`
+- **Command**: `brew install <language>`
+
+### fnm-node
+
+Installs the project's Node.js version using fnm.
+
+- **Platforms**: macOS, Linux, Windows
+- **Requires**: `fnm`
+- **Command**: `fnm install && fnm use`
+
+### nvm-node
+
+Installs the Node.js version pinned by `.nvmrc` using nvm.
+
+- **Platforms**: macOS, Linux
+- **Requires**: `nvm`
+- **Command**: `nvm install`
+
+### volta-node
+
+Installs the project's pinned Node.js version using Volta.
+
+- **Platforms**: macOS, Linux, Windows
+- **Requires**: `volta`
+- **Command**: `volta install node`
+
+### pyenv-python
+
+Installs the Python version pinned by `.python-version` using pyenv (skipping if already present).
+
+- **Platforms**: macOS, Linux
+- **Requires**: `pyenv`
+- **Command**: `pyenv install --skip-existing`
+
+### rbenv-ruby
+
+Installs the Ruby version pinned by `.ruby-version` using rbenv (skipping if already present).
+
+- **Platforms**: macOS, Linux
+- **Requires**: `rbenv`
+- **Command**: `rbenv install --skip-existing`
 
 ### postgres-install
 
 Installs PostgreSQL database server and client tools.
 
 - **Platforms**: macOS, Linux
-- **Command**: Platform-specific (Homebrew on macOS, apt-get on Debian/Ubuntu)
+- **Command**: Platform-specific (Homebrew on macOS, `apt-get` on Debian/Ubuntu)
 - **Completion check**: `pg_isready -q`
 
 ### redis-install
@@ -719,7 +876,7 @@ Installs PostgreSQL database server and client tools.
 Installs Redis in-memory data store.
 
 - **Platforms**: macOS, Linux
-- **Command**: Platform-specific (Homebrew on macOS, apt-get on Debian/Ubuntu)
+- **Command**: Platform-specific (Homebrew on macOS, `apt-get` on Debian/Ubuntu)
 - **Completion check**: `redis-cli ping`
 
 ### rust-install
@@ -737,7 +894,7 @@ You can override any field from a template in your step config:
 ```yaml
 steps:
   deps:
-    template: bundler
+    template: bundle-install
     env:
       BUNDLE_WITHOUT: "production"
     command: "bundle install --jobs=4"

@@ -43,6 +43,37 @@ to view lint results directly in your editor:
 2. Run `bivvy lint --format=sarif > .bivvy/lint.sarif`
 3. Open the SARIF file to see issues in the editor
 
+## Auto-fixing simple lint issues
+
+`bivvy lint --fix` rewrites the file in place to correct issues that have a
+mechanical fix (renaming deprecated keys, normalizing fields, and similar).
+Bigger structural problems still need manual review.
+
+In a workflow that just lints the configuration, you can fail the job if
+the file would have been changed:
+
+```yaml
+- name: Bivvy lint (no auto-fix in CI)
+  run: bivvy lint --strict
+```
+
+If you'd rather have CI open a pull request with the fixes, run
+`bivvy lint --fix` and let your usual "create-pr-on-diff" tooling handle the
+rest:
+
+```yaml
+- name: Apply Bivvy lint auto-fixes
+  run: bivvy lint --fix
+
+- name: Open PR if anything changed
+  uses: peter-evans/create-pull-request@v6
+  with:
+    title: "chore: apply bivvy lint --fix"
+```
+
+`--fix` is only safe to run on a clean working tree -- run it before tests,
+not after, so any rewrites are obvious in the diff.
+
 ## Running Bivvy in CI
 
 Beyond linting, you can run Bivvy itself in CI to set up your test
@@ -56,8 +87,10 @@ and other common variables) and automatically forces non-interactive mode:
 ```
 
 In CI mode, the workflow progress bar is suppressed to avoid noisy output
-in log-based environments. You can also explicitly pass `--non-interactive`
-or `--ci` to force this behavior outside auto-detected CI.
+in log-based environments. If you ever need to force this behavior outside
+auto-detected CI, pass `--non-interactive`. (An older `--ci` flag exists
+for backwards compatibility but is deprecated and hidden -- prefer
+`--non-interactive --env ci`.)
 
 ### Provided requirements
 

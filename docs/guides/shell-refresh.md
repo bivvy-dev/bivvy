@@ -22,9 +22,9 @@ Common scenarios that require shell refresh:
 When a step requires shell refresh:
 
 1. **Detection**: Bivvy tracks expected PATH changes and detects
-   when the current shell doesn't have them yet
+   when the current shell doesn't have them yet.
 
-2. **Save State**: Current progress is saved to disk including:
+2. **Save state**: Current progress is saved to disk including:
    - Which workflow was running
    - Which steps have completed
    - Which step triggered the reload
@@ -34,8 +34,8 @@ When a step requires shell refresh:
    - Exit and reload manually
    - Skip the step
 
-4. **Resume**: After shell reload, Bivvy can resume from where it
-   left off
+4. **Resume**: After the shell reload, the next `bivvy run --resume` picks
+   up where the previous run left off.
 
 ## Example Flow
 
@@ -56,7 +56,7 @@ Saving progress... done
 Please run: exec bash
 
 $ exec bash
-$ bivvy run
+$ bivvy run --resume
 
 Resuming from previous run...
 ✓ Installing Homebrew (already complete)
@@ -72,13 +72,38 @@ resume manually:
 $ bivvy run --resume
 ```
 
-Bivvy will detect the saved state and offer to continue from the
-last step.
+Without `--resume`, Bivvy starts a fresh run and ignores any saved
+state -- the saved file stays on disk until the next resumed run
+overwrites it (or you delete it manually).
 
-## Clearing Resume State
+## Where the Resume State Lives
 
-To clear any saved resume state and start fresh:
+Bivvy saves a single `resume-state.json` file under the platform's
+user-local data directory. There is one file per machine, not per
+project; whichever project last hit a shell-refresh step "owns" the
+saved state until the next reload.
 
+| Platform | Path |
+|----------|------|
+| Linux | `$XDG_DATA_HOME/bivvy/resume-state.json` (defaults to `~/.local/share/bivvy/resume-state.json`) |
+| macOS | `~/Library/Application Support/bivvy/resume-state.json` |
+| Windows | `%LOCALAPPDATA%\bivvy\resume-state.json` |
+
+### Cross-project behavior
+
+Because the file is global, running `bivvy run --resume` always resumes
+the most recently saved state -- even if you are now `cd`'d into a
+different project. If you don't want that, run `bivvy run` without
+`--resume` to start a fresh run in the current project, or delete the
+resume-state file before re-running:
+
+```bash
+# Linux
+rm -f ~/.local/share/bivvy/resume-state.json
+
+# macOS
+rm -f "$HOME/Library/Application Support/bivvy/resume-state.json"
 ```
-$ bivvy run --no-resume
-```
+
+There is no `bivvy run --no-resume` flag. To start fresh, simply omit
+`--resume`; Bivvy only consults the saved state when you opt in.

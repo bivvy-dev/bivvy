@@ -9,7 +9,8 @@ When you run Bivvy, it:
 1. Identifies your project using a hash of the path and git remote
 2. Loads any existing state from `~/.bivvy/projects/{hash}/`
 3. Tracks which steps run, skip, or fail
-4. Saves state after each workflow execution
+4. Saves per-step state after each workflow execution
+5. Appends a structured event log of the run to `~/.bivvy/logs/`
 
 ## Project Identification
 
@@ -32,33 +33,27 @@ Bivvy tracks the following for each step:
 
 ### Step Status Values
 
-- **Success** - Step completed without errors
-- **Failed** - Step exited with non-zero code or error
-- **Skipped** - Step was skipped (already complete or user choice)
-- **NeverRun** - Step has never been executed
+- **Success** — Step completed without errors
+- **Failed** — Step exited with non-zero code or error
+- **Skipped** — Step was skipped (already complete or user choice)
+- **NeverRun** — Step has never been executed
 
 ## Run History
 
-Each workflow execution is recorded with:
+As of state schema v3, run history is no longer stored alongside
+per-step state. Each workflow execution is captured as a JSON Lines
+event log in `~/.bivvy/logs/`. Each line is a structured event
+record (`WorkflowStarted`, `StepCompleted`, `WorkflowCompleted`,
+etc.) tagged with the project, workflow, timestamp, and outcome.
 
-```yaml
-timestamp: 2024-01-15T10:30:00Z
-workflow: default
-duration_ms: 45000
-status: Success
-steps_run:
-  - dependencies
-  - database
-steps_skipped:
-  - seeds
-error: null
-```
+The `bivvy last` and `bivvy history` commands read these JSONL logs
+directly.
 
 ### Run Status Values
 
-- **Success** - All steps completed successfully
-- **Failed** - One or more steps failed
-- **Interrupted** - Execution was cancelled (Ctrl+C)
+- **Success** — All steps completed successfully
+- **Failed** — One or more steps failed
+- **Aborted** — Execution was cancelled (Ctrl+C) or interrupted
 
 ## Change Detection
 
@@ -109,17 +104,30 @@ template_sources:
 
 | File | Location |
 |------|----------|
-| State | `~/.bivvy/projects/{hash}/state.yml` |
+| Per-step state | `~/.bivvy/projects/{hash}/state.yml` |
 | Preferences | `~/.bivvy/projects/{hash}/preferences.yml` |
 | Project Index | `~/.bivvy/projects/index.yml` |
+| Run event logs | `~/.bivvy/logs/*.jsonl` |
+| Change-detection snapshots | `~/.bivvy/projects/{hash}/snapshots/` |
 
-## History Pruning
+## Log Retention and Pruning
 
-Bivvy automatically manages state file size:
+Bivvy automatically manages log file size — there is **no manual
+prune command**. Two settings under top-level `settings:` control
+how aggressively old logs are deleted:
 
-- Default retention: 50 runs
-- Orphaned step state (not in recent runs) is cleaned up
-- Use `bivvy history --prune` to manually clean old history
+```yaml
+settings:
+  log_retention_days: 30   # Max age of log files in days (default: 30)
+  log_retention_mb: 500    # Max total size of log files in MB (default: 500)
+```
+
+Files older than `log_retention_days` are deleted on each run.
+When the on-disk total exceeds `log_retention_mb`, the oldest files
+are deleted first until the cap is satisfied.
+
+Step-level state retention (the count of stored runs) is governed
+by `settings.history_retention` (default: 50).
 
 ## Querying State
 
@@ -137,20 +145,36 @@ Shows details of the most recent run including duration, status, and which steps
 bivvy history
 ```
 
-Shows a table of recent runs with timestamps and outcomes.
+Shows a table of recent runs with timestamps and outcomes. Useful
+filters and flags:
+
+| Flag | Effect |
+|---|---|
+| `--limit N` | Show only the last N runs |
+| `--since DURATION` | Show runs newer than `DURATION` (e.g., `7d`, `1h`) |
+| `--detail` | Include per-run summary lines |
+| `--json` | Emit machine-readable JSON |
+| `--clear` | Delete this project's run logs (prompts unless `--force`) |
 
 ### Step History
 
-```bash
-bivvy history --step dependencies
-```
-
-Shows execution history for a specific step across all runs.
+A `--step` flag is accepted by `bivvy history` for forward
+compatibility, but it is **not yet implemented** — the JSONL event
+schema currently only stores per-step counts in the workflow summary,
+not per-step records. When you pass `--step`, the command prints a
+note and proceeds as if the flag were absent. Per-step history will
+be added in a future release.
 
 ## Clearing State
 
+To delete this project's run logs:
+
+```bash
+bivvy history --clear
+```
+
 To discard all persisted satisfaction records so every step is
-re-evaluated from scratch:
+re-evaluated from scratch on the next run:
 
 ```bash
 bivvy run --fresh

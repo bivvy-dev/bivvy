@@ -27,6 +27,31 @@ an unrelated workflow from running. See
 [Portable Workflow Files](workflows.md#portable-workflow-files) for
 the full layout.
 
+### `extends:`
+
+The top-level `extends:` key lets a config inherit from one or more
+remote base configs. Each entry is fetched, parsed, and merged before
+the rest of the local file is applied — so anything you declare
+locally still wins. URLs must be trusted on first use (or globally
+with `--trust`).
+
+```yaml
+extends:
+  - url: https://example.com/team-base.yml
+```
+
+### `template_sources:`
+
+`template_sources:` registers additional remote registries that
+contribute step templates beyond the built-in registry. Each entry
+points to a URL and (optionally) configures cache behavior, priority,
+timeout, and authentication. Templates from registered sources can
+be referenced by name from any step's `template:` field; multiple
+sources are tried in `priority` order (lower number = higher
+priority). See
+[Templates: Remote Sources](../templates/remote-sources.md) for the
+full schema.
+
 ## Basic Structure
 
 ```yaml
@@ -59,11 +84,12 @@ steps:
 
 Variables are resolved in this order (highest to lowest):
 
-1. Prompt values from current run
+1. Prompt values from the current run
 2. Saved preferences from previous runs
 3. User-defined variables (`vars:`)
-4. Environment variables
-5. Built-in variables
+4. Template inputs (the resolved `inputs:` map for the current step)
+5. Environment variables
+6. Built-in variables
 
 ### Built-in Variables
 
