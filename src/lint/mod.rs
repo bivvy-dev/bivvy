@@ -43,11 +43,11 @@ pub use registry::RuleRegistry;
 pub use rule::{LintRule, RuleId, Severity};
 pub use rules::{
     AppNameRule, CircularDependencyRule, CircularRequirementDepRule, DeadEnvironmentRule,
-    DeprecatedFieldsRule, InstallTemplateMissingRule, RequiredFieldsRule, SelfDependencyRule,
-    ServiceRequirementWithoutHintRule, StepNameCollisionRule, TemplateInputsRule,
-    UndefinedDependencyRule, UndefinedTemplateRule, UnknownRequirementRule, UnusedStepRule,
-    UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule,
-    WorkflowSingularTypoRule,
+    DeprecatedFieldsRule, InstallTemplateMissingRule, InterpolationSyntaxErrorRule,
+    RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
+    StepNameCollisionRule, TemplateInputsRule, UndefinedDependencyRule, UndefinedTemplateRule,
+    UnknownRequirementRule, UnusedStepRule, UnusedTemplateSourceRule,
+    WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 pub use schema::{schema_json, schema_value, SchemaGenerator};
 pub use span::Span;
