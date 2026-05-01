@@ -177,10 +177,13 @@ extends:
 # --------------------------------------------------------------------------
 # Template Sources — remote template registries
 # --------------------------------------------------------------------------
-# Additional template sources beyond the built-in registry.
+# Additional template sources beyond the built-in registry. Bivvy supports
+# two kinds: HTTP (a single YAML file or list of templates) and Git (clone a
+# repository and walk a templates directory).
 # Type: list (optional)
 template_sources:
-  - url: https://github.com/myorg/bivvy-templates
+  # Example 1 — HTTP source (auto-detected from URL).
+  - url: https://example.com/templates.yml
     # Priority: lower number = higher priority
     # Default: 100
     priority: 50
@@ -202,6 +205,17 @@ template_sources:
       token_env: GITHUB_TOKEN
       # Custom header name (only for type: header)
       # header: X-Custom-Auth
+
+  # Example 2 — Git source. Auto-detected from `git@`/`ssh://`/`git://`
+  # URLs and from URLs ending in `.git`. Use `type: git` to force.
+  - type: git
+    url: https://github.com/myorg/bivvy-templates.git
+    # Branch, tag, or commit SHA to clone. Default: HEAD.
+    ref: main
+    # Subdirectory within the repository to walk for *.yml templates.
+    # Defaults to the repository root.
+    # path: templates/
+    priority: 60
 
 
 # --------------------------------------------------------------------------

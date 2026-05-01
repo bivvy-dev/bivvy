@@ -6,7 +6,8 @@
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::TemplatesArgs;
-use crate::error::Result;
+use crate::config::load_merged_config;
+use crate::error::{BivvyError, Result};
 use crate::registry::resolver::Registry;
 use crate::ui::theme::BivvyTheme;
 use crate::ui::UserInterface;
@@ -41,7 +42,18 @@ impl TemplatesCommand {
 
 impl Command for TemplatesCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
-        let registry = Registry::new(Some(&self.project_root))?;
+        // If the project has a config with template_sources, surface those
+        // remote templates too. When there's no config (e.g. a brand-new
+        // project), fall back to the local + built-in registry.
+        let registry = match load_merged_config(&self.project_root) {
+            Ok(config) if !config.template_sources.is_empty() => {
+                Registry::with_remote_sources(Some(&self.project_root), &config.template_sources)?
+            }
+            Ok(_) | Err(BivvyError::ConfigNotFound { .. }) => {
+                Registry::new(Some(&self.project_root))?
+            }
+            Err(e) => return Err(e),
+        };
         let manifest = registry.builtin().manifest();
         let theme = BivvyTheme::new();
 
@@ -274,5 +286,61 @@ step:
             .messages()
             .iter()
             .any(|m| m.contains("0 templates available")));
+    }
+
+    /// Lists templates from a remote source declared in `template_sources`.
+    ///
+    /// Verifies that `bivvy templates` builds a registry with remote
+    /// sources from the project config, so remote-only templates appear in
+    /// the listing alongside the built-ins.
+    #[test]
+    fn templates_lists_templates_from_remote_http_source() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        let template_yaml = r#"
+name: super-unique-remote-tool
+description: "Surfaced from a remote registry"
+category: tools
+step:
+  command: super-unique-remote-tool run
+"#;
+        server.mock(|when, then| {
+            when.method(GET).path("/templates.yml");
+            then.status(200).body(template_yaml);
+        });
+
+        let temp = TempDir::new().unwrap();
+        let bivvy_dir = temp.path().join(".bivvy");
+        std::fs::create_dir_all(&bivvy_dir).unwrap();
+        let config = format!(
+            r#"app_name: Test
+
+template_sources:
+  - url: "{}"
+
+steps:
+  hello:
+    command: echo hello
+"#,
+            server.url("/templates.yml")
+        );
+        std::fs::write(bivvy_dir.join("config.yml"), config).unwrap();
+
+        let args = TemplatesArgs::default();
+        let cmd = TemplatesCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(result.success);
+        assert!(
+            ui.messages()
+                .iter()
+                .any(|m| m.contains("super-unique-remote-tool")),
+            "remote template should appear in the listing; messages: {:?}",
+            ui.messages()
+        );
     }
 }

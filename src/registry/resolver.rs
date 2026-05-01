@@ -65,19 +65,39 @@ impl Registry {
     }
 
     /// Create a registry with remote template sources.
+    ///
+    /// HTTP sources go through the shared template cache; Git sources are
+    /// cloned (or updated) into a `git/` subdirectory of the cache root.
+    /// Git source URLs are validated up front: only `https://`, `ssh://`,
+    /// `git://`, and `git@` SCP-style URLs are accepted.
     pub fn with_remote_sources(
         project_root: Option<&Path>,
         sources: &[TemplateSourceConfig],
     ) -> Result<Self> {
-        let fetcher = crate::registry::fetch::HttpFetcher::new();
+        use crate::config::schema::TemplateSourceKind;
+        use crate::registry::fetch::validate_git_url;
+
+        // Validate Git source URLs up front so the user gets a clear error
+        // before we hit the network or filesystem.
+        for source in sources {
+            if source.effective_kind() == TemplateSourceKind::Git {
+                validate_git_url(&source.url).map_err(|e| BivvyError::ConfigValidationError {
+                    message: format!("Invalid git template source URL: {}", e),
+                })?;
+            }
+        }
+
+        let http_fetcher = crate::registry::fetch::HttpFetcher::new();
         let cache_dir = crate::cache::default_cache_dir();
+        let git_fetcher = crate::registry::fetch::GitFetcher::new(cache_dir.join("git"));
         let cache = crate::cache::CacheStore::new(cache_dir);
 
-        let remote = RemoteLoader::new(sources, &fetcher, &cache).map_err(|e| {
-            BivvyError::ConfigValidationError {
-                message: format!("Failed to load remote templates: {}", e),
-            }
-        })?;
+        let remote =
+            RemoteLoader::new(sources, &http_fetcher, &git_fetcher, &cache).map_err(|e| {
+                BivvyError::ConfigValidationError {
+                    message: format!("Failed to load remote templates: {}", e),
+                }
+            })?;
 
         Ok(Self {
             builtin: BuiltinLoader::new()?,
@@ -700,9 +720,15 @@ step:
 
     use crate::cache::CacheStore;
     use crate::config::schema::TemplateSource as TemplateSourceConfig;
-    use crate::registry::fetch::HttpFetcher;
+    use crate::registry::fetch::{GitFetcher, HttpFetcher};
     use crate::registry::remote::RemoteLoader;
     use httpmock::prelude::*;
+
+    /// Create an unused GitFetcher pointing at a temp directory, for tests
+    /// that exercise only the HTTP path.
+    fn unused_git_fetcher(temp: &TempDir) -> GitFetcher {
+        GitFetcher::new(temp.path().join("git-clones"))
+    }
 
     #[test]
     fn registry_resolves_from_remote_http() {
@@ -724,16 +750,20 @@ step:
         let temp = TempDir::new().unwrap();
         let cache = CacheStore::new(temp.path().join("cache"));
         let fetcher = HttpFetcher::new();
+        let git = unused_git_fetcher(&temp);
 
         let sources = vec![TemplateSourceConfig {
+            kind: None,
             url: server.url("/templates.yml"),
+            git_ref: None,
+            path: None,
             priority: 50,
             timeout: 30,
             cache: None,
             auth: None,
         }];
 
-        let remote = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let remote = RemoteLoader::new(&sources, &fetcher, &git, &cache).unwrap();
         let registry = Registry::with_remote_loader(None, remote).unwrap();
 
         let (template, source) = registry.resolve("remote-tool").unwrap();
@@ -777,16 +807,20 @@ step:
 
         let cache = CacheStore::new(temp.path().join("cache"));
         let fetcher = HttpFetcher::new();
+        let git = unused_git_fetcher(&temp);
 
         let sources = vec![TemplateSourceConfig {
+            kind: None,
             url: server.url("/templates.yml"),
+            git_ref: None,
+            path: None,
             priority: 50,
             timeout: 30,
             cache: None,
             auth: None,
         }];
 
-        let remote = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let remote = RemoteLoader::new(&sources, &fetcher, &git, &cache).unwrap();
         let registry = Registry::with_remote_loader(Some(temp.path()), remote).unwrap();
 
         let (template, source) = registry.resolve("brew").unwrap();
@@ -815,9 +849,13 @@ step:
         let temp = TempDir::new().unwrap();
         let cache = CacheStore::new(temp.path().join("cache"));
         let fetcher = HttpFetcher::new();
+        let git = unused_git_fetcher(&temp);
 
         let sources = vec![TemplateSourceConfig {
+            kind: None,
             url: server.url("/templates.yml"),
+            git_ref: None,
+            path: None,
             priority: 50,
             timeout: 30,
             cache: None,
@@ -825,11 +863,11 @@ step:
         }];
 
         // First load - hits server
-        let _remote1 = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let _remote1 = RemoteLoader::new(&sources, &fetcher, &git, &cache).unwrap();
         mock.assert_calls(1);
 
         // Second load - should use cache
-        let _remote2 = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let _remote2 = RemoteLoader::new(&sources, &fetcher, &git, &cache).unwrap();
         mock.assert_calls(1); // Still 1, cache was used
     }
 
@@ -853,16 +891,20 @@ step:
         let temp = TempDir::new().unwrap();
         let cache = CacheStore::new(temp.path().join("cache"));
         let fetcher = HttpFetcher::new();
+        let git = unused_git_fetcher(&temp);
 
         let sources = vec![TemplateSourceConfig {
+            kind: None,
             url: server.url("/templates.yml"),
+            git_ref: None,
+            path: None,
             priority: 50,
             timeout: 30,
             cache: None,
             auth: None,
         }];
 
-        let remote = RemoteLoader::new(&sources, &fetcher, &cache).unwrap();
+        let remote = RemoteLoader::new(&sources, &fetcher, &git, &cache).unwrap();
         let registry = Registry::with_remote_loader(None, remote).unwrap();
 
         let names = registry.all_template_names();

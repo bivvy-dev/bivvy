@@ -8,7 +8,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::AddArgs;
-use crate::config::{load_config, load_project_config};
+use crate::config::{load_config, load_merged_config, load_project_config};
 use crate::error::{BivvyError, Result};
 use crate::registry::resolver::Registry;
 use crate::registry::template::Template;
@@ -261,8 +261,22 @@ impl Command for AddCommand {
 
         let template_name = &self.args.template;
 
+        // Load merged config first so we can honor `template_sources` when
+        // resolving the template the user is asking for.
+        let config = if let Some(ref override_path) = self.config_override {
+            load_config(&self.project_root, Some(override_path))?
+        } else {
+            load_merged_config(&self.project_root)?
+        };
+
+        // Build the registry, including remote sources when configured.
+        let registry = if config.template_sources.is_empty() {
+            Registry::new(Some(&self.project_root))?
+        } else {
+            Registry::with_remote_sources(Some(&self.project_root), &config.template_sources)?
+        };
+
         // Validate template exists
-        let registry = Registry::new(Some(&self.project_root))?;
         let template = registry
             .get(template_name)
             .ok_or_else(|| BivvyError::UnknownTemplate {
@@ -276,15 +290,16 @@ impl Command for AddCommand {
             .as_deref()
             .unwrap_or(template_name.as_str());
 
-        // Validate step doesn't already exist. `add` only edits
-        // .bivvy/config.yml, so we use the cheap project-only loader unless
-        // the caller passed --config to override.
-        let config = if let Some(ref override_path) = self.config_override {
+        // Validate step doesn't already exist. We re-read the project-only
+        // config here to detect collisions in `.bivvy/config.yml` itself
+        // (rather than steps inherited from extends/user/local files, which
+        // are merged but not actually written).
+        let project_config = if let Some(ref override_path) = self.config_override {
             load_config(&self.project_root, Some(override_path))?
         } else {
             load_project_config(&self.project_root)?
         };
-        if config.steps.contains_key(step_name) {
+        if project_config.steps.contains_key(step_name) {
             ui.error(&format!(
                 "Step '{}' already exists in configuration. Use a different name with --as.",
                 step_name
@@ -655,5 +670,67 @@ workflows:
             AddCommand::add_to_workflow(config, "default", "world", Some("hello")).unwrap();
 
         assert!(result.contains("steps: [hello, world, goodbye]"));
+    }
+
+    /// Adds a step from a template that lives in a remote HTTP source.
+    ///
+    /// Verifies that `bivvy add` honors `template_sources` in the config:
+    /// the template comes from a remote registry (mocked over HTTP), and
+    /// the resulting step block references that template by name.
+    #[test]
+    fn add_resolves_template_from_remote_http_source() {
+        use httpmock::prelude::*;
+
+        let server = MockServer::start();
+
+        let template_yaml = r#"
+name: company-bootstrap
+description: "Company-wide bootstrap step"
+category: company
+step:
+  command: company-bootstrap --setup
+"#;
+        server.mock(|when, then| {
+            when.method(GET).path("/templates.yml");
+            then.status(200).body(template_yaml);
+        });
+
+        let config = format!(
+            r#"app_name: Test
+
+template_sources:
+  - url: "{}"
+
+steps:
+  hello:
+    command: echo hello
+
+workflows:
+  default:
+    steps: [hello]
+"#,
+            server.url("/templates.yml")
+        );
+        let temp = setup_project(&config);
+
+        let args = AddArgs {
+            template: "company-bootstrap".to_string(),
+            ..Default::default()
+        };
+        let cmd = AddCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(
+            result.success,
+            "add should succeed against a remote source; messages: {:?}",
+            ui.messages()
+        );
+        let new_config = fs::read_to_string(temp.path().join(".bivvy/config.yml")).unwrap();
+        assert!(
+            new_config.contains("  company-bootstrap:\n    template: company-bootstrap\n"),
+            "step block missing from updated config:\n{new_config}"
+        );
     }
 }
