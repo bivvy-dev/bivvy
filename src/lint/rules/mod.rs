@@ -14,6 +14,7 @@ pub mod undefined_template;
 pub mod undefined_workflow_force;
 pub mod valid_environments;
 pub mod valid_requires;
+pub mod workflow_references_template;
 pub mod workflow_shape_shorthand;
 pub mod workflow_singular_typo;
 
@@ -36,5 +37,6 @@ pub use valid_requires::{
     CircularRequirementDepRule, InstallTemplateMissingRule, ServiceRequirementWithoutHintRule,
     UnknownRequirementRule,
 };
+pub use workflow_references_template::WorkflowReferencesTemplateNotStepRule;
 pub use workflow_shape_shorthand::WorkflowShapeShorthandRule;
 pub use workflow_singular_typo::WorkflowSingularTypoRule;

@@ -14,7 +14,7 @@ use super::rules::{
     RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
     UndefinedDependencyRule, UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule,
     UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
-    WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
+    WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -59,6 +59,7 @@ impl RuleRegistry {
         registry.register(Box::new(DeprecatedFieldsRule));
         registry.register(Box::new(WorkflowShapeShorthandRule));
         registry.register(Box::new(WorkflowSingularTypoRule));
+        registry.register(Box::new(WorkflowReferencesTemplateNotStepRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
