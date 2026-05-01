@@ -3,7 +3,7 @@ source: tests/run_rendering_tests.rs
 expression: transcript
 ---
 
-⛺ Snapshot Demo v1.10.0 · default workflow · 5 steps · env: development
+⛺ Snapshot Demo v<version> · default workflow · 5 steps · env: development
 [1/5] rustc_version — Print rustc version
 
       ✓ Completed (<dur>)

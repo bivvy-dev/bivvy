@@ -2,7 +2,7 @@
 source: tests/process_group_test.rs
 expression: normalize_for_snapshot(&summary)
 ---
-⛺ ProcessGroupTest v1.10.0 · default workflow · 3 steps · env: development
+⛺ ProcessGroupTest v[VERSION] · default workflow · 3 steps · env: development
 
   [█████░░░░░░░░░░░] 1/3 steps · [TIME] elapsed
 [1/3] check-toolchain — Check toolchain
