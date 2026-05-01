@@ -42,10 +42,13 @@ pub use output::{HumanFormatter, JsonFormatter, LintFormatter, OutputFormat, Sar
 pub use registry::RuleRegistry;
 pub use rule::{LintRule, RuleId, Severity};
 pub use rules::{
-    AppNameRule, CircularDependencyRule, CircularRequirementDepRule, DeprecatedFieldsRule,
-    InstallTemplateMissingRule, RequiredFieldsRule, SelfDependencyRule,
-    ServiceRequirementWithoutHintRule, TemplateInputsRule, UndefinedDependencyRule,
-    UndefinedTemplateRule, UnknownRequirementRule,
+    AppNameRule, CircularDependencyRule, CircularRequirementDepRule, DeadEnvironmentRule,
+    DeprecatedFieldsRule, InstallTemplateMissingRule, InterpolationSyntaxErrorRule,
+    LocalConfigOverridesSecretRule, RequiredFieldsRule, SecretWithoutHandlerRule,
+    SelfDependencyRule, ServiceRequirementWithoutHintRule, StepNameCollisionRule,
+    TemplateInputsRule, UndefinedDependencyRule, UndefinedTemplateRule, UnknownRequirementRule,
+    UnusedStepRule, UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule,
+    WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 pub use schema::{schema_json, schema_value, SchemaGenerator};
 pub use span::Span;

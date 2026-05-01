@@ -562,6 +562,256 @@ making it hard for users to fix the gap manually.
 
 ---
 
+### `workflow-shape-shorthand` (error)
+
+What it catches: a workflow value written as a bare YAML sequence
+instead of a mapping with a `steps:` key. Inspects raw YAML in
+`.bivvy/config.yml` and `.bivvy/workflows/*.yml` so the diagnostic
+points at the offending file and line.
+
+Bad:
+```yaml
+workflows:
+  default:
+    - build
+    - test
+```
+
+Good:
+```yaml
+workflows:
+  default:
+    steps:
+      - build
+      - test
+```
+
+---
+
+### `workflow-singular-typo` (error)
+
+What it catches: top-level key typos in the workflow files.
+`.bivvy/config.yml` must use `workflows:` (plural). A workflow split
+file under `.bivvy/workflows/` must use `workflow:` (singular). Either
+typo would otherwise be silently ignored by serde defaults.
+
+Bad (in `.bivvy/config.yml`):
+```yaml
+workflow:
+  default:
+    steps: [build]
+```
+
+Good (in `.bivvy/config.yml`):
+```yaml
+workflows:
+  default:
+    steps: [build]
+```
+
+---
+
+### `workflow-references-template-not-step` (warning)
+
+What it catches: a workflow's `steps:` list contains a name that
+includes a `/`, strongly suggesting a template path was pasted in
+place of a step alias. The suggestion shows the matching `bivvy add`
+invocation that would register the template under an alias.
+
+Bad:
+```yaml
+workflows:
+  release:
+    steps:
+      - rust/version-bump
+```
+
+Good:
+```yaml
+steps:
+  version-bump:
+    template: rust/version-bump
+workflows:
+  release:
+    steps:
+      - version-bump
+```
+
+---
+
+### `step-name-collision` (warning)
+
+What it catches: the same step name is defined with diverging bodies
+in multiple files (e.g., `.bivvy/config.yml` and
+`.bivvy/steps/setup.yml`). Merging silently picks one definition and
+the other becomes invisible. Walks up from the cwd to find the
+project root; skips silently when no `.bivvy/` directory exists.
+
+Bad (`.bivvy/config.yml`):
+```yaml
+steps:
+  setup:
+    command: cargo build
+```
+Bad (`.bivvy/steps/setup.yml`):
+```yaml
+steps:
+  setup:
+    command: cargo test
+```
+
+Good: define `setup` in exactly one file, or rename one of them.
+
+---
+
+### `unused-step` (hint)
+
+What it catches: a step defined in `steps:` that is not reached by
+any workflow — directly through a `steps:` list, transitively through
+`depends_on`, or via `force:` / `overrides:` on a workflow. Skipped
+when no workflows are defined.
+
+Bad:
+```yaml
+steps:
+  build:
+    command: cargo build
+  orphan:
+    command: cargo install
+workflows:
+  default:
+    steps: [build]
+```
+
+Good: reference `orphan` from a workflow or remove the step.
+
+---
+
+### `unused-template-source` (hint)
+
+What it catches: a `template_sources:` entry whose name (last URL
+path segment, sans `.git`) doesn't match the prefix of any step's
+`template:` field. The heuristic is permissive — the rule is
+informational only.
+
+Bad:
+```yaml
+template_sources:
+  - url: https://github.com/acme/postgres-tpl.git
+  - url: https://github.com/acme/redis-tpl.git
+steps:
+  install_pg:
+    template: postgres-tpl/server
+```
+
+Good: also use `redis-tpl/<name>` from a step, or remove the
+`redis-tpl` source.
+
+---
+
+### `dead-environment` (hint)
+
+What it catches: an environment defined in `settings.environments`
+that is never referenced by `settings.default_environment`, a step's
+`only_environments`, or a step's `environments:` override. Built-in
+names (`ci`, `docker`, `codespace`, `development`) are always live.
+
+Bad:
+```yaml
+settings:
+  environments:
+    staging:
+      provided_requirements: [postgres-server]
+```
+
+Good: reference `staging` from a step's `only_environments`, set
+`settings.default_environment: staging`, or remove the entry.
+
+---
+
+### `interpolation-syntax-error` (error)
+
+What it catches: malformed `${...}` interpolation in any
+string-valued config field. Subsumes the proposed
+`var-references-undefined-var` rule. Specifically reports:
+
+- Unterminated `${...` (no closing brace)
+- Empty references `${}`
+- Dotted references in unknown namespaces (e.g. `${unknown.foo}`)
+- Keys missing in known namespaces (`vars`, `secrets`, `prompts`)
+- Flat references that don't resolve to any var, secret, prompt,
+  built-in, or env-var-shaped name (uppercase + underscores)
+
+Bad:
+```yaml
+steps:
+  greet:
+    command: "echo ${typo_var}"
+```
+
+Good:
+```yaml
+vars:
+  typo_var: hello
+steps:
+  greet:
+    command: "echo ${typo_var}"
+```
+
+---
+
+### `secret-without-handler` (warning)
+
+What it catches: a step references `${secrets.<name>}` but the
+secret's `command:` handler is empty (or whitespace-only). The
+command field is the only resolution path, so an empty command means
+the reference cannot resolve at runtime.
+
+Bad:
+```yaml
+secrets:
+  api_key:
+    command: ""
+steps:
+  fetch:
+    command: 'curl -H "Auth: ${secrets.api_key}"'
+```
+
+Good:
+```yaml
+secrets:
+  api_key:
+    command: op read api_key
+```
+
+---
+
+### `local-config-overrides-secret` (hint)
+
+What it catches: `.bivvy/config.local.yml` redefines a
+`secrets.<name>.command:` previously declared in `.bivvy/config.yml`.
+Local edits are gitignored, so a teammate auditing the committed
+config wouldn't see the change. Surfacing it lets reviewers confirm
+the override is intentional.
+
+Bad (`.bivvy/config.yml`):
+```yaml
+secrets:
+  api_key:
+    command: op read api_key
+```
+Bad (`.bivvy/config.local.yml`):
+```yaml
+secrets:
+  api_key:
+    command: cat ~/.secrets/api_key
+```
+
+Good: keep the project handler aligned, or accept the local override
+deliberately.
+
+---
+
 ## IDE Integration
 
 ### VS Code
