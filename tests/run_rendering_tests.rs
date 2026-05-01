@@ -180,12 +180,15 @@ fn render_screen(bytes: &[u8]) -> String {
 }
 
 /// Replace every duration substring (`12ms`, `1.2s`, etc.) with a
-/// stable placeholder so snapshots don't churn on per-run timing noise.
+/// stable placeholder so snapshots don't churn on per-run timing noise,
+/// and redact the bivvy version banner so snapshots don't churn on
+/// every version bump.
 ///
-/// The matchable forms come from `crate::ui::progress::format_duration`
+/// The duration forms come from `crate::ui::progress::format_duration`
 /// in the library: integer ms, fractional s, integer s, and m/s pairs.
 fn normalize_durations(s: &str) -> String {
-    static_regex_replace(s, r"\d+(?:\.\d+)?(?:ms|s)|\d+m\s?\d+s|\d+m", "<dur>")
+    let dur = static_regex_replace(s, r"\d+(?:\.\d+)?(?:ms|s)|\d+m\s?\d+s|\d+m", "<dur>");
+    static_regex_replace(&dur, r"v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?", "v<version>")
 }
 
 /// One-shot regex replacement that compiles the pattern lazily.

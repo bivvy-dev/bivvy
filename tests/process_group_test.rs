@@ -104,6 +104,9 @@ fn normalize_for_snapshot(s: &str) -> String {
     let re_time = regex::Regex::new(r"\b\d+(\.\d+)?(ms|s)\b").unwrap();
     // Caret-notation escape sequences echoed by PTY: ^[[B, ^[[A, etc.
     let re_caret_csi = regex::Regex::new(r"\^\[[\[0-9;]*[A-Za-z~]").unwrap();
+    // Bivvy's banner embeds the crate version (e.g. `v1.10.1`). Redact it
+    // so snapshots don't churn with every version bump.
+    let re_version = regex::Regex::new(r"v\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?").unwrap();
 
     stripped
         .replace('\r', "")
@@ -111,7 +114,8 @@ fn normalize_for_snapshot(s: &str) -> String {
         .map(|line| {
             let trimmed = line.trim_end();
             let no_caret = re_caret_csi.replace_all(trimmed, "");
-            re_time.replace_all(&no_caret, "[TIME]").to_string()
+            let no_time = re_time.replace_all(&no_caret, "[TIME]");
+            re_version.replace_all(&no_time, "v[VERSION]").to_string()
         })
         // Drop leading zsh prompt noise (% prompt, $ prompt)
         .skip_while(|line| line.is_empty() || line.starts_with('%') || line.starts_with('$'))
