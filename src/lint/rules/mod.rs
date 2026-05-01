@@ -13,6 +13,8 @@ pub mod template_inputs;
 pub mod undefined_dependency;
 pub mod undefined_template;
 pub mod undefined_workflow_force;
+pub mod unused_step;
+pub mod unused_template_source;
 pub mod valid_environments;
 pub mod valid_requires;
 pub mod workflow_references_template;
@@ -30,6 +32,8 @@ pub use template_inputs::TemplateInputsRule;
 pub use undefined_dependency::UndefinedDependencyRule;
 pub use undefined_template::UndefinedTemplateRule;
 pub use undefined_workflow_force::UndefinedWorkflowForceRule;
+pub use unused_step::UnusedStepRule;
+pub use unused_template_source::UnusedTemplateSourceRule;
 pub use valid_environments::{
     CustomEnvironmentShadowsBuiltinRule, EnvironmentCircularDependencyRule,
     EnvironmentDefaultWorkflowMissingRule, RedundantEnvNullRule, RedundantEnvironmentOverrideRule,
