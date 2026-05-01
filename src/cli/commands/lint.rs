@@ -14,8 +14,8 @@ use std::path::{Path, PathBuf};
 
 use crate::cli::args::LintArgs;
 use crate::config::{
-    load_config, load_merged_config, load_project_config, load_single_step_file,
-    load_single_workflow_file, BivvyConfig, ConfigPaths, Discovery,
+    load_config, load_config_file, load_merged_config, load_project_config, load_single_step_file,
+    load_single_workflow_file, BivvyConfig, ConfigPaths, Discovery, StepConfig, WorkflowFile,
 };
 use crate::error::{BivvyError, Result};
 use crate::lint::{
@@ -289,7 +289,7 @@ impl LintCommand {
         for path in &primary_paths {
             let display = crate::lint::display_path(path, proj, home_ref);
             let label = label_for_path(path, proj);
-            let stats = compute_stats_for_card(config, path, proj, &label);
+            let stats = compute_stats_for_card(path, &label, config);
             let diags = by_path
                 .remove(&path.to_string_lossy().to_string())
                 .unwrap_or_default();
@@ -454,149 +454,198 @@ fn label_for_path(path: &Path, project_root: &Path) -> String {
     "config".to_string()
 }
 
-/// Build the stats rows shown inside a card. We keep this conservative —
-/// each row is omitted when its count is zero (the `Errors:` row is added
-/// later by the formatter and is always shown).
+/// Build the stats rows shown inside a card. Each card reports stats for
+/// the contents of its own file — never the merged config — so a near-empty
+/// system config doesn't render the project's numbers next to it.
+///
+/// `merged_fallback` is consulted only as a last-resort fallback for files
+/// the per-file loader can't parse on its own (e.g. workflow files with
+/// shorthand shapes that still merge cleanly into the project picture).
 fn compute_stats_for_card(
-    config: Option<&BivvyConfig>,
     path: &Path,
-    project_root: &Path,
     label: &str,
+    merged_fallback: Option<&BivvyConfig>,
 ) -> Vec<(String, String)> {
-    let mut rows: Vec<(String, String)> = Vec::new();
+    let is_config_shape = matches!(label, "project config" | "system config" | "local config");
 
-    // We only know the merged-stats picture when parsing succeeded.
-    let Some(cfg) = config else {
-        return rows;
-    };
+    if is_config_shape {
+        if let Ok(cfg) = load_config_file(path) {
+            return stats_from_bivvy_config(&cfg);
+        }
+        return Vec::new();
+    }
 
-    let proj_cfg = project_root.join(".bivvy").join("config.yml");
+    if let Some(name) = label.strip_prefix("workflow file: ") {
+        if let Ok(wf_file) = load_single_workflow_file(path) {
+            return stats_from_workflow_file(&wf_file, name);
+        }
+        if let Some(cfg) = merged_fallback {
+            return stats_from_workflow_in_merged(cfg, name);
+        }
+        return Vec::new();
+    }
 
-    if path == proj_cfg.as_path() || label == "system config" || label == "local config" {
-        // Project / system / local config card.
-        let step_count = cfg.steps.len();
-        let referenced: HashSet<&String> = cfg
-            .workflows
-            .values()
-            .flat_map(|w| w.steps.iter())
-            .collect();
-        let referenced_count = referenced.len();
-        if step_count > 0 {
-            let value = if referenced_count > 0 {
-                format!("{step_count} defined, {referenced_count} referenced from workflows")
-            } else {
-                format!("{step_count} defined")
-            };
-            rows.push(("Steps".to_string(), value));
-        }
-
-        let wf_count = cfg.workflows.len();
-        if wf_count > 0 {
-            let mut names: Vec<&String> = cfg.workflows.keys().collect();
-            names.sort();
-            let value = if wf_count <= 5 {
-                let joined = names
-                    .iter()
-                    .map(|s| s.as_str())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                format!("{wf_count} ({joined})")
-            } else {
-                wf_count.to_string()
-            };
-            rows.push(("Workflows".to_string(), value));
-        }
-
-        let templates: HashSet<&String> = cfg
-            .steps
-            .values()
-            .filter_map(|s| s.template.as_ref())
-            .collect();
-        if !templates.is_empty() {
-            let value = if templates.len() <= 3 {
-                let mut names: Vec<&str> = templates.iter().map(|s| s.as_str()).collect();
-                names.sort();
-                format!("{} ({})", templates.len(), names.join(", "))
-            } else {
-                templates.len().to_string()
-            };
-            rows.push(("Templates".to_string(), value));
-        }
-
-        let envs = &cfg.settings.environment_profiles.environments;
-        if !envs.is_empty() {
-            let mut names: Vec<&str> = envs.keys().map(|s| s.as_str()).collect();
-            names.sort();
-            let value = if envs.len() <= 5 {
-                format!("{} ({})", envs.len(), names.join(", "))
-            } else {
-                envs.len().to_string()
-            };
-            rows.push(("Environments".to_string(), value));
-        }
-
-        if !cfg.vars.is_empty() {
-            rows.push(("Vars".to_string(), cfg.vars.len().to_string()));
-        }
-    } else if let Some(name) = label.strip_prefix("workflow file: ") {
-        // Workflow-file card.
-        if let Some(wf) = cfg.workflows.get(name) {
-            let mut conditional = 0usize;
-            if !wf.env.is_empty() {
-                conditional += 1;
-            }
-            if !wf.force.is_empty() || wf.force_all {
-                conditional += 1;
-            }
-            if let Some(s) = &wf.settings {
-                let s_str = format!("{s:?}");
-                if s_str.contains("Some") {
-                    conditional += 1;
-                }
-            }
-            rows.push((
-                "Workflow".to_string(),
-                format!(
-                    "{name} ({} steps, {conditional} conditionals)",
-                    wf.steps.len()
-                ),
-            ));
-        }
-        // Templates referenced by the workflow's steps.
-        let referenced_steps: HashSet<&String> = cfg
-            .workflows
-            .get(name)
-            .map(|w| w.steps.iter().collect())
-            .unwrap_or_default();
-        let templates: HashSet<&String> = cfg
-            .steps
-            .iter()
-            .filter(|(k, _)| referenced_steps.contains(k))
-            .filter_map(|(_, s)| s.template.as_ref())
-            .collect();
-        if !templates.is_empty() {
-            let value = if templates.len() <= 3 {
-                let mut names: Vec<&str> = templates.iter().map(|s| s.as_str()).collect();
-                names.sort();
-                format!("{} ({})", templates.len(), names.join(", "))
-            } else {
-                templates.len().to_string()
-            };
-            rows.push(("Templates".to_string(), value));
-        }
-    } else if let Some(name) = label.strip_prefix("step file: ") {
-        // Step-file card.
-        if let Some(step) = cfg.steps.get(name) {
-            rows.push(("Step".to_string(), name.to_string()));
-            if let Some(t) = &step.template {
-                rows.push(("Template".to_string(), t.clone()));
-            }
-            if !step.depends_on.is_empty() {
-                rows.push(("Depends on".to_string(), step.depends_on.join(", ")));
-            }
+    if let Some(name) = label.strip_prefix("step file: ") {
+        if let Ok(step) = load_single_step_file(path) {
+            return stats_from_step_file(&step, name);
         }
     }
 
+    Vec::new()
+}
+
+/// Stats rows derived from a `BivvyConfig` parsed from a single file
+/// (project, system, or local config).
+fn stats_from_bivvy_config(cfg: &BivvyConfig) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = Vec::new();
+
+    let step_count = cfg.steps.len();
+    let referenced: HashSet<&String> = cfg
+        .workflows
+        .values()
+        .flat_map(|w| w.steps.iter())
+        .collect();
+    let referenced_count = referenced.len();
+    if step_count > 0 {
+        let value = if referenced_count > 0 {
+            format!("{step_count} defined, {referenced_count} referenced from workflows")
+        } else {
+            format!("{step_count} defined")
+        };
+        rows.push(("Steps".to_string(), value));
+    }
+
+    let wf_count = cfg.workflows.len();
+    if wf_count > 0 {
+        let mut names: Vec<&String> = cfg.workflows.keys().collect();
+        names.sort();
+        let value = if wf_count <= 5 {
+            let joined = names
+                .iter()
+                .map(|s| s.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{wf_count} ({joined})")
+        } else {
+            wf_count.to_string()
+        };
+        rows.push(("Workflows".to_string(), value));
+    }
+
+    let templates: HashSet<&String> = cfg
+        .steps
+        .values()
+        .filter_map(|s| s.template.as_ref())
+        .collect();
+    if !templates.is_empty() {
+        let value = if templates.len() <= 3 {
+            let mut names: Vec<&str> = templates.iter().map(|s| s.as_str()).collect();
+            names.sort();
+            format!("{} ({})", templates.len(), names.join(", "))
+        } else {
+            templates.len().to_string()
+        };
+        rows.push(("Templates".to_string(), value));
+    }
+
+    let envs = &cfg.settings.environment_profiles.environments;
+    if !envs.is_empty() {
+        let mut names: Vec<&str> = envs.keys().map(|s| s.as_str()).collect();
+        names.sort();
+        let value = if envs.len() <= 5 {
+            format!("{} ({})", envs.len(), names.join(", "))
+        } else {
+            envs.len().to_string()
+        };
+        rows.push(("Environments".to_string(), value));
+    }
+
+    if !cfg.vars.is_empty() {
+        rows.push(("Vars".to_string(), cfg.vars.len().to_string()));
+    }
+
+    rows
+}
+
+/// Stats rows for a single workflow file. The card reports what the FILE
+/// declares — its own embedded steps, vars, and the workflow body —
+/// not the merged-config picture.
+fn stats_from_workflow_file(wf_file: &WorkflowFile, name: &str) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = Vec::new();
+
+    let wf = &wf_file.workflow;
+    let mut conditional = 0usize;
+    if !wf.env.is_empty() {
+        conditional += 1;
+    }
+    if !wf.force.is_empty() || wf.force_all {
+        conditional += 1;
+    }
+    if wf.settings.is_some() {
+        conditional += 1;
+    }
+    rows.push((
+        "Workflow".to_string(),
+        format!(
+            "{name} ({} steps, {conditional} conditionals)",
+            wf.steps.len()
+        ),
+    ));
+
+    if !wf_file.steps.is_empty() {
+        rows.push((
+            "Steps".to_string(),
+            format!("{} defined", wf_file.steps.len()),
+        ));
+    }
+
+    let templates: HashSet<&String> = wf_file
+        .steps
+        .values()
+        .filter_map(|s| s.template.as_ref())
+        .collect();
+    if !templates.is_empty() {
+        let value = if templates.len() <= 3 {
+            let mut names: Vec<&str> = templates.iter().map(|s| s.as_str()).collect();
+            names.sort();
+            format!("{} ({})", templates.len(), names.join(", "))
+        } else {
+            templates.len().to_string()
+        };
+        rows.push(("Templates".to_string(), value));
+    }
+
+    if !wf_file.vars.is_empty() {
+        rows.push(("Vars".to_string(), wf_file.vars.len().to_string()));
+    }
+
+    rows
+}
+
+/// Last-resort stats for a workflow file that didn't parse on its own —
+/// fall back to whatever the merged config knows about that workflow.
+fn stats_from_workflow_in_merged(cfg: &BivvyConfig, name: &str) -> Vec<(String, String)> {
+    let Some(wf) = cfg.workflows.get(name) else {
+        return Vec::new();
+    };
+    let mut rows: Vec<(String, String)> = Vec::new();
+    rows.push((
+        "Workflow".to_string(),
+        format!("{name} ({} steps, ? conditionals)", wf.steps.len()),
+    ));
+    rows
+}
+
+/// Stats rows for a single step file.
+fn stats_from_step_file(step: &StepConfig, name: &str) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = Vec::new();
+    rows.push(("Step".to_string(), name.to_string()));
+    if let Some(t) = &step.template {
+        rows.push(("Template".to_string(), t.clone()));
+    }
+    if !step.depends_on.is_empty() {
+        rows.push(("Depends on".to_string(), step.depends_on.join(", ")));
+    }
     rows
 }
 
