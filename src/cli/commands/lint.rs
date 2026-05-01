@@ -1,8 +1,15 @@
 //! Lint command implementation.
 //!
-//! The `bivvy lint` command validates configuration files using the lint rule system.
+//! `bivvy lint` validates configuration files using the lint rule system
+//! and prints a per-file report. Each card carries a few summary stats
+//! (steps, workflows, templates, environments, vars) plus an `Errors:`
+//! row that prefixes any rustc-style diagnostic blocks.
+//!
+//! Parse failures are surfaced as `parse-error/*` diagnostics rather than
+//! a flat error string, so they appear in the same report shape as any
+//! other lint finding.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use crate::cli::args::LintArgs;
@@ -12,10 +19,10 @@ use crate::config::{
 };
 use crate::error::{BivvyError, Result};
 use crate::lint::{
-    CircularRequirementDepRule, Fix, FixEngine, HumanFormatter, InstallTemplateMissingRule,
-    JsonFormatter, LintDiagnostic, LintFormatter, RuleRegistry, SarifFormatter,
-    ServiceRequirementWithoutHintRule, Severity, TemplateInputsRule, UndefinedTemplateRule,
-    UnknownRequirementRule,
+    parse_error_to_diagnostic, CircularRequirementDepRule, FileCard, Fix, FixEngine,
+    HumanFormatter, HumanReport, InstallTemplateMissingRule, JsonFormatter, LintDiagnostic,
+    LintFormatter, RuleId, RuleRegistry, SarifFormatter, ServiceRequirementWithoutHintRule,
+    Severity, TemplateInputsRule, UndefinedTemplateRule, UnknownRequirementRule,
 };
 use crate::registry::Registry;
 use crate::requirements::registry::RequirementRegistry;
@@ -68,14 +75,31 @@ impl LintCommand {
         &self.args
     }
 
-    /// Run all lint rules and collect diagnostics.
+    /// Run all lint rules and collect diagnostics, applying any
+    /// `--rule` / `--no-rule` filters from the args.
     fn run_rules(
         &self,
         registry: &RuleRegistry,
         config: &crate::config::BivvyConfig,
     ) -> Vec<LintDiagnostic> {
+        let allow: Option<HashSet<String>> = if self.args.rule.is_empty() {
+            None
+        } else {
+            Some(self.args.rule.iter().cloned().collect())
+        };
+        let deny: HashSet<String> = self.args.no_rule.iter().cloned().collect();
+
         let mut diagnostics = Vec::new();
         for rule in registry.iter() {
+            let id = rule.id().0;
+            if let Some(ref a) = allow {
+                if !a.contains(&id) {
+                    continue;
+                }
+            }
+            if deny.contains(&id) {
+                continue;
+            }
             diagnostics.extend(rule.check(config));
         }
         diagnostics
@@ -229,31 +253,526 @@ impl LintCommand {
         }
     }
 
-    /// Format diagnostics using the appropriate formatter.
-    fn format_output(&self, diagnostics: &[LintDiagnostic]) -> String {
-        let mut output = Vec::new();
+    /// Build the per-file report shown for the human formatter. Cards are
+    /// emitted in canonical order (system → project → local → workflows
+    /// alphabetically → steps alphabetically → extends URLs).
+    fn build_report(
+        &self,
+        target: &LintTarget,
+        config: Option<&BivvyConfig>,
+        diagnostics: &[LintDiagnostic],
+    ) -> HumanReport {
+        let home = crate::sys::home_dir();
+        let home_ref = home.as_deref();
+        let proj = &self.project_root;
 
-        match self.args.format.as_str() {
-            "json" => {
-                let formatter = JsonFormatter::new();
-                formatter.format(diagnostics, &mut output).ok();
-            }
-            "sarif" => {
-                let formatter = SarifFormatter::new("bivvy", env!("CARGO_PKG_VERSION"));
-                formatter.format(diagnostics, &mut output).ok();
-            }
-            _ => {
-                let formatter = HumanFormatter::new(true);
-                formatter.format(diagnostics, &mut output).ok();
+        // Group diagnostics by canonical absolute path string.
+        let mut by_path: HashMap<String, Vec<LintDiagnostic>> = HashMap::new();
+        let mut no_path: Vec<LintDiagnostic> = Vec::new();
+        for d in diagnostics {
+            if let Some(ref span) = d.span {
+                by_path
+                    .entry(span.file.to_string_lossy().to_string())
+                    .or_default()
+                    .push(d.clone());
+            } else {
+                no_path.push(d.clone());
             }
         }
 
+        let mut report = HumanReport::new();
+        let discovered = ConfigPaths::discover(proj);
+
+        // Determine which file cards to emit and which to mark as context.
+        let (primary_paths, context_paths) = self.report_file_set(target, &discovered);
+
+        for path in &primary_paths {
+            let display = crate::lint::display_path(path, proj, home_ref);
+            let label = label_for_path(path, proj);
+            let stats = compute_stats_for_card(config, path, proj, &label);
+            let diags = by_path
+                .remove(&path.to_string_lossy().to_string())
+                .unwrap_or_default();
+            report.push_card(FileCard {
+                path: path.clone(),
+                display,
+                label,
+                stats,
+                diagnostics: diags,
+            });
+        }
+
+        for path in context_paths {
+            let display = crate::lint::display_path(&path, proj, home_ref);
+            report.push_context_file(display);
+        }
+
+        // Any diagnostics we didn't place in a card go in the no-file bucket
+        // (e.g. rules that fire without a span, or spans pointing at files
+        // outside our card set).
+        for (_, mut group) in by_path {
+            no_path.append(&mut group);
+        }
+        report.no_file_diagnostics = no_path;
+
+        report
+    }
+
+    /// Return `(primary_paths, context_paths)` for the report.
+    ///
+    /// `primary_paths` get a full card with stats + any diagnostics. `context_paths`
+    /// render as a one-line "Loaded for context" trailing note.
+    fn report_file_set(
+        &self,
+        target: &LintTarget,
+        discovered: &ConfigPaths,
+    ) -> (Vec<PathBuf>, Vec<PathBuf>) {
+        let proj = &self.project_root;
+        let mut primary: Vec<PathBuf> = Vec::new();
+        let mut context: Vec<PathBuf> = Vec::new();
+
+        match target {
+            LintTarget::ProjectConfig => {
+                let p = self
+                    .config_override
+                    .clone()
+                    .unwrap_or_else(|| proj.join(".bivvy").join("config.yml"));
+                primary.push(p);
+            }
+            LintTarget::WorkflowFile(name) => {
+                let path = Discovery::new(proj).workflow_path(name).unwrap_or_else(|| {
+                    proj.join(".bivvy")
+                        .join("workflows")
+                        .join(format!("{name}.yml"))
+                });
+                primary.push(path);
+                let proj_cfg = proj.join(".bivvy").join("config.yml");
+                if proj_cfg.exists() {
+                    context.push(proj_cfg);
+                }
+            }
+            LintTarget::StepFile(name) => {
+                let path = Discovery::new(proj).step_path(name).unwrap_or_else(|| {
+                    proj.join(".bivvy")
+                        .join("steps")
+                        .join(format!("{name}.yml"))
+                });
+                primary.push(path);
+                let proj_cfg = proj.join(".bivvy").join("config.yml");
+                if proj_cfg.exists() {
+                    context.push(proj_cfg);
+                }
+            }
+            LintTarget::All => {
+                if let Some(p) = &discovered.user_global {
+                    primary.push(p.clone());
+                }
+                if let Some(p) = &discovered.project {
+                    primary.push(p.clone());
+                }
+                if let Some(p) = &discovered.project_local {
+                    primary.push(p.clone());
+                }
+                let mut wfs: Vec<PathBuf> = discovered.split_workflows.clone();
+                wfs.sort();
+                primary.extend(wfs);
+                let mut steps: Vec<PathBuf> = discovered.split_steps.clone();
+                steps.sort();
+                primary.extend(steps);
+                primary.extend(discovered.extends.iter().cloned());
+            }
+        }
+
+        (primary, context)
+    }
+
+    /// Format diagnostics using the appropriate formatter for non-human modes.
+    fn format_machine_output(&self, diagnostics: &[LintDiagnostic]) -> String {
+        let mut output = Vec::new();
+        match self.args.format.as_str() {
+            "json" => {
+                let formatter = JsonFormatter::new();
+                let _ = formatter.format(diagnostics, &mut output);
+            }
+            "sarif" => {
+                let formatter = SarifFormatter::new("bivvy", env!("CARGO_PKG_VERSION"));
+                let _ = formatter.format(diagnostics, &mut output);
+            }
+            _ => {
+                let formatter = HumanFormatter::new(false);
+                let _ = formatter.format(diagnostics, &mut output);
+            }
+        }
         String::from_utf8(output).unwrap_or_default()
     }
+
+    /// Emit the human-formatted report to the UI, line by line.
+    fn emit_report_to_ui(&self, report: &HumanReport, ui: &mut dyn UserInterface) {
+        let formatter = HumanFormatter::new(false)
+            .with_path_display(Some(self.project_root.clone()), crate::sys::home_dir());
+        let mut buf = Vec::new();
+        let _ = formatter.format_report(report, &mut buf);
+        let text = String::from_utf8(buf).unwrap_or_default();
+        for line in text.lines() {
+            ui.message(line);
+        }
+    }
+}
+
+/// Pick the label string shown after the file path in a card header,
+/// based on what kind of file the path points to.
+fn label_for_path(path: &Path, project_root: &Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+    let parent_name = path
+        .parent()
+        .and_then(|p| p.file_name())
+        .and_then(|s| s.to_str())
+        .unwrap_or("");
+
+    let bivvy_dir = project_root.join(".bivvy");
+    if path == bivvy_dir.join("config.yml") {
+        return "project config".to_string();
+    }
+    if path == bivvy_dir.join("config.local.yml") {
+        return "local config".to_string();
+    }
+    if parent_name == "workflows" {
+        return format!("workflow file: {stem}");
+    }
+    if parent_name == "steps" {
+        return format!("step file: {stem}");
+    }
+    if let Some(home) = crate::sys::home_dir() {
+        if path == home.join(".bivvy").join("config.yml") {
+            return "system config".to_string();
+        }
+    }
+    "config".to_string()
+}
+
+/// Build the stats rows shown inside a card. We keep this conservative —
+/// each row is omitted when its count is zero (the `Errors:` row is added
+/// later by the formatter and is always shown).
+fn compute_stats_for_card(
+    config: Option<&BivvyConfig>,
+    path: &Path,
+    project_root: &Path,
+    label: &str,
+) -> Vec<(String, String)> {
+    let mut rows: Vec<(String, String)> = Vec::new();
+
+    // We only know the merged-stats picture when parsing succeeded.
+    let Some(cfg) = config else {
+        return rows;
+    };
+
+    let proj_cfg = project_root.join(".bivvy").join("config.yml");
+
+    if path == proj_cfg.as_path() || label == "system config" || label == "local config" {
+        // Project / system / local config card.
+        let step_count = cfg.steps.len();
+        let referenced: HashSet<&String> = cfg
+            .workflows
+            .values()
+            .flat_map(|w| w.steps.iter())
+            .collect();
+        let referenced_count = referenced.len();
+        if step_count > 0 {
+            let value = if referenced_count > 0 {
+                format!("{step_count} defined, {referenced_count} referenced from workflows")
+            } else {
+                format!("{step_count} defined")
+            };
+            rows.push(("Steps".to_string(), value));
+        }
+
+        let wf_count = cfg.workflows.len();
+        if wf_count > 0 {
+            let mut names: Vec<&String> = cfg.workflows.keys().collect();
+            names.sort();
+            let value = if wf_count <= 5 {
+                let joined = names
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                format!("{wf_count} ({joined})")
+            } else {
+                wf_count.to_string()
+            };
+            rows.push(("Workflows".to_string(), value));
+        }
+
+        let templates: HashSet<&String> = cfg
+            .steps
+            .values()
+            .filter_map(|s| s.template.as_ref())
+            .collect();
+        if !templates.is_empty() {
+            let value = if templates.len() <= 3 {
+                let mut names: Vec<&str> = templates.iter().map(|s| s.as_str()).collect();
+                names.sort();
+                format!("{} ({})", templates.len(), names.join(", "))
+            } else {
+                templates.len().to_string()
+            };
+            rows.push(("Templates".to_string(), value));
+        }
+
+        let envs = &cfg.settings.environment_profiles.environments;
+        if !envs.is_empty() {
+            let mut names: Vec<&str> = envs.keys().map(|s| s.as_str()).collect();
+            names.sort();
+            let value = if envs.len() <= 5 {
+                format!("{} ({})", envs.len(), names.join(", "))
+            } else {
+                envs.len().to_string()
+            };
+            rows.push(("Environments".to_string(), value));
+        }
+
+        if !cfg.vars.is_empty() {
+            rows.push(("Vars".to_string(), cfg.vars.len().to_string()));
+        }
+    } else if let Some(name) = label.strip_prefix("workflow file: ") {
+        // Workflow-file card.
+        if let Some(wf) = cfg.workflows.get(name) {
+            let mut conditional = 0usize;
+            if !wf.env.is_empty() {
+                conditional += 1;
+            }
+            if !wf.force.is_empty() || wf.force_all {
+                conditional += 1;
+            }
+            if let Some(s) = &wf.settings {
+                let s_str = format!("{s:?}");
+                if s_str.contains("Some") {
+                    conditional += 1;
+                }
+            }
+            rows.push((
+                "Workflow".to_string(),
+                format!(
+                    "{name} ({} steps, {conditional} conditionals)",
+                    wf.steps.len()
+                ),
+            ));
+        }
+        // Templates referenced by the workflow's steps.
+        let referenced_steps: HashSet<&String> = cfg
+            .workflows
+            .get(name)
+            .map(|w| w.steps.iter().collect())
+            .unwrap_or_default();
+        let templates: HashSet<&String> = cfg
+            .steps
+            .iter()
+            .filter(|(k, _)| referenced_steps.contains(k))
+            .filter_map(|(_, s)| s.template.as_ref())
+            .collect();
+        if !templates.is_empty() {
+            let value = if templates.len() <= 3 {
+                let mut names: Vec<&str> = templates.iter().map(|s| s.as_str()).collect();
+                names.sort();
+                format!("{} ({})", templates.len(), names.join(", "))
+            } else {
+                templates.len().to_string()
+            };
+            rows.push(("Templates".to_string(), value));
+        }
+    } else if let Some(name) = label.strip_prefix("step file: ") {
+        // Step-file card.
+        if let Some(step) = cfg.steps.get(name) {
+            rows.push(("Step".to_string(), name.to_string()));
+            if let Some(t) = &step.template {
+                rows.push(("Template".to_string(), t.clone()));
+            }
+            if !step.depends_on.is_empty() {
+                rows.push(("Depends on".to_string(), step.depends_on.join(", ")));
+            }
+        }
+    }
+
+    rows
+}
+
+/// Emit the `--list-rules` table.
+pub fn print_rule_list(ui: &mut dyn UserInterface) {
+    let registry = RuleRegistry::with_builtins();
+    let mut rows: Vec<(String, String, String)> = registry
+        .iter()
+        .map(|r| {
+            (
+                r.id().0,
+                r.default_severity().to_string(),
+                r.name().to_string(),
+            )
+        })
+        .collect();
+    // Add the synthetic parse-error rules so users can `--explain` them.
+    rows.push((
+        "parse-error".to_string(),
+        Severity::Error.to_string(),
+        "Configuration parse error".to_string(),
+    ));
+    rows.push((
+        "parse-error/unknown-field".to_string(),
+        Severity::Error.to_string(),
+        "Unrecognized top-level field".to_string(),
+    ));
+    rows.push((
+        "parse-error/invalid-type".to_string(),
+        Severity::Error.to_string(),
+        "Value has the wrong type".to_string(),
+    ));
+    rows.push((
+        "parse-error/missing-field".to_string(),
+        Severity::Error.to_string(),
+        "Required field missing".to_string(),
+    ));
+    rows.push((
+        "parse-error/duplicate-key".to_string(),
+        Severity::Error.to_string(),
+        "Duplicate mapping key".to_string(),
+    ));
+
+    rows.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let id_w = rows.iter().map(|r| r.0.len()).max().unwrap_or(0).max(2);
+    let sev_w = rows.iter().map(|r| r.1.len()).max().unwrap_or(0).max(8);
+
+    ui.message("Bivvy Lint Rules");
+    ui.message("");
+    let header = format!(
+        "  {:id_w$}  {:sev_w$}  {}",
+        "ID",
+        "Severity",
+        "Name",
+        id_w = id_w,
+        sev_w = sev_w,
+    );
+    ui.message(&header);
+    for (id, sev, name) in &rows {
+        ui.message(&format!(
+            "  {:id_w$}  {:sev_w$}  {name}",
+            id,
+            sev,
+            id_w = id_w,
+            sev_w = sev_w,
+        ));
+    }
+}
+
+/// Emit the body of `--explain <RULE>`.
+///
+/// Returns `false` if the rule is unknown — the caller should exit 1 in
+/// that case.
+pub fn print_rule_explanation(ui: &mut dyn UserInterface, rule_id: &str) -> bool {
+    if let Some((sev, name, desc)) = builtin_rule_info(rule_id) {
+        ui.message(rule_id);
+        ui.message("");
+        ui.message(&format!("  Severity:    {sev}"));
+        ui.message(&format!("  Name:        {name}"));
+        let mut first = true;
+        for line in wrap_text(&desc, 64) {
+            if first {
+                ui.message(&format!("  Description: {line}"));
+                first = false;
+            } else {
+                ui.message(&format!("               {line}"));
+            }
+        }
+        true
+    } else {
+        ui.error(&format!("error[explain]: no such rule: '{rule_id}'"));
+        ui.message("   = help: run `bivvy lint --list-rules` to see all available rules");
+        false
+    }
+}
+
+/// Look up the description for a rule by id, including the synthetic
+/// `parse-error/*` rules. Returns `(severity, name, description)`.
+fn builtin_rule_info(rule_id: &str) -> Option<(String, String, String)> {
+    // First try the live registry.
+    let registry = RuleRegistry::with_builtins();
+    if let Some(rule) = registry.get(&RuleId::new(rule_id)) {
+        return Some((
+            rule.default_severity().to_string(),
+            rule.name().to_string(),
+            rule.description().to_string(),
+        ));
+    }
+    // Synthetic parse-error rules.
+    let entry = match rule_id {
+        "parse-error" => Some((
+            "Configuration parse error",
+            "The YAML in a config file could not be parsed. The diagnostic carries a span pointing at the offending location.",
+        )),
+        "parse-error/unknown-field" => Some((
+            "Unrecognized top-level field",
+            "A field appears at the top level of a config file that the schema doesn't recognize. Often a typo (e.g. `workflow:` for `workflows:`) or a stale field name. The diagnostic includes a \"did you mean?\" suggestion when one exists.",
+        )),
+        "parse-error/invalid-type" => Some((
+            "Value has the wrong type",
+            "A field's value is the wrong YAML type — for example, a list where a string was expected, or a number where a boolean was required.",
+        )),
+        "parse-error/missing-field" => Some((
+            "Required field missing",
+            "A struct in the config schema is missing a field that the schema marks as required.",
+        )),
+        "parse-error/duplicate-key" => Some((
+            "Duplicate mapping key",
+            "A YAML mapping has the same key twice. YAML treats this as ambiguous and the parser rejects it.",
+        )),
+        _ => None,
+    };
+    entry.map(|(name, desc)| (Severity::Error.to_string(), name.into(), desc.into()))
+}
+
+/// Word-wrap `text` to lines of at most `max` characters, breaking on spaces.
+fn wrap_text(text: &str, max: usize) -> Vec<String> {
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.len() + 1 + word.len() > max {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+        } else {
+            current.push(' ');
+            current.push_str(word);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 impl Command for LintCommand {
     fn execute(&self, ui: &mut dyn UserInterface) -> Result<CommandResult> {
+        // Standalone modes that don't need to load config.
+        if self.args.list_rules {
+            print_rule_list(ui);
+            return Ok(CommandResult::success());
+        }
+        if let Some(ref rule_id) = self.args.explain {
+            let ok = print_rule_explanation(ui, rule_id);
+            return Ok(if ok {
+                CommandResult::success()
+            } else {
+                CommandResult::failure(1)
+            });
+        }
+
         // Create event bus for structured logging
         let mut event_bus = crate::logging::EventBus::new();
         if let Ok(logger) = crate::logging::EventLogger::new(
@@ -326,26 +845,45 @@ impl Command for LintCommand {
 
         // Build the BivvyConfig view to lint along with the file paths
         // we actually consulted (used for raw-YAML deprecation scanning).
-        let (config, lint_file_paths) = match self.build_target_config(&target) {
-            Ok(pair) => pair,
-            Err(BivvyError::ConfigParseError { path, message }) => {
-                ui.error(&format!("Parse error in {}: {}", path.display(), message));
-                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
-                    exit_code: 1,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                });
-                return Ok(CommandResult::failure(1));
+        let (config_opt, lint_file_paths, parse_error_diag) =
+            match self.build_target_config(&target) {
+                Ok((cfg, paths)) => (Some(cfg), paths, None),
+                Err(BivvyError::ConfigParseError { path, message }) => {
+                    let diag = parse_error_to_diagnostic(&path, &message);
+                    (None, vec![path.clone()], Some(diag))
+                }
+                Err(BivvyError::ConfigNotFound { path }) => {
+                    ui.error(&format!("File not found: {}", path.display()));
+                    event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                        exit_code: 1,
+                        duration_ms: start.elapsed().as_millis() as u64,
+                    });
+                    return Ok(CommandResult::failure(1));
+                }
+                Err(e) => return Err(e),
+            };
+
+        // If we couldn't parse, render a single-card report and exit 1.
+        if let Some(diag) = parse_error_diag {
+            let report = build_parse_error_report(&self.project_root, &lint_file_paths[0], diag);
+            if self.args.format.is_empty() || self.args.format == "human" {
+                self.emit_report_to_ui(&report, ui);
+            } else {
+                let diags: Vec<LintDiagnostic> = report
+                    .cards
+                    .iter()
+                    .flat_map(|c| c.diagnostics.iter().cloned())
+                    .collect();
+                ui.message(&self.format_machine_output(&diags));
             }
-            Err(BivvyError::ConfigNotFound { path }) => {
-                ui.error(&format!("File not found: {}", path.display()));
-                event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
-                    exit_code: 1,
-                    duration_ms: start.elapsed().as_millis() as u64,
-                });
-                return Ok(CommandResult::failure(1));
-            }
-            Err(e) => return Err(e),
-        };
+            event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
+                exit_code: 1,
+                duration_ms: start.elapsed().as_millis() as u64,
+            });
+            return Ok(CommandResult::failure(1));
+        }
+
+        let config = config_opt.expect("config must be Some on success path");
 
         let mut deprecation_warnings =
             crate::lint::rules::deprecated_fields::collect_deprecation_warnings(&config);
@@ -470,37 +1008,11 @@ impl Command for LintCommand {
         let has_warnings = diagnostics.iter().any(|d| d.severity == Severity::Warning);
         let should_fail = has_errors || (self.args.strict && has_warnings);
 
-        if diagnostics.is_empty() {
-            if self.args.format == "human" {
-                ui.success("Configuration is valid!");
-            } else {
-                // For JSON/SARIF, still output the formatted result (empty diagnostics)
-                let output = self.format_output(&diagnostics);
-                ui.message(&output);
-            }
-            event_bus.emit(&crate::logging::BivvyEvent::SessionEnded {
-                exit_code: 0,
-                duration_ms: start.elapsed().as_millis() as u64,
-            });
-            return Ok(CommandResult::success());
-        }
-
-        // Output diagnostics in the requested format
-        let output = self.format_output(&diagnostics);
-
-        // For human format, we need to write each line
-        if self.args.format == "human" {
-            for line in output.lines() {
-                if line.starts_with("error") {
-                    ui.error(line);
-                } else if line.starts_with("warning") {
-                    ui.warning(line);
-                } else {
-                    ui.message(line);
-                }
-            }
+        if self.args.format.is_empty() || self.args.format == "human" {
+            let report = self.build_report(&target, Some(&config), &diagnostics);
+            self.emit_report_to_ui(&report, ui);
         } else {
-            // For JSON/SARIF, output as-is
+            let output = self.format_machine_output(&diagnostics);
             ui.message(&output);
         }
 
@@ -517,6 +1029,23 @@ impl Command for LintCommand {
     }
 }
 
+/// Build a single-card report for an unparseable file.
+fn build_parse_error_report(project_root: &Path, path: &Path, diag: LintDiagnostic) -> HumanReport {
+    let home = crate::sys::home_dir();
+    let display = crate::lint::display_path(path, project_root, home.as_deref());
+    let label = label_for_path(path, project_root);
+    let card = FileCard {
+        path: path.to_path_buf(),
+        display,
+        label,
+        stats: Vec::new(),
+        diagnostics: vec![diag],
+    };
+    let mut report = HumanReport::new();
+    report.push_card(card);
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -530,6 +1059,23 @@ mod tests {
         fs::create_dir_all(&bivvy_dir).unwrap();
         fs::write(bivvy_dir.join("config.yml"), config).unwrap();
         temp
+    }
+
+    fn collect_output(ui: &MockUI) -> String {
+        let mut s = String::new();
+        for m in ui.messages() {
+            s.push_str(m);
+            s.push('\n');
+        }
+        for w in ui.warnings() {
+            s.push_str(w);
+            s.push('\n');
+        }
+        for e in ui.errors() {
+            s.push_str(e);
+            s.push('\n');
+        }
+        s
     }
 
     #[test]
@@ -573,6 +1119,18 @@ workflows:
         let result = cmd.execute(&mut ui).unwrap();
 
         assert!(result.success);
+        let out = collect_output(&ui);
+        assert!(out.contains("(project config)"), "got:\n{out}");
+        assert!(out.contains("Errors:"), "got:\n{out}");
+        // Stable invariant: zero-error card carries "Errors: ... 0" — find a
+        // line that starts with whitespace + "Errors" + colon + spaces + "0".
+        assert!(
+            out.lines().any(|l| {
+                let t = l.trim_start();
+                t.starts_with("Errors:") && t.trim_end().ends_with(" 0")
+            }),
+            "got:\n{out}"
+        );
     }
 
     #[test]
@@ -878,5 +1436,197 @@ workflows:
         let mut ui = MockUI::new();
         let result = cmd.execute(&mut ui).unwrap();
         assert!(result.success);
+
+        let out = collect_output(&ui);
+        // We should see both the project card AND the workflow card.
+        assert!(out.contains("(project config)"), "got:\n{out}");
+        assert!(out.contains("workflow file: ci"), "got:\n{out}");
+    }
+
+    #[test]
+    fn lint_parse_error_renders_card_with_diagnostic() {
+        let temp = setup_project("my-settings:\n  foo: bar\n");
+        let args = LintArgs::default();
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(!result.success);
+        assert_eq!(result.exit_code, 1);
+
+        let out = collect_output(&ui);
+        assert!(out.contains("(project config)"), "got:\n{out}");
+        assert!(
+            out.contains("error[parse-error/unknown-field]"),
+            "got:\n{out}"
+        );
+        assert!(
+            out.contains("did you mean") || out.contains("`my-settings`"),
+            "got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn lint_list_rules_includes_known_rule() {
+        let temp = setup_project("app_name: t\n");
+        let args = LintArgs {
+            list_rules: true,
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+        let out = collect_output(&ui);
+        assert!(out.contains("Bivvy Lint Rules"), "got:\n{out}");
+        assert!(out.contains("app-name-format"), "got:\n{out}");
+        assert!(out.contains("parse-error/unknown-field"), "got:\n{out}");
+    }
+
+    #[test]
+    fn lint_list_rules_does_not_require_config() {
+        // Note: no .bivvy directory at all.
+        let temp = TempDir::new().unwrap();
+        let args = LintArgs {
+            list_rules: true,
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+    }
+
+    #[test]
+    fn lint_explain_known_rule_shows_severity() {
+        let temp = TempDir::new().unwrap();
+        let args = LintArgs {
+            explain: Some("app-name-format".to_string()),
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+        let out = collect_output(&ui);
+        assert!(out.contains("app-name-format"), "got:\n{out}");
+        assert!(out.contains("Severity:"), "got:\n{out}");
+    }
+
+    #[test]
+    fn lint_explain_unknown_rule_exits_one() {
+        let temp = TempDir::new().unwrap();
+        let args = LintArgs {
+            explain: Some("nope-not-a-rule".to_string()),
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(!result.success);
+        assert_eq!(result.exit_code, 1);
+        let out = collect_output(&ui);
+        assert!(out.contains("no such rule"), "got:\n{out}");
+    }
+
+    #[test]
+    fn lint_explain_includes_parse_error_synthetic_rule() {
+        let temp = TempDir::new().unwrap();
+        let args = LintArgs {
+            explain: Some("parse-error/unknown-field".to_string()),
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(result.success);
+        let out = collect_output(&ui);
+        assert!(out.contains("parse-error/unknown-field"));
+        assert!(out.contains("Severity:    error"));
+    }
+
+    #[test]
+    fn lint_no_rule_disables_specific_rule() {
+        let config = r#"
+app_name: My App With Spaces
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = LintArgs {
+            no_rule: vec!["app-name-format".to_string()],
+            strict: true,
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        // app-name-format would fire a warning on "My App With Spaces", but
+        // we disabled it — strict mode therefore passes.
+        assert!(result.success);
+    }
+
+    #[test]
+    fn lint_only_runs_explicit_rule() {
+        let config = r#"
+app_name: My App With Spaces
+steps:
+  alpha:
+    command: echo alpha
+    depends_on: [alpha]
+workflows:
+  default:
+    steps: [alpha]
+"#;
+        let temp = setup_project(config);
+        // With --rule self-dependency only, the run should still fail (the
+        // self-dep rule fires) and the report should contain the self-dep
+        // diagnostic.
+        let args = LintArgs {
+            rule: vec!["self-dependency".to_string()],
+            ..Default::default()
+        };
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+        let result = cmd.execute(&mut ui).unwrap();
+        assert!(!result.success);
+        let out = collect_output(&ui);
+        assert!(out.contains("self-dependency"), "got:\n{out}");
+        // app-name-format would normally also fire (warning), but the rule
+        // filter excluded it. With strict off, that doesn't affect exit code,
+        // but the diagnostic should not appear in the output either.
+        assert!(!out.contains("app-name-format"), "got:\n{out}");
+    }
+
+    #[test]
+    fn label_for_path_classifies_well_known_paths() {
+        let proj = PathBuf::from("/proj");
+        assert_eq!(
+            label_for_path(&proj.join(".bivvy/config.yml"), &proj),
+            "project config"
+        );
+        assert_eq!(
+            label_for_path(&proj.join(".bivvy/config.local.yml"), &proj),
+            "local config"
+        );
+        assert_eq!(
+            label_for_path(&proj.join(".bivvy/workflows/release.yml"), &proj),
+            "workflow file: release"
+        );
+        assert_eq!(
+            label_for_path(&proj.join(".bivvy/steps/install.yml"), &proj),
+            "step file: install"
+        );
+    }
+
+    #[test]
+    fn wrap_text_breaks_on_word_boundaries() {
+        let lines = wrap_text("a quick brown fox jumps", 10);
+        assert!(lines.iter().all(|l| l.len() <= 10));
+        assert_eq!(lines.join(" "), "a quick brown fox jumps");
     }
 }

@@ -353,6 +353,25 @@ pub struct LintArgs {
     /// Treat warnings as errors
     #[arg(long)]
     pub strict: bool,
+
+    /// Print every available lint rule (id, severity, name) and exit.
+    /// Does not load configuration.
+    #[arg(long)]
+    pub list_rules: bool,
+
+    /// Print the description of one lint rule and exit. Pass the rule id
+    /// (as shown by `--list-rules`). Does not load configuration.
+    #[arg(long, value_name = "RULE_ID")]
+    pub explain: Option<String>,
+
+    /// Run only this rule (repeatable). Combined as a set: only rules
+    /// listed across all `--rule` flags participate in linting.
+    #[arg(long = "rule", value_name = "ID")]
+    pub rule: Vec<String>,
+
+    /// Disable this rule (repeatable). Applied after `--rule` filtering.
+    #[arg(long = "no-rule", value_name = "ID")]
+    pub no_rule: Vec<String>,
 }
 
 /// Arguments for the `config` command.

@@ -28,6 +28,6 @@ pub trait LintFormatter {
     ) -> std::io::Result<()>;
 }
 
-pub use human::HumanFormatter;
+pub use human::{display_path, FileCard, HumanFormatter, HumanReport};
 pub use json::JsonFormatter;
 pub use sarif::SarifFormatter;
