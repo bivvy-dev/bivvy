@@ -36,9 +36,12 @@ pub mod rules;
 pub mod schema;
 pub mod span;
 
-pub use diagnostic::{LintDiagnostic, RelatedInfo};
+pub use diagnostic::{parse_error_to_diagnostic, LintDiagnostic, RelatedInfo};
 pub use fix::{Fix, FixEngine, FixResult};
-pub use output::{HumanFormatter, JsonFormatter, LintFormatter, OutputFormat, SarifFormatter};
+pub use output::{
+    display_path, FileCard, HumanFormatter, HumanReport, JsonFormatter, LintFormatter,
+    OutputFormat, SarifFormatter,
+};
 pub use registry::RuleRegistry;
 pub use rule::{LintRule, RuleId, Severity};
 pub use rules::{
