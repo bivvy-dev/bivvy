@@ -116,7 +116,10 @@ workflows:
 - [Guides](docs/SUMMARY.md)
 
 ## Screenshots
-<img width="294" height="855" alt="Screenshot 2026-03-30 at 4 37 54 AM" src="https://github.com/user-attachments/assets/6c68feae-5b03-41a8-b8d7-e6a6459c374f" />
+<img width="534" height="489" alt="Screenshot 2026-04-30 at 7 31 20 PM" src="https://github.com/user-attachments/assets/9445aa71-3294-4a79-9b40-1ddab337d66a" />
+<br/>
+<img width="910" height="740" alt="Screenshot 2026-04-30 at 7 32 27 PM" src="https://github.com/user-attachments/assets/46ffe44c-f19e-4a73-bef5-c7087e7d8c41" />
+
 
 
 ## Shell Completions
