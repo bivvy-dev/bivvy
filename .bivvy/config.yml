@@ -32,10 +32,6 @@ settings:
   defaults:
     output: verbose  # verbose | quiet | silent
 
-vars:
-  version:
-    command: "grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/'"
-
 steps:
   rust:
     title: "Rust toolchain"
@@ -55,7 +51,7 @@ steps:
       validation: success
 
   rustfmt:
-    title: "Rustfmt"
+    title: "Add rustfmt"
     command: "rustup component add rustfmt"
     depends_on: [rust]
     check:
@@ -98,7 +94,7 @@ steps:
     depends_on: [deps]
 
   test:
-    title: "Tests"
+    title: "Run Tests"
     command: "cargo test --all-features"
     depends_on: [build]
 
@@ -112,47 +108,6 @@ steps:
     command: "cargo llvm-cov --all-features --fail-under-lines 90"
     depends_on: [llvm-cov, build]
 
-  version-bump:
-    template: rust/version-bump
-    depends_on: [cargo-edit]
-
-  version-commit:
-    title: "Commit version bump"
-    depends_on: [version-bump]
-    check:
-      type: execution
-      command: "git diff --quiet Cargo.toml && git diff --quiet Cargo.lock"
-      validation: success
-    command: |
-      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-      git add Cargo.toml Cargo.lock && git commit -m "Bump version to $${VERSION}"
-
-  release-preflight:
-    title: "Release preflight"
-    depends_on: [version-commit]
-    precondition:
-      type: all
-      checks:
-        - type: execution
-          command: "test $(git branch --show-current) = main"
-          validation: success
-        - type: execution
-          command: "git diff --quiet && git diff --cached --quiet"
-          validation: success
-        - type: execution
-          command: "! git rev-parse $(grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/') >/dev/null 2>&1"
-          validation: success
-    command: |
-      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-      echo "Ready to release $${VERSION}"
-
-  release-tag:
-    title: "Tag and push release"
-    command: |
-      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
-      git tag "$${VERSION}" && git push origin main && git push origin "$${VERSION}"
-    depends_on: [release-preflight, lint, test, build]
-
 workflows:
   default:
     steps: [rust, clippy, rustfmt, deps, build, test, lint]
@@ -164,11 +119,6 @@ workflows:
   check:
     description: "Pre-commit verification"
     steps: [lint, test, build]
-
-  release:
-    description: "Tag and push a release (replaces bin/release)"
-    steps: [rust, clippy, rustfmt, cargo-edit, deps, build, lint, test,
-            release-preflight, version-bump, version-commit, release-tag]
 
   ci:
     description: "CI pipeline"

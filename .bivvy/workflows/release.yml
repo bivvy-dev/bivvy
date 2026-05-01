@@ -1,0 +1,63 @@
+description: "Tag and push a release (replaces bin/release)"
+
+vars:
+  version:
+    command: "grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/'"
+
+steps:
+  version-bump:
+    template: rust/version-bump
+    force: true
+    depends_on: [cargo-edit]
+
+  version-commit:
+    title: "Commit version bump"
+    depends_on: [version-bump]
+    check:
+      type: execution
+      command: "git diff --quiet Cargo.toml && git diff --quiet Cargo.lock"
+      validation: success
+    command: |
+      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+      git add Cargo.toml Cargo.lock && git commit -m "Bump version to $${VERSION}"
+
+  release-preflight:
+    title: "Release preflight"
+    depends_on: [version-commit]
+    precondition:
+      type: all
+      checks:
+        - type: execution
+          command: "test $(git branch --show-current) = main"
+          validation: success
+        - type: execution
+          command: "git diff --quiet && git diff --cached --quiet"
+          validation: success
+        - type: execution
+          command: "! git rev-parse $(grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/') >/dev/null 2>&1"
+          validation: success
+    command: |
+      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+      echo "Ready to release $${VERSION}"
+
+  release-tag:
+    title: "Tag and push release"
+    command: |
+      VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
+      git tag "$${VERSION}" && git push origin main && git push origin "$${VERSION}"
+    depends_on: [release-preflight, lint, test, build]
+
+workflow:
+  steps:
+    - rust
+    - clippy
+    - rustfmt
+    - cargo-edit
+    - deps
+    - build
+    - lint
+    - test
+    - release-preflight
+    - version-bump
+    - version-commit
+    - release-tag
