@@ -44,11 +44,11 @@ pub use rule::{LintRule, RuleId, Severity};
 pub use rules::{
     AppNameRule, CircularDependencyRule, CircularRequirementDepRule, DeadEnvironmentRule,
     DeprecatedFieldsRule, InstallTemplateMissingRule, InterpolationSyntaxErrorRule,
-    RequiredFieldsRule, SecretWithoutHandlerRule, SelfDependencyRule,
-    ServiceRequirementWithoutHintRule, StepNameCollisionRule, TemplateInputsRule,
-    UndefinedDependencyRule, UndefinedTemplateRule, UnknownRequirementRule, UnusedStepRule,
-    UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule,
-    WorkflowSingularTypoRule,
+    LocalConfigOverridesSecretRule, RequiredFieldsRule, SecretWithoutHandlerRule,
+    SelfDependencyRule, ServiceRequirementWithoutHintRule, StepNameCollisionRule,
+    TemplateInputsRule, UndefinedDependencyRule, UndefinedTemplateRule, UnknownRequirementRule,
+    UnusedStepRule, UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule,
+    WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 pub use schema::{schema_json, schema_value, SchemaGenerator};
 pub use span::Span;

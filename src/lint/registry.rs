@@ -10,13 +10,13 @@ use super::rules::{
     AppNameRule, CheckFieldsMutualExclusivityRule, CircularDependencyRule,
     CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule, DeadEnvironmentRule,
     DeprecatedFieldsRule, EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
-    InstallTemplateMissingRule, InterpolationSyntaxErrorRule, RedundantEnvNullRule,
-    RedundantEnvironmentOverrideRule, RequiredFieldsRule, SecretWithoutHandlerRule,
-    SelfDependencyRule, ServiceRequirementWithoutHintRule, StepNameCollisionRule,
-    UndefinedDependencyRule, UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule,
-    UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
-    UnusedStepRule, UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule,
-    WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
+    InstallTemplateMissingRule, InterpolationSyntaxErrorRule, LocalConfigOverridesSecretRule,
+    RedundantEnvNullRule, RedundantEnvironmentOverrideRule, RequiredFieldsRule,
+    SecretWithoutHandlerRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
+    StepNameCollisionRule, UndefinedDependencyRule, UndefinedWorkflowForceRule,
+    UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule, UnknownRequirementRule,
+    UnreachableEnvironmentOverrideRule, UnusedStepRule, UnusedTemplateSourceRule,
+    WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -68,6 +68,7 @@ impl RuleRegistry {
         registry.register(Box::new(DeadEnvironmentRule));
         registry.register(Box::new(InterpolationSyntaxErrorRule));
         registry.register(Box::new(SecretWithoutHandlerRule));
+        registry.register(Box::new(LocalConfigOverridesSecretRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
