@@ -595,10 +595,12 @@ fn failed_step_under_zsh_job_control() {
     }
     send_key(&session, KEY_ENTER);
 
-    // Wait for the closing box line to ensure full summary is captured
+    // Wait for the abort hint, which is the last line bivvy emits after
+    // the summary box. Waiting on the closing box `└───` would race the
+    // hint println and intermittently snapshot a truncated summary.
     let summary = wait_for(
         &session,
-        "\u{2514}\u{2500}\u{2500}\u{2500}", // └───
+        "Re-run to resume",
         "Workflow summary after abort",
     );
     assert_not_suspended(&summary, "failed step workflow");
