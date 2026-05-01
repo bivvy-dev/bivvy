@@ -14,6 +14,7 @@ pub mod undefined_template;
 pub mod undefined_workflow_force;
 pub mod valid_environments;
 pub mod valid_requires;
+pub mod workflow_shape_shorthand;
 
 pub use app_name::AppNameRule;
 pub use check_fields::CheckFieldsMutualExclusivityRule;
@@ -34,3 +35,4 @@ pub use valid_requires::{
     CircularRequirementDepRule, InstallTemplateMissingRule, ServiceRequirementWithoutHintRule,
     UnknownRequirementRule,
 };
+pub use workflow_shape_shorthand::WorkflowShapeShorthandRule;

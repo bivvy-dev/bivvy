@@ -14,6 +14,7 @@ use super::rules::{
     RequiredFieldsRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
     UndefinedDependencyRule, UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule,
     UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
+    WorkflowShapeShorthandRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -56,6 +57,7 @@ impl RuleRegistry {
         registry.register(Box::new(EnvironmentCircularDependencyRule));
         registry.register(Box::new(CheckFieldsMutualExclusivityRule));
         registry.register(Box::new(DeprecatedFieldsRule));
+        registry.register(Box::new(WorkflowShapeShorthandRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
