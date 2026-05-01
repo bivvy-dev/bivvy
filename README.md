@@ -116,6 +116,8 @@ workflows:
 - [Guides](docs/SUMMARY.md)
 
 ## Screenshots
+<img width="463" height="302" alt="Screenshot 2026-04-30 at 8 12 04 PM" src="https://github.com/user-attachments/assets/467fcee9-7503-4785-a9d9-57f0839cf991" />
+<br/>
 <img width="534" height="489" alt="Screenshot 2026-04-30 at 7 31 20 PM" src="https://github.com/user-attachments/assets/9445aa71-3294-4a79-9b40-1ddab337d66a" />
 <br/>
 <img width="910" height="740" alt="Screenshot 2026-04-30 at 7 32 27 PM" src="https://github.com/user-attachments/assets/46ffe44c-f19e-4a73-bef5-c7087e7d8c41" />
