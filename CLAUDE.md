@@ -81,18 +81,7 @@ Bivvy is a **declarative orchestrator**, not a collection of hardcoded scripts:
 
 ### Key Dependencies
 
-```toml
-clap = { version = "4", features = ["derive", "env"] }   # CLI framework
-dialoguer = "0.12"                                        # Interactive prompts
-indicatif = "0.18"                                        # Progress indicators
-console = "0.16"                                          # Terminal styling
-serde = { version = "1", features = ["derive"] }          # Serialization
-marked_yaml = "0.8"                                       # YAML with source locations
-anyhow = "1"                                              # Error handling
-thiserror = "2"                                           # Custom errors
-git2 = "0.20"                                             # Git integration
-reqwest = { version = "0.13", features = ["blocking"] }   # HTTP client
-```
+@Cargo.toml
 
 ### File Locations
 
@@ -101,6 +90,8 @@ reqwest = { version = "0.13", features = ["blocking"] }   # HTTP client
     <file>config.yml</file>
     <file>config.local.yml (gitignored)</file>
     <directory>templates/</directory>
+    <directory>workflows/</directory>
+    <directory>steps/</directory>
   </location>
   <location name="system" path="~/.bivvy/">
     <file>config.yml</file>
@@ -110,44 +101,9 @@ reqwest = { version = "0.13", features = ["blocking"] }   # HTTP client
   </location>
 </file-structure>
 
-## CLI Commands
-
-| Command | Description |
-|---------|-------------|
-| `bivvy` / `bivvy run` | Run default workflow |
-| `bivvy init` | Initialize configuration |
-| `bivvy add <template>` | Add a template step to config |
-| `bivvy templates` | List available templates |
-| `bivvy status` | Pre-flight check |
-| `bivvy list` | Show steps and workflows |
-| `bivvy lint` | Validate configuration |
-| `bivvy last` | Show last run info |
-| `bivvy history` | Show execution history |
-
 ## Configuration Schema
 
-```yaml
-app_name: "MyApp"
-
-settings:
-  defaults:
-    output: verbose    # verbose | quiet | silent
-  logging: false
-
-steps:
-  step_name:
-    template: template_name  # OR define inline
-    command: "..."
-    depends_on: [other_step]
-    check:
-      type: presence | execution | change
-      target: "..."
-      command: "..."
-
-workflows:
-  default:
-    steps: [step1, step2, step3]
-```
+@docs/config-schema.md
 
 ## Documentation
 
