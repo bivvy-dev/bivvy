@@ -9,6 +9,8 @@ Pre-release versions are < 2.0.0.
 ## [Unreleased] - 1.9.0
 
 ### Added
+- Remote template sources are now reachable from `bivvy add` and `bivvy templates` (previously only `bivvy run` and `bivvy lint` honored `template_sources`)
+- Git template sources: clone (or update) a repository declared in `template_sources` and walk its templates directory for `*.yml`/`*.yaml` files. Configure with `type: git`, an optional `ref:` (branch/tag/commit), and an optional `path:` subdirectory. Source kind is auto-detected for SCP-style (`git@...`), `ssh://`, `git://`, and `.git`-suffixed URLs
 - Portable workflow files: `.bivvy/workflows/<name>.yml` can now carry its own `steps:` and `vars:` blocks alongside a `workflow:` declaration. Drop a self-contained workflow into a project and `bivvy run <name>` works without further setup. Legacy workflow files (with `description` + an ordered `steps:` list) keep working unchanged
 - `Discovery` module for cheap filename-based enumeration of `.bivvy/workflows/` and `.bivvy/steps/` plus light header parsing of workflow files
 - Per-command load profiles: `load_project_config`, `load_single_workflow_file`, `load_single_step_file`, and `load_for_run`/`load_for_run_with_trust` so each command pays only for the files it actually needs

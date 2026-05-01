@@ -766,12 +766,37 @@ pub struct WorkflowSettings {
     pub non_interactive: bool,
 }
 
+/// Source kind for a remote template registry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum TemplateSourceKind {
+    /// Fetch a single YAML file (or list of templates) over HTTP/HTTPS.
+    Http,
+    /// Clone a git repository and walk its templates directory.
+    Git,
+}
+
 /// Remote template source configuration
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct TemplateSource {
+    /// Source kind. When omitted, auto-detected from `url`:
+    /// SCP-style (`git@...`), `ssh://`, `git://`, or URLs ending in `.git`
+    /// are treated as `git`; everything else as `http`.
+    #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
+    pub kind: Option<TemplateSourceKind>,
+
     /// URL to template repository or file
     pub url: String,
+
+    /// Git ref (branch, tag, or commit SHA). Only used for git sources.
+    #[serde(rename = "ref", default, skip_serializing_if = "Option::is_none")]
+    pub git_ref: Option<String>,
+
+    /// Subdirectory within the git repository to walk for `*.yml` templates.
+    /// Defaults to the repository root when omitted. Only used for git sources.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
 
     /// Priority (lower = higher priority)
     #[serde(default = "default_priority")]
@@ -786,6 +811,34 @@ pub struct TemplateSource {
 
     /// Authentication configuration
     pub auth: Option<AuthConfig>,
+}
+
+impl TemplateSource {
+    /// Resolve the effective source kind, auto-detecting from `url` when
+    /// `kind` is not explicitly set.
+    pub fn effective_kind(&self) -> TemplateSourceKind {
+        if let Some(k) = self.kind {
+            return k;
+        }
+        detect_kind_from_url(&self.url)
+    }
+}
+
+/// Auto-detect the source kind from a URL.
+///
+/// Returns `Git` for SCP-style addresses (`git@host:path`), `ssh://`, `git://`,
+/// or URLs ending in `.git`. Everything else is `Http`.
+pub fn detect_kind_from_url(url: &str) -> TemplateSourceKind {
+    if url.starts_with("git@") || url.starts_with("ssh://") || url.starts_with("git://") {
+        return TemplateSourceKind::Git;
+    }
+
+    let trimmed = url.trim_end_matches('/');
+    if trimmed.ends_with(".git") {
+        return TemplateSourceKind::Git;
+    }
+
+    TemplateSourceKind::Http
 }
 
 fn default_priority() -> u32 {
@@ -1145,6 +1198,114 @@ template_sources:
         assert_eq!(config.template_sources.len(), 1);
         assert_eq!(config.template_sources[0].priority, 10);
         assert_eq!(config.template_sources[0].timeout, 60);
+    }
+
+    #[test]
+    fn parses_template_source_with_explicit_git_kind() {
+        let yaml = r#"
+template_sources:
+  - type: git
+    url: "https://github.com/myorg/templates.git"
+    ref: main
+    path: templates/
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let source = &config.template_sources[0];
+        assert_eq!(source.kind, Some(TemplateSourceKind::Git));
+        assert_eq!(source.git_ref.as_deref(), Some("main"));
+        assert_eq!(source.path.as_deref(), Some("templates/"));
+        assert_eq!(source.effective_kind(), TemplateSourceKind::Git);
+    }
+
+    #[test]
+    fn parses_template_source_with_explicit_http_kind() {
+        let yaml = r#"
+template_sources:
+  - type: http
+    url: "https://example.com/templates.yml"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let source = &config.template_sources[0];
+        assert_eq!(source.kind, Some(TemplateSourceKind::Http));
+        assert_eq!(source.effective_kind(), TemplateSourceKind::Http);
+    }
+
+    #[test]
+    fn detects_git_from_scp_style_url() {
+        assert_eq!(
+            detect_kind_from_url("git@github.com:org/repo.git"),
+            TemplateSourceKind::Git
+        );
+    }
+
+    #[test]
+    fn detects_git_from_ssh_scheme() {
+        assert_eq!(
+            detect_kind_from_url("ssh://git@github.com/org/repo.git"),
+            TemplateSourceKind::Git
+        );
+    }
+
+    #[test]
+    fn detects_git_from_git_scheme() {
+        assert_eq!(
+            detect_kind_from_url("git://github.com/org/repo.git"),
+            TemplateSourceKind::Git
+        );
+    }
+
+    #[test]
+    fn detects_git_from_dot_git_suffix() {
+        assert_eq!(
+            detect_kind_from_url("https://github.com/org/repo.git"),
+            TemplateSourceKind::Git
+        );
+    }
+
+    #[test]
+    fn detects_git_from_dot_git_suffix_with_trailing_slash() {
+        assert_eq!(
+            detect_kind_from_url("https://github.com/org/repo.git/"),
+            TemplateSourceKind::Git
+        );
+    }
+
+    #[test]
+    fn detects_http_for_plain_https_url() {
+        assert_eq!(
+            detect_kind_from_url("https://example.com/templates.yml"),
+            TemplateSourceKind::Http
+        );
+    }
+
+    #[test]
+    fn effective_kind_uses_explicit_when_set() {
+        let source = TemplateSource {
+            kind: Some(TemplateSourceKind::Git),
+            url: "https://example.com/templates".to_string(),
+            git_ref: None,
+            path: None,
+            priority: 100,
+            timeout: 30,
+            cache: None,
+            auth: None,
+        };
+        assert_eq!(source.effective_kind(), TemplateSourceKind::Git);
+    }
+
+    #[test]
+    fn effective_kind_falls_back_to_url_detection() {
+        let source = TemplateSource {
+            kind: None,
+            url: "git@github.com:org/repo.git".to_string(),
+            git_ref: None,
+            path: None,
+            priority: 100,
+            timeout: 30,
+            cache: None,
+            auth: None,
+        };
+        assert_eq!(source.effective_kind(), TemplateSourceKind::Git);
     }
 
     #[test]

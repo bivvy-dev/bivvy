@@ -74,8 +74,14 @@ impl GitFetcher {
         self.fetch_unchecked(url, git_ref)
     }
 
-    /// Internal fetch without URL validation (used by tests with local bare repos).
-    fn fetch_unchecked(&self, url: &str, git_ref: Option<&str>) -> Result<GitFetchResult> {
+    /// Internal fetch without URL validation. Production callers must use
+    /// [`fetch`](Self::fetch) so the URL scheme is checked first; this is
+    /// exposed for integration tests that exercise local bare repositories.
+    pub(crate) fn fetch_unchecked(
+        &self,
+        url: &str,
+        git_ref: Option<&str>,
+    ) -> Result<GitFetchResult> {
         let repo_path = self.repo_path(url);
 
         if repo_path.exists() {
@@ -240,6 +246,79 @@ impl GitFetcher {
         let hash_str = hex::encode(&hash[..8]);
         self.clone_dir.join(hash_str)
     }
+}
+
+/// Build a bare git repository under `parent` and seed it with the given
+/// `(relative_path, yaml_content)` files, committed on `main`. Returns the
+/// path to the bare repository so callers can use it as a clone source.
+///
+/// This is a shared test helper so multiple modules can exercise the Git
+/// remote-template path without duplicating fixture setup.
+#[cfg(test)]
+pub(crate) fn create_bare_repo_with_templates(parent: &Path, files: &[(&str, &str)]) -> PathBuf {
+    let bare_path = parent.join("templates-repo.git");
+    let work_dir = parent.join("work");
+    std::fs::create_dir_all(&work_dir).unwrap();
+
+    let status = std::process::Command::new("git")
+        .args([
+            "init",
+            "--bare",
+            "--initial-branch=main",
+            bare_path.to_string_lossy().as_ref(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success(), "bare init failed");
+
+    let status = std::process::Command::new("git")
+        .args([
+            "clone",
+            bare_path.to_string_lossy().as_ref(),
+            work_dir.to_string_lossy().as_ref(),
+        ])
+        .status()
+        .unwrap();
+    assert!(status.success(), "clone failed");
+
+    for (key, val) in [("user.name", "Test"), ("user.email", "test@test.com")] {
+        std::process::Command::new("git")
+            .args(["config", key, val])
+            .current_dir(&work_dir)
+            .status()
+            .unwrap();
+    }
+
+    for (rel_path, content) in files {
+        let dest = work_dir.join(rel_path);
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent).unwrap();
+        }
+        std::fs::write(&dest, content).unwrap();
+    }
+
+    let status = std::process::Command::new("git")
+        .args(["add", "."])
+        .current_dir(&work_dir)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git add failed");
+
+    let status = std::process::Command::new("git")
+        .args(["commit", "-m", "Seed templates"])
+        .current_dir(&work_dir)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git commit failed");
+
+    let status = std::process::Command::new("git")
+        .args(["push", "origin", "HEAD:main"])
+        .current_dir(&work_dir)
+        .status()
+        .unwrap();
+    assert!(status.success(), "git push failed");
+
+    bare_path
 }
 
 #[cfg(test)]
