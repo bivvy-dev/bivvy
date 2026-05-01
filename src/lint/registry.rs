@@ -11,12 +11,12 @@ use super::rules::{
     CircularRequirementDepRule, CustomEnvironmentShadowsBuiltinRule, DeadEnvironmentRule,
     DeprecatedFieldsRule, EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
     InstallTemplateMissingRule, InterpolationSyntaxErrorRule, RedundantEnvNullRule,
-    RedundantEnvironmentOverrideRule, RequiredFieldsRule, SelfDependencyRule,
-    ServiceRequirementWithoutHintRule, StepNameCollisionRule, UndefinedDependencyRule,
-    UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
-    UnknownRequirementRule, UnreachableEnvironmentOverrideRule, UnusedStepRule,
-    UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule,
-    WorkflowSingularTypoRule,
+    RedundantEnvironmentOverrideRule, RequiredFieldsRule, SecretWithoutHandlerRule,
+    SelfDependencyRule, ServiceRequirementWithoutHintRule, StepNameCollisionRule,
+    UndefinedDependencyRule, UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule,
+    UnknownEnvironmentInStepRule, UnknownRequirementRule, UnreachableEnvironmentOverrideRule,
+    UnusedStepRule, UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule,
+    WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -67,6 +67,7 @@ impl RuleRegistry {
         registry.register(Box::new(UnusedTemplateSourceRule));
         registry.register(Box::new(DeadEnvironmentRule));
         registry.register(Box::new(InterpolationSyntaxErrorRule));
+        registry.register(Box::new(SecretWithoutHandlerRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
