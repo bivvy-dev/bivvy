@@ -44,9 +44,9 @@ pub use rule::{LintRule, RuleId, Severity};
 pub use rules::{
     AppNameRule, CircularDependencyRule, CircularRequirementDepRule, DeprecatedFieldsRule,
     InstallTemplateMissingRule, RequiredFieldsRule, SelfDependencyRule,
-    ServiceRequirementWithoutHintRule, TemplateInputsRule, UndefinedDependencyRule,
-    UndefinedTemplateRule, UnknownRequirementRule, WorkflowReferencesTemplateNotStepRule,
-    WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
+    ServiceRequirementWithoutHintRule, StepNameCollisionRule, TemplateInputsRule,
+    UndefinedDependencyRule, UndefinedTemplateRule, UnknownRequirementRule,
+    WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
 };
 pub use schema::{schema_json, schema_value, SchemaGenerator};
 pub use span::Span;
