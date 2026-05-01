@@ -33,13 +33,26 @@ const TEST_HOME_SUBDIR: &str = ".test_home";
 const TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Pin `HOME` and the XDG base-directory variables to a sandbox so the
-/// child process never reads or writes real user state.
+/// child process never reads or writes real user state, and clear the
+/// CI-detection env vars so the PTY-spawned bivvy treats itself as
+/// interactive (otherwise `is_ci()` flips it to non-interactive and the
+/// `confirm: true` prompt this test exercises never appears).
 fn apply_home_isolation(cmd: &mut Command, home: &Path) {
     cmd.env("HOME", home);
     cmd.env("XDG_CONFIG_HOME", home.join(".config"));
     cmd.env("XDG_DATA_HOME", home.join(".local").join("share"));
     cmd.env("XDG_CACHE_HOME", home.join(".cache"));
     cmd.env("XDG_STATE_HOME", home.join(".local").join("state"));
+    for var in [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "CIRCLECI",
+        "TRAVIS",
+        "JENKINS_URL",
+    ] {
+        cmd.env_remove(var);
+    }
 }
 
 /// Create a temporary project rooted at the returned tempdir, with the
