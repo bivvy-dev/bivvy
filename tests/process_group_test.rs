@@ -598,11 +598,7 @@ fn failed_step_under_zsh_job_control() {
     // Wait for the abort hint, which is the last line bivvy emits after
     // the summary box. Waiting on the closing box `└───` would race the
     // hint println and intermittently snapshot a truncated summary.
-    let summary = wait_for(
-        &session,
-        "Re-run to resume",
-        "Workflow summary after abort",
-    );
+    let summary = wait_for(&session, "Re-run to resume", "Workflow summary after abort");
     assert_not_suspended(&summary, "failed step workflow");
     insta::assert_snapshot!(
         "failed_step_workflow_summary",
