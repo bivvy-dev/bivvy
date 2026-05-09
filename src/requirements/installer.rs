@@ -12,13 +12,17 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 /// Mockable dependencies for the installer.
-pub struct InstallerContext<'a> {
+///
+/// Owns its closures so callers don't have to manage their lifetimes.
+/// Construct via [`default_context`] for production, or build directly
+/// with `Box::new(...)` closures in tests.
+pub struct InstallerContext {
     /// Run a shell command, returning true on success.
-    pub run_command: &'a dyn Fn(&str) -> bool,
+    pub run_command: Box<dyn Fn(&str) -> bool + Send + Sync>,
     /// Check whether the network is reachable.
-    pub check_network: &'a dyn Fn() -> bool,
+    pub check_network: Box<dyn Fn() -> bool + Send + Sync>,
     /// Prepend a directory to the process PATH.
-    pub prepend_path: &'a dyn Fn(&Path),
+    pub prepend_path: Box<dyn Fn(&Path) + Send + Sync>,
 }
 
 /// Confirm a yes/no prompt, distinguishing UI failures from user "no".
@@ -49,7 +53,7 @@ pub fn handle_gaps(
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
     interactive: bool,
-    ctx: &InstallerContext<'_>,
+    ctx: &InstallerContext,
 ) -> Result<bool> {
     if gaps.is_empty() {
         return Ok(true);
@@ -100,21 +104,24 @@ type PathAdditions = Arc<Mutex<Vec<std::path::PathBuf>>>;
 /// PATH modifications are accumulated in a shared list rather than mutating
 /// the global process environment. The `run_command` closure prepends these
 /// additions to the inherited PATH when spawning child processes.
-pub fn default_context() -> InstallerContext<'static> {
-    // Leaked so the closures can have 'static lifetime (matches previous API).
-    // Only one InstallerContext is created per workflow run, so the leak is bounded.
-    let additions: &'static PathAdditions = Box::leak(Box::new(Arc::new(Mutex::new(Vec::new()))));
+///
+/// Each call returns an independent context with its own additions list;
+/// no state leaks across calls.
+pub fn default_context() -> InstallerContext {
+    let additions: PathAdditions = Arc::new(Mutex::new(Vec::new()));
 
     let run_additions = additions.clone();
-    let prepend_additions = additions.clone();
+    let prepend_additions = additions;
 
     InstallerContext {
-        run_command: Box::leak(Box::new(move |cmd: &str| {
+        run_command: Box::new(move |cmd: &str| {
             let mut command = std::process::Command::new("sh");
             command.arg("-c").arg(cmd);
 
-            // Build PATH with accumulated additions prepended
-            let extras = run_additions.lock().unwrap();
+            // Build PATH with accumulated additions prepended.
+            // Recover from a poisoned mutex so a previous panic does not
+            // permanently break the installer for the rest of the run.
+            let extras = run_additions.lock().unwrap_or_else(|e| e.into_inner());
             if !extras.is_empty() {
                 let current = std::env::var("PATH").unwrap_or_default();
                 let prefix = extras
@@ -127,21 +134,21 @@ pub fn default_context() -> InstallerContext<'static> {
             }
 
             command.status().is_ok_and(|s| s.success())
-        })),
-        check_network: &|| {
+        }),
+        check_network: Box::new(|| {
             use std::net::TcpStream;
             use std::time::Duration;
             let timeout = Duration::from_secs(2);
             let addr: std::net::SocketAddr = "1.1.1.1:443".parse().unwrap();
             TcpStream::connect_timeout(&addr, timeout).is_ok()
-        },
-        prepend_path: Box::leak(Box::new(move |dir: &Path| {
-            let mut extras = prepend_additions.lock().unwrap();
+        }),
+        prepend_path: Box::new(move |dir: &Path| {
+            let mut extras = prepend_additions.lock().unwrap_or_else(|e| e.into_inner());
             let path = dir.to_path_buf();
             if !extras.contains(&path) {
                 extras.push(path);
             }
-        })),
+        }),
     }
 }
 
@@ -157,7 +164,7 @@ fn handle_gap_interactive(
     gap: &GapResult,
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
-    ctx: &InstallerContext<'_>,
+    ctx: &InstallerContext,
 ) -> Result<Outcome> {
     Ok(match &gap.status {
         RequirementStatus::Satisfied => Outcome::Resolved,
@@ -241,7 +248,7 @@ fn handle_inactive(
     binary_path: &Path,
     activation_hint: &str,
     checker: &mut GapChecker<'_>,
-    ctx: &InstallerContext<'_>,
+    ctx: &InstallerContext,
 ) -> Outcome {
     if let Some(parent) = binary_path.parent() {
         (ctx.prepend_path)(parent);
@@ -261,7 +268,7 @@ fn handle_service_down(
     start_hint: &str,
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
-    ctx: &InstallerContext<'_>,
+    ctx: &InstallerContext,
 ) -> Result<Outcome> {
     let Some(cmd) = start_command else {
         return Ok(Outcome::Skip {
@@ -299,7 +306,7 @@ fn handle_missing(
     install_hint: Option<&str>,
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
-    ctx: &InstallerContext<'_>,
+    ctx: &InstallerContext,
 ) -> Result<Outcome> {
     let hint = install_hint.unwrap_or("Install manually");
 
@@ -404,7 +411,7 @@ fn handle_system_only(
     install_template: Option<&str>,
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
-    ctx: &InstallerContext<'_>,
+    ctx: &InstallerContext,
 ) -> Result<Outcome> {
     ui.warning(warning);
 
@@ -444,17 +451,11 @@ mod tests {
         EnvironmentProbe::run_with_env(|_| Err(std::env::VarError::NotPresent))
     }
 
-    fn stub_ctx(command_succeeds: bool, network_ok: bool) -> InstallerContext<'static> {
-        let run_cmd: &'static dyn Fn(&str) -> bool = if command_succeeds {
-            &|_| true
-        } else {
-            &|_| false
-        };
-        let net: &'static dyn Fn() -> bool = if network_ok { &|| true } else { &|| false };
+    fn stub_ctx(command_succeeds: bool, network_ok: bool) -> InstallerContext {
         InstallerContext {
-            run_command: run_cmd,
-            check_network: net,
-            prepend_path: &|_| {},
+            run_command: Box::new(move |_| command_succeeds),
+            check_network: Box::new(move || network_ok),
+            prepend_path: Box::new(|_| {}),
         }
     }
 
@@ -477,9 +478,9 @@ mod tests {
         let mut ui = MockUI::new();
         ui.set_interactive(true);
         let ctx = InstallerContext {
-            run_command: &|_| true,
-            check_network: &|| true,
-            prepend_path: &|_| {},
+            run_command: Box::new(|_| true),
+            check_network: Box::new(|| true),
+            prepend_path: Box::new(|_| {}),
         };
 
         let gaps = vec![GapResult {
@@ -1379,5 +1380,42 @@ mod tests {
         // still works (this is a basic sanity check; the real dedup
         // logic is inside the closure)
         assert!(!(ctx.run_command)("nonexistent_binary_xyz123"));
+    }
+
+    // --- M1: each default_context call is independent (no leak) ---
+
+    #[test]
+    fn default_context_calls_are_independent() {
+        let temp = TempDir::new().unwrap();
+        let bin_a = temp.path().join("a-bin");
+        let bin_b = temp.path().join("b-bin");
+        std::fs::create_dir_all(&bin_a).unwrap();
+        std::fs::create_dir_all(&bin_b).unwrap();
+
+        // Drop a tool only into bin_a so we can detect cross-context leakage.
+        let script_path = bin_a.join("bivvy_m1_independence_tool");
+        std::fs::write(&script_path, "#!/bin/sh\nexit 0\n").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&script_path, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let ctx_a = default_context();
+        (ctx_a.prepend_path)(&bin_a);
+        assert!(
+            (ctx_a.run_command)("bivvy_m1_independence_tool"),
+            "ctx_a should see its own prepended PATH"
+        );
+
+        // A second context, created after ctx_a, must NOT see ctx_a's
+        // PATH additions. Before the M1 fix the closures were leaked
+        // and shared a single Arc<Mutex<Vec<PathBuf>>>, so this would
+        // have spuriously found the binary.
+        let ctx_b = default_context();
+        assert!(
+            !(ctx_b.run_command)("bivvy_m1_independence_tool"),
+            "ctx_b must not inherit ctx_a's prepended PATH"
+        );
     }
 }

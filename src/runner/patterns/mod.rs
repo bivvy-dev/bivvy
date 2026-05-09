@@ -12,10 +12,17 @@
 use regex::Regex;
 
 /// Lazily compile a regex once. Used in ecosystem modules.
+///
+/// On invalid input, panics with a message that identifies the offending
+/// `LazyLock` static so the failure is traceable without grepping for the
+/// pattern.
 macro_rules! lazy_regex {
     ($name:ident, $pattern:expr) => {
-        static $name: std::sync::LazyLock<regex::Regex> =
-            std::sync::LazyLock::new(|| regex::Regex::new($pattern).unwrap());
+        static $name: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+            regex::Regex::new($pattern).unwrap_or_else(|e| {
+                panic!("BUG: invalid regex literal in {}: {}", stringify!($name), e)
+            })
+        });
     };
 }
 
@@ -324,6 +331,9 @@ mod tests {
     use super::*;
     use test_helpers::*;
 
+    // M2 force test: every ecosystem pattern's regex literal must compile.
+    // A malformed pattern fails CI here rather than panicking the first
+    // time it's matched in production via the `lazy_regex!` macro.
     #[test]
     fn all_patterns_compile() {
         for pattern in built_in_patterns() {

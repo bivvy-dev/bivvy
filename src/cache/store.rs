@@ -146,12 +146,23 @@ impl CacheStore {
     }
 
     /// Clear all cached entries.
+    ///
+    /// Per-entry remove failures are logged at `debug` and do not abort
+    /// the rest of the sweep; the returned count reflects entries that
+    /// were enumerated, not entries successfully removed.
     pub fn clear(&self) -> Result<usize> {
         let entries = self.list()?;
         let count = entries.len();
 
         for entry in entries {
-            let _ = self.remove(&entry.source_id, &entry.template_name);
+            if let Err(e) = self.remove(&entry.source_id, &entry.template_name) {
+                tracing::debug!(
+                    "cache::clear: failed to remove {}:{}: {}",
+                    entry.source_id,
+                    entry.template_name,
+                    e
+                );
+            }
         }
 
         Ok(count)

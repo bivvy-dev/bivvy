@@ -360,10 +360,17 @@ pub fn cleanup_logs(log_dir: &Path, policy: &RetentionPolicy) -> std::io::Result
     // Phase 1: Delete files older than max_age_days
     let mut remaining: Vec<(PathBuf, u64)> = Vec::new();
     for (path, meta) in &log_files {
-        let modified = meta
-            .modified()
-            .ok()
-            .and_then(|t| chrono::DateTime::<Utc>::from(t).into());
+        let modified = match meta.modified() {
+            Ok(t) => Some(chrono::DateTime::<Utc>::from(t)),
+            Err(e) => {
+                tracing::debug!(
+                    "log rotation: meta.modified() failed for {}: {}",
+                    path.display(),
+                    e
+                );
+                None
+            }
+        };
 
         let is_expired = modified
             .map(|m: chrono::DateTime<Utc>| now.signed_duration_since(m) > max_age)
@@ -371,7 +378,13 @@ pub fn cleanup_logs(log_dir: &Path, policy: &RetentionPolicy) -> std::io::Result
 
         if is_expired {
             tracing::debug!("Deleting expired log: {}", path.display());
-            let _ = fs::remove_file(path);
+            if let Err(e) = fs::remove_file(path) {
+                tracing::debug!(
+                    "log rotation: failed to remove expired log {}: {}",
+                    path.display(),
+                    e
+                );
+            }
         } else {
             remaining.push((path.clone(), meta.len()));
         }

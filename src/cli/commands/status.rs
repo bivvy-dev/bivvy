@@ -56,7 +56,13 @@ impl StatusCommand {
     }
 
     /// Resolve the target environment using the priority chain.
-    fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
+    ///
+    /// Returns the resolved environment alongside any detection warnings
+    /// the caller should route to the UI.
+    fn resolve_environment(
+        &self,
+        config: &crate::config::BivvyConfig,
+    ) -> (ResolvedEnvironment, Vec<String>) {
         ResolvedEnvironment::resolve_from_config(self.args.env.as_deref(), &config.settings)
     }
 }
@@ -270,8 +276,11 @@ impl Command for StatusCommand {
         // Load state (baseline migrations not needed for status)
         let (state, _) = StateStore::load(&project_id)?;
 
-        // Resolve environment
-        let resolved_env = self.resolve_environment(&config);
+        // Resolve environment and surface any detection warnings.
+        let (resolved_env, env_warnings) = self.resolve_environment(&config);
+        for w in &env_warnings {
+            ui.warning(w);
+        }
 
         // JSON output mode
         if self.args.json {

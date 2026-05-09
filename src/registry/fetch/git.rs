@@ -3,9 +3,25 @@
 //! Provides functionality for cloning and updating git repositories
 //! to fetch templates, with support for specific refs and update detection.
 
-use anyhow::{bail, Result};
+use anyhow::{bail, Context, Result};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
+
+/// Parse the SHA from `git ls-remote` stdout.
+///
+/// Extracted into a free function so the byte-level parsing is testable
+/// without spawning git. Returns `Ok(None)` when the output is empty
+/// (caller treats as "candidate didn't match"). Returns `Err` when the
+/// bytes are not valid UTF-8 — surfacing the failure instead of silently
+/// substituting `U+FFFD` and parsing garbage as a SHA.
+pub(crate) fn parse_ls_remote_sha(stdout: &[u8]) -> Result<Option<String>> {
+    let text = std::str::from_utf8(stdout).context("git ls-remote output was not valid UTF-8")?;
+    Ok(text
+        .lines()
+        .next()
+        .and_then(|line| line.split_whitespace().next())
+        .map(|sha| sha.to_string()))
+}
 
 /// Allowed URL schemes for git clone operations.
 ///
@@ -153,13 +169,8 @@ impl GitFetcher {
                 );
             }
 
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Some(sha) = stdout
-                .lines()
-                .next()
-                .and_then(|line| line.split_whitespace().next())
-            {
-                return Ok(sha.to_string());
+            if let Some(sha) = parse_ls_remote_sha(&output.stdout)? {
+                return Ok(sha);
             }
         }
 
@@ -235,7 +246,9 @@ impl GitFetcher {
             bail!("Git rev-parse failed");
         }
 
-        Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+        let stdout = std::str::from_utf8(&output.stdout)
+            .context("git rev-parse output was not valid UTF-8")?;
+        Ok(stdout.trim().to_string())
     }
 
     /// Get the local path for a repository.
@@ -336,6 +349,34 @@ mod tests {
         let fetcher = GitFetcher::new(temp.path());
 
         assert_eq!(fetcher.clone_dir(), temp.path());
+    }
+
+    #[test]
+    fn parse_ls_remote_sha_extracts_sha() {
+        let stdout = b"abc123def456\trefs/heads/main\n";
+        let sha = parse_ls_remote_sha(stdout).unwrap();
+        assert_eq!(sha, Some("abc123def456".to_string()));
+    }
+
+    #[test]
+    fn parse_ls_remote_sha_empty_returns_none() {
+        let sha = parse_ls_remote_sha(b"").unwrap();
+        assert_eq!(sha, None);
+    }
+
+    /// Regression test for M7: invalid UTF-8 in git output must surface
+    /// as an explicit error rather than silently being lossy-converted
+    /// to U+FFFD and parsed as a SHA.
+    #[test]
+    fn parse_ls_remote_sha_rejects_invalid_utf8() {
+        let stdout: &[u8] = &[0xff, 0xfe, b'\t', b'r', b'e', b'f', b'\n'];
+        let result = parse_ls_remote_sha(stdout);
+        assert!(result.is_err(), "invalid UTF-8 must error, got: {result:?}");
+        let msg = format!("{:#}", result.unwrap_err());
+        assert!(
+            msg.contains("UTF-8"),
+            "error should mention UTF-8, got: {msg}"
+        );
     }
 
     #[test]

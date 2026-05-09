@@ -91,7 +91,13 @@ impl ListCommand {
     }
 
     /// Resolve the target environment using the priority chain.
-    fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
+    ///
+    /// Returns the resolved environment alongside any detection warnings
+    /// (e.g. ambiguous custom rules) the caller should route to the UI.
+    fn resolve_environment(
+        &self,
+        config: &crate::config::BivvyConfig,
+    ) -> (ResolvedEnvironment, Vec<String>) {
         ResolvedEnvironment::resolve_from_config(self.args.env.as_deref(), &config.settings)
     }
 
@@ -212,8 +218,12 @@ impl Command for ListCommand {
 
         let theme = BivvyTheme::new();
 
-        // Resolve environment
-        let resolved_env = self.resolve_environment(&config);
+        // Resolve environment and surface any detection warnings (e.g.
+        // multiple custom rules matching simultaneously).
+        let (resolved_env, env_warnings) = self.resolve_environment(&config);
+        for w in &env_warnings {
+            ui.warning(w);
+        }
         let env_name = &resolved_env.name;
 
         // JSON output mode

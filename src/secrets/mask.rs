@@ -112,7 +112,7 @@ impl OutputMasker {
         MaskingWriter {
             inner,
             masker: self,
-            buffer: String::new(),
+            buffer: Vec::new(),
         }
     }
 }
@@ -127,21 +127,26 @@ impl Default for OutputMasker {
 ///
 /// This wraps another writer and replaces any secret values with their
 /// masked representation before writing.
+///
+/// The buffer holds raw bytes rather than a `String` so that writes
+/// containing invalid UTF-8 (or sub-line slices that split a multibyte
+/// codepoint) don't accumulate `U+FFFD` substitutions across calls. The
+/// lossy conversion is applied once per complete line, immediately
+/// before masking.
 pub struct MaskingWriter<'a, W: Write> {
     inner: W,
     masker: &'a OutputMasker,
-    buffer: String,
+    buffer: Vec<u8>,
 }
 
 impl<W: Write> Write for MaskingWriter<'_, W> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let input = String::from_utf8_lossy(buf);
-        self.buffer.push_str(&input);
+        self.buffer.extend_from_slice(buf);
 
-        // Process complete lines
-        while let Some(newline_pos) = self.buffer.find('\n') {
-            let line = self.buffer[..=newline_pos].to_string();
-            self.buffer = self.buffer[newline_pos + 1..].to_string();
+        // Process complete lines.
+        while let Some(newline_pos) = self.buffer.iter().position(|&b| b == b'\n') {
+            let line_bytes: Vec<u8> = self.buffer.drain(..=newline_pos).collect();
+            let line = String::from_utf8_lossy(&line_bytes);
             let masked = self.masker.mask(&line);
             self.inner.write_all(masked.as_bytes())?;
         }
@@ -151,7 +156,8 @@ impl<W: Write> Write for MaskingWriter<'_, W> {
 
     fn flush(&mut self) -> io::Result<()> {
         if !self.buffer.is_empty() {
-            let masked = self.masker.mask(&self.buffer);
+            let line = String::from_utf8_lossy(&self.buffer);
+            let masked = self.masker.mask(&line);
             self.inner.write_all(masked.as_bytes())?;
             self.buffer.clear();
         }
@@ -162,6 +168,36 @@ impl<W: Write> Write for MaskingWriter<'_, W> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression test for M7: writes that contain invalid UTF-8 bytes
+    /// must not silently substitute `U+FFFD` and corrupt subsequent
+    /// secret values that might span the same write boundary.
+    #[test]
+    fn masking_writer_handles_invalid_utf8_writes() {
+        let mut masker = OutputMasker::new();
+        masker.add_secret("topsecret");
+
+        let mut output: Vec<u8> = Vec::new();
+        {
+            let mut writer = masker.writer(&mut output);
+            // Write an invalid UTF-8 byte followed by a newline, then a
+            // line containing the secret. The secret must still be masked
+            // and the invalid byte must not bleed into the masked line.
+            writer.write_all(&[0xff, b'\n']).unwrap();
+            writer.write_all(b"contains topsecret value\n").unwrap();
+            writer.flush().unwrap();
+        }
+
+        let text = String::from_utf8_lossy(&output);
+        assert!(
+            !text.contains("topsecret"),
+            "secret should be masked, got: {text}"
+        );
+        assert!(
+            text.contains("[REDACTED]"),
+            "expected masked output, got: {text}"
+        );
+    }
 
     #[test]
     fn masks_single_secret() {

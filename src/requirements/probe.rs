@@ -126,9 +126,13 @@ const MANAGER_DEFS: &[ManagerDef] = &[
 #[cfg(unix)]
 pub fn is_executable(path: &Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    path.metadata()
-        .map(|m| m.permissions().mode() & 0o111 != 0)
-        .unwrap_or(false)
+    match path.metadata() {
+        Ok(m) => m.permissions().mode() & 0o111 != 0,
+        Err(e) => {
+            tracing::debug!("is_executable: metadata({:?}) failed: {}", path, e);
+            false
+        }
+    }
 }
 
 /// On Windows, executability is determined by file extension, not permission bits.

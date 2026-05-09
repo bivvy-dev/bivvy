@@ -82,11 +82,13 @@ pub fn command_succeeds(command: &str) -> bool {
         return false;
     }
 
-    Command::new(parts[0])
-        .args(&parts[1..])
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    match Command::new(parts[0]).args(&parts[1..]).output() {
+        Ok(o) => o.status.success(),
+        Err(e) => {
+            tracing::debug!("command_succeeds: failed to execute {:?}: {}", command, e);
+            false
+        }
+    }
 }
 
 /// Extract version from command output.

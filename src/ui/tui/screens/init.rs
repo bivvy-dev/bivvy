@@ -358,7 +358,10 @@ impl InitScreen {
             Style::default().fg(Palette::TEXT_DIM),
         ));
 
-        let content_height = lines.len() as u16 + 2; // +2 for border
+        // +2 for border. Saturate at u16::MAX rather than truncating
+        // silently; an overlay that wide would clip to the inner area
+        // anyway (handled by the .min() below).
+        let content_height = u16::try_from(lines.len().saturating_add(2)).unwrap_or(u16::MAX);
         let content_width = 36u16;
 
         let overlay_width = content_width.min(area.width.saturating_sub(4));
@@ -389,8 +392,9 @@ impl InitScreen {
 
         // Render lines inside the block
         for (i, line) in lines.iter().enumerate() {
-            let ly = inner.y + i as u16;
-            if ly >= inner.y + inner.height {
+            let row_offset = u16::try_from(i).unwrap_or(u16::MAX);
+            let ly = inner.y.saturating_add(row_offset);
+            if ly >= inner.y.saturating_add(inner.height) {
                 break;
             }
             frame
@@ -413,7 +417,15 @@ impl InitScreen {
         // Render count badge in top-right of card (only when Full mode has a border)
         if mode == DegradeMode::Full && inner.height > 0 {
             let count = format!("{} items", found.len());
-            let badge_x = inner.x + inner.width - count.len() as u16 - 1;
+            // Saturate the width and use saturating_sub so a wider count
+            // string than the inner area clamps to the left edge instead
+            // of underflowing u16.
+            let count_width = u16::try_from(count.len()).unwrap_or(u16::MAX);
+            let badge_x = inner
+                .x
+                .saturating_add(inner.width)
+                .saturating_sub(count_width)
+                .saturating_sub(1);
             frame.buffer_mut().set_string(
                 badge_x,
                 area.y, // In the border row

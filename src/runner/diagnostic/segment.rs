@@ -29,36 +29,50 @@ pub struct TaggedLine {
 
 // === Error signal patterns ===
 
-static RE_ERROR_KEYWORDS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(error|fatal|danger|failed)\b").unwrap());
+static RE_ERROR_KEYWORDS: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(error|fatal|danger|failed)\b")
+        .expect("BUG: invalid regex literal in RE_ERROR_KEYWORDS")
+});
 
 static RE_ERROR_CODES: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(ERESOLVE|E0\d{3}|ENOSPC|EACCES|EADDRINUSE|PEP 668)\b").unwrap()
+    Regex::new(r"\b(ERESOLVE|E0\d{3}|ENOSPC|EACCES|EADDRINUSE|PEP 668)\b")
+        .expect("BUG: invalid regex literal in RE_ERROR_CODES")
 });
 
-static RE_PYTHON_EXCEPTION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[A-Z][a-z]+(?:[A-Z][a-z]+)+Error:").unwrap());
+static RE_PYTHON_EXCEPTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[A-Z][a-z]+(?:[A-Z][a-z]+)+Error:")
+        .expect("BUG: invalid regex literal in RE_PYTHON_EXCEPTION")
+});
 
-static RE_RUBY_EXCEPTION: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"[A-Z]\w+(?:::[A-Z]\w+)+Error").unwrap());
+static RE_RUBY_EXCEPTION: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"[A-Z]\w+(?:::[A-Z]\w+)+Error")
+        .expect("BUG: invalid regex literal in RE_RUBY_EXCEPTION")
+});
 
 static RE_EXIT_CODE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(exit code|exit status|returned non-zero|exited with)").unwrap()
+    Regex::new(r"(?i)(exit code|exit status|returned non-zero|exited with)")
+        .expect("BUG: invalid regex literal in RE_EXIT_CODE")
 });
 
-static RE_ERROR_COLON: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)^[a-z_\-./]+:\s*(error|fatal):").unwrap());
+static RE_ERROR_COLON: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)^[a-z_\-./]+:\s*(error|fatal):")
+        .expect("BUG: invalid regex literal in RE_ERROR_COLON")
+});
 
 // === Resolution candidate patterns ===
 
 static RE_RESOLUTION_PREFIX: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)^(Try |Please |You may |You might |Hint:|Tip:|Fix:|Note:|note:)").unwrap()
+    Regex::new(r"(?i)^(Try |Please |You may |You might |Hint:|Tip:|Fix:|Note:|note:)")
+        .expect("BUG: invalid regex literal in RE_RESOLUTION_PREFIX")
 });
 
-static RE_BACKTICK_COMMAND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`[^`]{2,}`").unwrap());
+static RE_BACKTICK_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"`[^`]{2,}`").expect("BUG: invalid regex literal in RE_BACKTICK_COMMAND")
+});
 
-static RE_ARROW_COMMAND: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(→|=>|-->)\s+\S").unwrap());
+static RE_ARROW_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(→|=>|-->)\s+\S").expect("BUG: invalid regex literal in RE_ARROW_COMMAND")
+});
 
 // === Noise patterns (explicit exclusions from resolution candidate) ===
 
@@ -66,15 +80,15 @@ static RE_NOISE_FRAMEWORK: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(
         r#"(?i)(^Tasks:\s|^bin/\S+ aborted|See full trace|^\(See full trace|^at\s+\S+\s+\(|^from /|^\s+File ".+",\s+line\s+\d+)"#,
     )
-    .unwrap()
+    .expect("BUG: invalid regex literal in RE_NOISE_FRAMEWORK")
 });
 
 static RE_ACTION_VERBS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(install|run|start|stop|restart|enable|update|upgrade|downgrade|create|add|remove|delete|set|unset|export|use|try|activate|configure|build|rebuild|clean|reset|fix|repair|migrate|check|verify|ensure|make sure|set up|sign in|log in|opt in|switch to|add to|point to)\b").unwrap()
+    Regex::new(r"(?i)\b(install|run|start|stop|restart|enable|update|upgrade|downgrade|create|add|remove|delete|set|unset|export|use|try|activate|configure|build|rebuild|clean|reset|fix|repair|migrate|check|verify|ensure|make sure|set up|sign in|log in|opt in|switch to|add to|point to)\b").expect("BUG: invalid regex literal in RE_ACTION_VERBS")
 });
 
 static RE_NOUN_SIGNALS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)\b(path|permission|version|module|package|dependency|variable|environment|config|configuration|credentials|token|key|certificate)\b").unwrap()
+    Regex::new(r"(?i)\b(path|permission|version|module|package|dependency|variable|environment|config|configuration|credentials|token|key|certificate)\b").expect("BUG: invalid regex literal in RE_NOUN_SIGNALS")
 });
 
 /// Segment normalized text into tagged lines.
@@ -127,6 +141,29 @@ mod tests {
 
     fn has_tag(line: &TaggedLine, tag: LineTag) -> bool {
         line.tags.contains(&tag)
+    }
+
+    /// Force-compile every regex literal in this module so a malformed
+    /// pattern fails CI rather than panicking at first use in production.
+    #[test]
+    fn regex_literals_compile() {
+        let regexes: &[&LazyLock<Regex>] = &[
+            &RE_ERROR_KEYWORDS,
+            &RE_ERROR_CODES,
+            &RE_PYTHON_EXCEPTION,
+            &RE_RUBY_EXCEPTION,
+            &RE_EXIT_CODE,
+            &RE_ERROR_COLON,
+            &RE_RESOLUTION_PREFIX,
+            &RE_BACKTICK_COMMAND,
+            &RE_ARROW_COMMAND,
+            &RE_NOISE_FRAMEWORK,
+            &RE_ACTION_VERBS,
+            &RE_NOUN_SIGNALS,
+        ];
+        for re in regexes {
+            LazyLock::force(re);
+        }
     }
 
     #[test]

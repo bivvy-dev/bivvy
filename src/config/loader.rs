@@ -192,7 +192,15 @@ fn ensure_global_config_in(home: PathBuf) {
 
     // Write schema.json on every run so it stays current after upgrades.
     let schema_path = bivvy_dir.join("schema.json");
-    let _ = fs::write(&schema_path, crate::lint::schema_json());
+    if let Err(e) = fs::write(&schema_path, crate::lint::schema_json()) {
+        // Editor IntelliSense depends on this file. Failing silently
+        // degrades the user experience without any signal.
+        tracing::warn!(
+            "ensure_global_config: failed to write {:?}: {}",
+            schema_path,
+            e
+        );
+    }
 
     // Only create config.yml if it doesn't exist yet.
     let config_path = bivvy_dir.join("config.yml");
@@ -220,7 +228,13 @@ fn ensure_global_config_in(home: PathBuf) {
 "
         );
 
-        let _ = fs::write(&config_path, content);
+        if let Err(e) = fs::write(&config_path, content) {
+            tracing::warn!(
+                "ensure_global_config: failed to write {:?}: {}",
+                config_path,
+                e
+            );
+        }
     }
 }
 

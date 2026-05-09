@@ -62,7 +62,9 @@ impl SessionWrapper {
         self.store.save(&session)?;
 
         // Cleanup old sessions (keep last 100)
-        let _ = self.store.cleanup(100);
+        if let Err(e) = self.store.cleanup(100) {
+            tracing::debug!("session cleanup: failed to prune old sessions: {}", e);
+        }
 
         Ok(self.current_id)
     }

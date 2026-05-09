@@ -25,8 +25,11 @@ pub struct DetectedEnvironment {
 /// use bivvy::environment::BuiltinDetector;
 ///
 /// let detector = BuiltinDetector::new();
-/// let detected = detector.detect();
-/// // Returns Some(DetectedEnvironment) if running in a known environment
+/// let (detected, warnings) = detector.detect();
+/// // detected is Some(DetectedEnvironment) when a known environment matches.
+/// // warnings carries any user-visible advisories (e.g. ambiguous custom
+/// // rules) so the caller can route them through the UI.
+/// let _ = (detected, warnings);
 /// ```
 pub struct BuiltinDetector {
     /// Custom detection rules from config, checked before built-ins.
@@ -63,20 +66,24 @@ impl BuiltinDetector {
 
     /// Detect the current environment.
     ///
-    /// Returns the first matching environment, checking in order:
+    /// Returns the first matching environment alongside any warnings the
+    /// caller should surface (e.g. ambiguous custom-rule matches).
+    /// Checks in order:
     /// 1. Custom rules (alphabetical by environment name)
     /// 2. CI (broadest, most commonly needed classification)
     /// 3. Codespace
     /// 4. Docker
-    pub fn detect(&self) -> Option<DetectedEnvironment> {
+    pub fn detect(&self) -> (Option<DetectedEnvironment>, Vec<String>) {
         self.detect_with_env(|key| std::env::var(key))
     }
 
     /// Detect with a custom env var lookup (for testing).
-    pub fn detect_with_env<F>(&self, env_fn: F) -> Option<DetectedEnvironment>
+    pub fn detect_with_env<F>(&self, env_fn: F) -> (Option<DetectedEnvironment>, Vec<String>)
     where
         F: Fn(&str) -> Result<String, std::env::VarError>,
     {
+        let mut warnings: Vec<String> = Vec::new();
+
         // 1. Custom rules first (BTreeMap = alphabetical order)
         // Collect all matching custom environments to warn about ambiguity.
         let matching_custom: Vec<(&String, &str)> = self
@@ -92,18 +99,21 @@ impl BuiltinDetector {
 
         if matching_custom.len() > 1 {
             let names: Vec<&str> = matching_custom.iter().map(|(n, _)| n.as_str()).collect();
-            eprintln!(
-                "Warning: Multiple custom environments detected: {}. Using '{}' (alphabetically first).",
+            warnings.push(format!(
+                "Multiple custom environments detected: {}. Using '{}' (alphabetically first).",
                 names.join(", "),
                 names[0],
-            );
+            ));
         }
 
         if let Some((env_name, detected_via)) = matching_custom.first() {
-            return Some(DetectedEnvironment {
-                name: (*env_name).clone(),
-                detected_via: detected_via.to_string(),
-            });
+            return (
+                Some(DetectedEnvironment {
+                    name: (*env_name).clone(),
+                    detected_via: detected_via.to_string(),
+                }),
+                warnings,
+            );
         }
 
         // 2. CI (broadest, most commonly needed classification --
@@ -119,51 +129,69 @@ impl BuiltinDetector {
         ];
         for var in &ci_vars {
             if env_fn(var).is_ok() {
-                return Some(DetectedEnvironment {
-                    name: "ci".to_string(),
-                    detected_via: var.to_string(),
-                });
+                return (
+                    Some(DetectedEnvironment {
+                        name: "ci".to_string(),
+                        detected_via: var.to_string(),
+                    }),
+                    warnings,
+                );
             }
         }
 
         // TF_BUILD must equal "True" (Azure DevOps)
         if env_fn("TF_BUILD").as_deref() == Ok("True") {
-            return Some(DetectedEnvironment {
-                name: "ci".to_string(),
-                detected_via: "TF_BUILD".to_string(),
-            });
+            return (
+                Some(DetectedEnvironment {
+                    name: "ci".to_string(),
+                    detected_via: "TF_BUILD".to_string(),
+                }),
+                warnings,
+            );
         }
 
         // 3. Codespace
         if env_fn("CODESPACES").is_ok() {
-            return Some(DetectedEnvironment {
-                name: "codespace".to_string(),
-                detected_via: "CODESPACES".to_string(),
-            });
+            return (
+                Some(DetectedEnvironment {
+                    name: "codespace".to_string(),
+                    detected_via: "CODESPACES".to_string(),
+                }),
+                warnings,
+            );
         }
         if env_fn("GITPOD_WORKSPACE_ID").is_ok() {
-            return Some(DetectedEnvironment {
-                name: "codespace".to_string(),
-                detected_via: "GITPOD_WORKSPACE_ID".to_string(),
-            });
+            return (
+                Some(DetectedEnvironment {
+                    name: "codespace".to_string(),
+                    detected_via: "GITPOD_WORKSPACE_ID".to_string(),
+                }),
+                warnings,
+            );
         }
 
         // 4. Docker
         if env_fn("DOCKER_CONTAINER").is_ok() {
-            return Some(DetectedEnvironment {
-                name: "docker".to_string(),
-                detected_via: "DOCKER_CONTAINER".to_string(),
-            });
+            return (
+                Some(DetectedEnvironment {
+                    name: "docker".to_string(),
+                    detected_via: "DOCKER_CONTAINER".to_string(),
+                }),
+                warnings,
+            );
         }
         // Fallback: check for /.dockerenv file (not unit-testable outside Docker)
         if std::path::Path::new("/.dockerenv").exists() {
-            return Some(DetectedEnvironment {
-                name: "docker".to_string(),
-                detected_via: "/.dockerenv".to_string(),
-            });
+            return (
+                Some(DetectedEnvironment {
+                    name: "docker".to_string(),
+                    detected_via: "/.dockerenv".to_string(),
+                }),
+                warnings,
+            );
         }
 
-        None
+        (None, warnings)
     }
 
     /// Check if a single detection rule matches.
@@ -203,18 +231,34 @@ mod tests {
         move |key: &str| map.get(key).cloned().ok_or(std::env::VarError::NotPresent)
     }
 
+    /// Test helper: detect and unwrap the warnings, asserting none were
+    /// produced. Tests that exercise the warning path call
+    /// `detect_with_env` directly.
+    fn detect_no_warnings<F>(detector: &BuiltinDetector, env_fn: F) -> Option<DetectedEnvironment>
+    where
+        F: Fn(&str) -> Result<String, std::env::VarError>,
+    {
+        let (env, warnings) = detector.detect_with_env(env_fn);
+        assert!(
+            warnings.is_empty(),
+            "expected no warnings, got: {:?}",
+            warnings
+        );
+        env
+    }
+
     #[test]
     fn detect_nothing_in_clean_env() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[]);
-        assert!(detector.detect_with_env(env_fn).is_none());
+        assert!(detect_no_warnings(&detector, env_fn).is_none());
     }
 
     #[test]
     fn detect_ci_from_ci_var() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("CI", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "CI");
     }
@@ -223,7 +267,7 @@ mod tests {
     fn detect_ci_from_github_actions() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("GITHUB_ACTIONS", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "GITHUB_ACTIONS");
     }
@@ -232,7 +276,7 @@ mod tests {
     fn detect_ci_from_gitlab_ci() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("GITLAB_CI", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "GITLAB_CI");
     }
@@ -241,7 +285,7 @@ mod tests {
     fn detect_ci_from_circleci() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("CIRCLECI", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "CIRCLECI");
     }
@@ -250,7 +294,7 @@ mod tests {
     fn detect_ci_from_jenkins() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("JENKINS_URL", "http://ci.example.com")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "JENKINS_URL");
     }
@@ -259,7 +303,7 @@ mod tests {
     fn detect_codespace() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("CODESPACES", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "codespace");
         assert_eq!(result.detected_via, "CODESPACES");
     }
@@ -268,7 +312,7 @@ mod tests {
     fn detect_docker() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("DOCKER_CONTAINER", "1")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "docker");
         assert_eq!(result.detected_via, "DOCKER_CONTAINER");
     }
@@ -278,7 +322,7 @@ mod tests {
         let detector = BuiltinDetector::new();
         // Codespaces also sets CI — CI should win because it's the broadest classification
         let env_fn = make_env(&[("CODESPACES", "true"), ("CI", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
     }
 
@@ -286,7 +330,7 @@ mod tests {
     fn ci_takes_priority_over_docker() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("CI", "true"), ("DOCKER_CONTAINER", "1")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
     }
 
@@ -295,7 +339,7 @@ mod tests {
         let detector = BuiltinDetector::new();
         // When only CODESPACES is set (no CI var), codespace is detected
         let env_fn = make_env(&[("CODESPACES", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "codespace");
     }
 
@@ -311,7 +355,7 @@ mod tests {
         );
         let detector = BuiltinDetector::new().with_custom_rules(custom);
         let env_fn = make_env(&[("DEPLOY_ENV", "staging"), ("CI", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "staging");
         assert_eq!(result.detected_via, "DEPLOY_ENV");
     }
@@ -329,7 +373,7 @@ mod tests {
         let detector = BuiltinDetector::new().with_custom_rules(custom);
         // Value doesn't match
         let env_fn = make_env(&[("DEPLOY_ENV", "production")]);
-        assert!(detector.detect_with_env(env_fn).is_none());
+        assert!(detect_no_warnings(&detector, env_fn).is_none());
     }
 
     #[test]
@@ -344,7 +388,7 @@ mod tests {
         );
         let detector = BuiltinDetector::new().with_custom_rules(custom);
         let env_fn = make_env(&[("PREVIEW", "anything")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "preview");
     }
 
@@ -366,10 +410,13 @@ mod tests {
             }],
         );
         let detector = BuiltinDetector::new().with_custom_rules(custom);
-        // Both match — "alpha" wins because BTreeMap orders alphabetically
+        // Both match — "alpha" wins because BTreeMap orders alphabetically.
+        // Detection emits an ambiguity warning (covered by
+        // `custom_rules_multiple_match_warns`); this test focuses on the
+        // ordering of the chosen environment.
         let env_fn = make_env(&[("ALPHA", "1"), ("BETA", "1")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
-        assert_eq!(result.name, "alpha");
+        let (result, _warnings) = detector.detect_with_env(env_fn);
+        assert_eq!(result.unwrap().name, "alpha");
     }
 
     #[test]
@@ -391,11 +438,18 @@ mod tests {
         );
         let detector = BuiltinDetector::new().with_custom_rules(custom);
         // Both match — should still pick "alpha" (alphabetically first)
-        // and emit a warning (tested via stderr capture in integration tests)
+        // and surface a warning the caller can route to the UI.
         let env_fn = make_env(&[("ALPHA", "1"), ("BETA", "1")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let (result, warnings) = detector.detect_with_env(env_fn);
+        let result = result.unwrap();
         assert_eq!(result.name, "alpha");
         assert_eq!(result.detected_via, "ALPHA");
+        assert_eq!(warnings.len(), 1, "expected one ambiguity warning");
+        let w = &warnings[0];
+        assert!(
+            w.contains("alpha") && w.contains("beta"),
+            "warning should name both environments, got: {w}"
+        );
     }
 
     #[test]
@@ -417,7 +471,7 @@ mod tests {
         let detector = BuiltinDetector::new().with_custom_rules(custom);
         // Second rule matches
         let env_fn = make_env(&[("STAGING", "1")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "staging");
         assert_eq!(result.detected_via, "STAGING");
     }
@@ -431,7 +485,7 @@ mod tests {
     fn detect_ci_from_buildkite() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("BUILDKITE", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "BUILDKITE");
     }
@@ -440,7 +494,7 @@ mod tests {
     fn detect_ci_from_travis() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("TRAVIS", "true")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "TRAVIS");
     }
@@ -449,7 +503,7 @@ mod tests {
     fn detect_ci_from_tf_build() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("TF_BUILD", "True")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "ci");
         assert_eq!(result.detected_via, "TF_BUILD");
     }
@@ -459,14 +513,14 @@ mod tests {
         let detector = BuiltinDetector::new();
         // TF_BUILD must be "True", not just present
         let env_fn = make_env(&[("TF_BUILD", "false")]);
-        assert!(detector.detect_with_env(env_fn).is_none());
+        assert!(detect_no_warnings(&detector, env_fn).is_none());
     }
 
     #[test]
     fn detect_codespace_from_gitpod() {
         let detector = BuiltinDetector::new();
         let env_fn = make_env(&[("GITPOD_WORKSPACE_ID", "abc123")]);
-        let result = detector.detect_with_env(env_fn).unwrap();
+        let result = detect_no_warnings(&detector, env_fn).unwrap();
         assert_eq!(result.name, "codespace");
         assert_eq!(result.detected_via, "GITPOD_WORKSPACE_ID");
     }

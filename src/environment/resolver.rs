@@ -48,6 +48,10 @@ pub struct ResolvedEnvironment {
 impl ResolvedEnvironment {
     /// Resolve the environment using the priority chain.
     ///
+    /// Returns the resolved environment alongside any detection warnings
+    /// the caller should surface to the user (e.g. ambiguous custom
+    /// detection rules).
+    ///
     /// # Arguments
     ///
     /// * `flag` - Explicit `--env` flag value
@@ -61,20 +65,25 @@ impl ResolvedEnvironment {
     ///
     /// // With explicit flag
     /// let detector = BuiltinDetector::new();
-    /// let resolved = ResolvedEnvironment::resolve(
+    /// let (resolved, warnings) = ResolvedEnvironment::resolve(
     ///     Some("staging"),
     ///     None,
     ///     &detector,
     /// );
     /// assert_eq!(resolved.name, "staging");
     /// assert_eq!(resolved.source, EnvironmentSource::Flag);
+    /// assert!(warnings.is_empty());
     /// ```
     pub fn resolve(
         flag: Option<&str>,
         config_default: Option<&str>,
         detector: &BuiltinDetector,
-    ) -> Self {
-        Self::resolve_with_detection(flag, config_default, detector.detect())
+    ) -> (Self, Vec<String>) {
+        let (detected, warnings) = detector.detect();
+        (
+            Self::resolve_with_detection(flag, config_default, detected),
+            warnings,
+        )
     }
 
     /// Resolve with a pre-computed detection result (for testing).
@@ -120,7 +129,10 @@ impl ResolvedEnvironment {
     /// the config's `settings.environments` entries and delegates to `resolve()`.
     ///
     /// Priority: explicit flag > config default > auto-detection > fallback.
-    pub fn resolve_from_config(flag: Option<&str>, settings: &Settings) -> Self {
+    ///
+    /// Returns the resolved environment alongside any detection warnings
+    /// (callers route these to `UserInterface::warning`).
+    pub fn resolve_from_config(flag: Option<&str>, settings: &Settings) -> (Self, Vec<String>) {
         let custom_rules: BTreeMap<String, Vec<DetectRule>> = settings
             .environment_profiles
             .environments
@@ -288,9 +300,10 @@ mod tests {
     fn resolve_with_real_detector() {
         let detector = BuiltinDetector::new();
         // In test environment, this should either detect CI or fall back
-        let resolved = ResolvedEnvironment::resolve(Some("test"), None, &detector);
+        let (resolved, warnings) = ResolvedEnvironment::resolve(Some("test"), None, &detector);
         assert_eq!(resolved.name, "test");
         assert_eq!(resolved.source, EnvironmentSource::Flag);
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -322,9 +335,51 @@ mod tests {
     #[test]
     fn resolve_from_config_uses_flag() {
         let settings = Settings::default();
-        let resolved = ResolvedEnvironment::resolve_from_config(Some("staging"), &settings);
+        let (resolved, warnings) =
+            ResolvedEnvironment::resolve_from_config(Some("staging"), &settings);
         assert_eq!(resolved.name, "staging");
         assert_eq!(resolved.source, EnvironmentSource::Flag);
+        assert!(warnings.is_empty());
+    }
+
+    #[test]
+    fn resolve_from_config_surfaces_ambiguous_custom_warnings() {
+        // Drive the warning path directly: build the detector and rules
+        // the way `resolve_from_config` would, but use `detect_with_env`
+        // so the test does not have to mutate the process environment
+        // (which is unsafe in Rust 2024 and brittle when other tests run
+        // in the same process).
+        let mut custom_rules: BTreeMap<String, Vec<DetectRule>> = BTreeMap::new();
+        custom_rules.insert(
+            "alpha".to_string(),
+            vec![DetectRule {
+                env: "ALPHA".to_string(),
+                value: None,
+            }],
+        );
+        custom_rules.insert(
+            "beta".to_string(),
+            vec![DetectRule {
+                env: "BETA".to_string(),
+                value: None,
+            }],
+        );
+
+        let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
+        let (_detected, warnings) = detector.detect_with_env(|key| match key {
+            "ALPHA" | "BETA" => Ok("1".to_string()),
+            _ => Err(std::env::VarError::NotPresent),
+        });
+
+        assert!(
+            !warnings.is_empty(),
+            "expected an ambiguity warning when two custom envs match"
+        );
+        let w = &warnings[0];
+        assert!(
+            w.contains("alpha") && w.contains("beta"),
+            "warning should name both environments, got: {w}"
+        );
     }
 
     #[test]
@@ -362,15 +417,15 @@ mod tests {
         );
 
         let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
-        let detected = detector
-            .detect_with_env(|key| match key {
-                "MY_CI" => Ok("1".to_string()),
-                _ => Err(std::env::VarError::NotPresent),
-            })
-            .unwrap();
+        let (detected, warnings) = detector.detect_with_env(|key| match key {
+            "MY_CI" => Ok("1".to_string()),
+            _ => Err(std::env::VarError::NotPresent),
+        });
+        let detected = detected.unwrap();
 
         assert_eq!(detected.name, "custom_ci");
         assert_eq!(detected.detected_via, "MY_CI");
+        assert!(warnings.is_empty());
     }
 
     #[test]
@@ -389,10 +444,12 @@ mod tests {
         );
 
         let detector = BuiltinDetector::new().with_custom_rules(custom_rules);
-        let detected = detector.detect_with_env(|_| Err(std::env::VarError::NotPresent));
+        let (detected, warnings) =
+            detector.detect_with_env(|_| Err(std::env::VarError::NotPresent));
 
         // No env vars set at all, so nothing matches
         assert!(detected.is_none());
+        assert!(warnings.is_empty());
 
         // When nothing is detected, resolve falls back to development
         let resolved = ResolvedEnvironment::resolve_with_detection(None, None, None);

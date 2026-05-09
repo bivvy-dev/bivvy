@@ -186,16 +186,7 @@ impl PackageManagerDetector {
         }
 
         // .NET
-        if std::fs::read_dir(project_root)
-            .map(|entries| {
-                entries.filter_map(|e| e.ok()).any(|e| {
-                    let name = e.file_name();
-                    let name = name.to_string_lossy();
-                    name.ends_with(".sln") || name.ends_with(".csproj")
-                })
-            })
-            .unwrap_or(false)
-        {
+        if has_dotnet_project_file(project_root) {
             managers.push(PackageManager::Dotnet);
         }
 
@@ -210,6 +201,29 @@ impl PackageManagerDetector {
         }
 
         managers
+    }
+}
+
+/// Return true if `project_root` contains a `.sln` or `.csproj` file.
+///
+/// Logs at `debug` if the directory cannot be read; the absence of read
+/// permission or a missing directory is treated as "no .NET project here"
+/// rather than as a fatal error.
+fn has_dotnet_project_file(project_root: &std::path::Path) -> bool {
+    match std::fs::read_dir(project_root) {
+        Ok(entries) => entries.filter_map(|e| e.ok()).any(|e| {
+            let name = e.file_name();
+            let name = name.to_string_lossy();
+            name.ends_with(".sln") || name.ends_with(".csproj")
+        }),
+        Err(e) => {
+            tracing::debug!(
+                "detect_package_managers: read_dir({:?}) failed: {}",
+                project_root,
+                e
+            );
+            false
+        }
     }
 }
 

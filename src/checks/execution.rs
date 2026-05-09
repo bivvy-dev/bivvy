@@ -38,7 +38,21 @@ pub fn evaluate_execution(
     };
 
     let exit_success = output.status.success();
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    // Validation depends on whether stdout is empty; lossy conversion would
+    // silently substitute U+FFFD for invalid bytes and flip Truthy/Falsy
+    // results. Surface invalid UTF-8 explicitly instead.
+    let stdout = match std::str::from_utf8(&output.stdout) {
+        Ok(s) => s,
+        Err(_) => {
+            return CheckResult::failed(
+                format!(
+                    "\u{2717} {} produced invalid UTF-8 output",
+                    truncate_display(command, 50)
+                ),
+                "Command stdout was not valid UTF-8",
+            );
+        }
+    };
     let stdout_trimmed = stdout.trim();
 
     match validation {
@@ -218,5 +232,33 @@ mod tests {
         let long_cmd = format!("echo {}", "a".repeat(100));
         let result = evaluate_execution(&long_cmd, ValidationMode::Success, temp().path());
         assert!(result.description.len() < long_cmd.len() + 30);
+    }
+
+    /// Regression test for M7: a check command that emits invalid UTF-8
+    /// must mark the check as failed with a clear "not valid UTF-8"
+    /// message instead of letting `from_utf8_lossy` silently substitute
+    /// `U+FFFD` and flip Truthy/Falsy validation.
+    #[test]
+    #[cfg(unix)]
+    fn invalid_utf8_stdout_marks_check_failed() {
+        // printf '\377' produces a single non-UTF-8 byte (0xFF) on stdout.
+        // The octal escape is portable across POSIX shells, whereas the `\xHH`
+        // hex escape is unsupported by dash (the default `/bin/sh` on many
+        // Linux distributions) and would emit the literal, valid-UTF-8 text.
+        let result = evaluate_execution("printf '\\377'", ValidationMode::Truthy, temp().path());
+        assert!(
+            !result.passed_check(),
+            "invalid UTF-8 must fail the check, got: {:?}",
+            result.description
+        );
+        let combined = format!(
+            "{}\n{}",
+            result.description,
+            result.details.as_deref().unwrap_or("")
+        );
+        assert!(
+            combined.contains("UTF-8"),
+            "expected message to mention UTF-8, got: {combined}"
+        );
     }
 }

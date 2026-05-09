@@ -108,7 +108,13 @@ impl RunCommand {
     }
 
     /// Resolve the target environment using the priority chain.
-    fn resolve_environment(&self, config: &crate::config::BivvyConfig) -> ResolvedEnvironment {
+    ///
+    /// Returns the resolved environment and any detection warnings the
+    /// caller should route to the UI.
+    fn resolve_environment(
+        &self,
+        config: &crate::config::BivvyConfig,
+    ) -> (ResolvedEnvironment, Vec<String>) {
         ResolvedEnvironment::resolve_from_config(self.args.env.as_deref(), &config.settings)
     }
 
@@ -224,10 +230,15 @@ impl Command for RunCommand {
             };
 
             // Resolve the workflow name using the project file's environments.
-            let phase1_env = ResolvedEnvironment::resolve_from_config(
+            // Phase 1 surfaces detection warnings (e.g. ambiguous custom envs)
+            // before phase 2 runs the same resolution against the merged config.
+            let (phase1_env, phase1_warnings) = ResolvedEnvironment::resolve_from_config(
                 self.args.env.as_deref(),
                 &phase1.settings,
             );
+            for w in &phase1_warnings {
+                ui.warning(w);
+            }
             let resolved_name = if self.args.workflow == "default" {
                 phase1
                     .settings
@@ -323,8 +334,13 @@ impl Command for RunCommand {
             ui.set_output_mode(config.settings.defaults.output.into());
         }
 
-        // Resolve environment (before header so we can use resolved workflow)
-        let resolved_env = self.resolve_environment(&config);
+        // Resolve environment (before header so we can use resolved workflow).
+        // Phase 2 may surface fresh warnings if the merged config introduces
+        // additional ambiguity not present in phase 1.
+        let (resolved_env, env_warnings) = self.resolve_environment(&config);
+        for w in &env_warnings {
+            ui.warning(w);
+        }
         let env_name = resolved_env.name.clone();
 
         // Warn if the environment is not known
@@ -1267,7 +1283,8 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let config = crate::config::BivvyConfig::default();
-        let resolved = cmd.resolve_environment(&config);
+        let (resolved, warnings) = cmd.resolve_environment(&config);
+        assert!(warnings.is_empty());
 
         // Without flag or config default, environment is either auto-detected
         // (e.g. "ci" in CI) or falls back to "development"
@@ -1292,7 +1309,8 @@ workflows:
         let cmd = RunCommand::new(temp.path(), args);
 
         let config = crate::config::BivvyConfig::default();
-        let resolved = cmd.resolve_environment(&config);
+        let (resolved, warnings) = cmd.resolve_environment(&config);
+        assert!(warnings.is_empty());
 
         assert_eq!(resolved.name, "staging");
         assert_eq!(
@@ -1309,7 +1327,8 @@ workflows:
 
         let mut config = crate::config::BivvyConfig::default();
         config.settings.environment_profiles.default_environment = Some("production".to_string());
-        let resolved = cmd.resolve_environment(&config);
+        let (resolved, warnings) = cmd.resolve_environment(&config);
+        assert!(warnings.is_empty());
 
         assert_eq!(resolved.name, "production");
         assert_eq!(
@@ -1329,7 +1348,8 @@ workflows:
 
         let mut config = crate::config::BivvyConfig::default();
         config.settings.environment_profiles.default_environment = Some("production".to_string());
-        let resolved = cmd.resolve_environment(&config);
+        let (resolved, warnings) = cmd.resolve_environment(&config);
+        assert!(warnings.is_empty());
 
         assert_eq!(resolved.name, "ci");
         assert_eq!(

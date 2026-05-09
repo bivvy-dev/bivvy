@@ -154,12 +154,14 @@ pub fn diagnose(
     // Merge and deduplicate
     deduce::merge_resolutions(&mut resolutions, deduced);
 
-    // Sort by confidence descending
-    resolutions.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Sort by confidence descending. `total_cmp` keeps the ranking
+    // deterministic even if a future code path produces a NaN confidence
+    // (which `partial_cmp` would have reported as Ordering::Equal).
+    debug_assert!(
+        resolutions.iter().all(|r| !r.confidence.is_nan()),
+        "resolution confidence must not be NaN"
+    );
+    resolutions.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 
     // Overall confidence is the max category confidence
     let confidence = categories.first().map(|c| c.confidence).unwrap_or(0.0);

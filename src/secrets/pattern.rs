@@ -59,7 +59,9 @@ impl SecretMatcher {
             .iter()
             .map(|(name, pattern)| SecretPattern {
                 name: name.to_string(),
-                env_pattern: Regex::new(pattern).unwrap(),
+                env_pattern: Regex::new(pattern).unwrap_or_else(|e| {
+                    panic!("BUG: invalid built-in secret pattern '{}': {}", name, e)
+                }),
             })
             .collect();
 
@@ -240,6 +242,18 @@ mod tests {
         let custom = vec!["CUSTOM1".to_string(), "CUSTOM2".to_string()];
         let matcher = SecretMatcher::with_builtins_and_custom(&custom);
         assert_eq!(matcher.pattern_count(), BUILTIN_PATTERNS.len() + 2);
+    }
+
+    /// Each entry in `BUILTIN_PATTERNS` must compile as a regex. Pinned
+    /// here so a malformed pattern fails CI rather than panicking the
+    /// first time a `SecretMatcher::with_builtins()` is constructed in
+    /// production.
+    #[test]
+    fn builtin_patterns_compile() {
+        for (name, pattern) in BUILTIN_PATTERNS {
+            Regex::new(pattern)
+                .unwrap_or_else(|e| panic!("BUILTIN_PATTERNS entry '{}' failed: {}", name, e));
+        }
     }
 
     #[test]

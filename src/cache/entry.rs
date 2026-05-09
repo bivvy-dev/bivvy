@@ -41,7 +41,9 @@ impl CacheEntry {
         ttl_seconds: u64,
     ) -> Self {
         let now = Utc::now();
-        let expires_at = now + chrono::Duration::seconds(ttl_seconds as i64);
+        // Use the saturating helper so impossibly large TTLs clamp to
+        // "effectively never expires" rather than panicking on overflow.
+        let expires_at = expires_at_from_ttl(ttl_seconds);
 
         Self {
             source_id: source_id.into(),
@@ -99,6 +101,27 @@ impl CacheMetadata {
             .num_seconds()
             .max(0)
     }
+}
+
+/// Convert a `u64` TTL in seconds to a `chrono::Duration`, saturating
+/// at `chrono::Duration::MAX` for impossibly large inputs (so an
+/// oversized TTL clamps to "effectively never expires" instead of
+/// wrapping negative or panicking).
+///
+/// `chrono::Duration::seconds` panics for values outside its internal
+/// `i64::MAX milliseconds` representation, so we route through
+/// `try_seconds` and fall back to `Duration::MAX` on overflow.
+pub(crate) fn ttl_to_duration(ttl_seconds: u64) -> chrono::Duration {
+    let secs = i64::try_from(ttl_seconds).unwrap_or(i64::MAX);
+    chrono::Duration::try_seconds(secs).unwrap_or(chrono::Duration::MAX)
+}
+
+/// Compute an `expires_at` timestamp from a TTL, saturating at
+/// `DateTime::<Utc>::MAX_UTC` if the addition would overflow.
+pub(crate) fn expires_at_from_ttl(ttl_seconds: u64) -> DateTime<Utc> {
+    Utc::now()
+        .checked_add_signed(ttl_to_duration(ttl_seconds))
+        .unwrap_or(DateTime::<Utc>::MAX_UTC)
 }
 
 #[cfg(test)]
@@ -177,5 +200,13 @@ mod tests {
 
         // Age should be very small (< 1 second)
         assert!(entry.age().num_seconds() < 1);
+    }
+
+    #[test]
+    fn cache_entry_huge_ttl_does_not_expire() {
+        // u64::MAX seconds would wrap to a negative i64 if cast directly;
+        // ttl_to_duration saturates at i64::MAX so the entry stays alive.
+        let entry = CacheEntry::new("test", "test", "/tmp", u64::MAX);
+        assert!(!entry.is_expired());
     }
 }

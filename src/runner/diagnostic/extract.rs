@@ -13,16 +13,18 @@ use super::{CategoryMatch, ResolutionCandidate, ResolutionSource, StepContext};
 
 // === Command extraction patterns ===
 
-static RE_BACKTICK_CMD: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"`([^`]{2,})`").unwrap());
+static RE_BACKTICK_CMD: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"`([^`]{2,})`").expect("BUG: invalid regex literal in RE_BACKTICK_CMD")
+});
 
 static RE_SHELL_CMD: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?m)^\s*\$?\s*((?:sudo\s+)?(?:brew|apt|dnf|yum|pacman|pip|npm|yarn|bundle|gem|cargo|go|mix|docker|systemctl|chmod|chown|mkdir|export|source)\s+\S+.*)").unwrap()
+    Regex::new(r"(?m)^\s*\$?\s*((?:sudo\s+)?(?:brew|apt|dnf|yum|pacman|pip|npm|yarn|bundle|gem|cargo|go|mix|docker|systemctl|chmod|chown|mkdir|export|source)\s+\S+.*)").expect("BUG: invalid regex literal in RE_SHELL_CMD")
 });
 
 // === Boilerplate detection ===
 
 static RE_BOILERPLATE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(check your configuration|see full traceback|for more information|visit https?://|see the documentation|run .* for details)").unwrap()
+    Regex::new(r"(?i)(check your configuration|see full traceback|for more information|visit https?://|see the documentation|run .* for details)").expect("BUG: invalid regex literal in RE_BOILERPLATE")
 });
 
 /// Extract resolution candidates from tagged output lines.
@@ -134,7 +136,13 @@ fn alignment_boost(cmd: &str, categories: &[CategoryMatch]) -> f32 {
     // If no alignment found, check for contradiction with the primary category.
     // A resolution that suggests an action for a clearly different category gets
     // demoted. We keep it as a low-ranked option since it may be partially relevant.
-    if best == 0.0 {
+    //
+    // `best` is initialized to `0.0_f32` and only mutated via `.max(0.2)`,
+    // so the equality check is observably exact (no rounding paths reach
+    // here). Annotated to silence clippy::float_cmp.
+    #[allow(clippy::float_cmp)]
+    let no_alignment = best == 0.0;
+    if no_alignment {
         if let Some(primary_cat) = primary {
             let contradicts = match primary_cat {
                 ErrorCategory::NotFound => cmd.contains("restart") || cmd.contains("stop"),
@@ -179,7 +187,13 @@ fn alignment_boost_text(text: &str, categories: &[CategoryMatch]) -> f32 {
 
     // Contradiction: text uses NotFound framing ("is installed", "make sure...installed")
     // but primary diagnosis is something else (e.g., VersionMismatch).
-    if boost == 0.0 {
+    //
+    // `boost` is initialized to `0.0_f32` and only mutated via `.max(0.15)`,
+    // so the equality check is observably exact. Annotated to silence
+    // clippy::float_cmp.
+    #[allow(clippy::float_cmp)]
+    let no_alignment = boost == 0.0;
+    if no_alignment {
         if let Some(primary_cat) = primary {
             let is_existence_check = lower.contains("is installed") || lower.contains("make sure");
             if is_existence_check && primary_cat != ErrorCategory::NotFound {
@@ -241,6 +255,16 @@ fn truncate_label(text: &str, max_len: usize) -> String {
 mod tests {
     use super::*;
     use crate::runner::diagnostic::segment::segment;
+
+    /// Force-compile every regex literal in this module so a malformed
+    /// pattern fails CI rather than panicking at first use in production.
+    #[test]
+    fn regex_literals_compile() {
+        let regexes: &[&LazyLock<Regex>] = &[&RE_BACKTICK_CMD, &RE_SHELL_CMD, &RE_BOILERPLATE];
+        for re in regexes {
+            LazyLock::force(re);
+        }
+    }
 
     fn default_ctx() -> StepContext<'static> {
         StepContext {

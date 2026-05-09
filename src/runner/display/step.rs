@@ -339,7 +339,7 @@ impl StepDisplay for TerminalStepDisplay {
             ProgressStyle::default_spinner()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .template(&format!("{}{{spinner:.magenta}} {{msg}}", prefix))
-                .unwrap(),
+                .expect("BUG: invalid indicatif spinner template"),
         );
         bar.set_message(self.base_message.clone());
         bar.enable_steady_tick(Duration::from_millis(80));

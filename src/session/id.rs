@@ -3,6 +3,27 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::fmt;
+use thiserror::Error;
+
+/// Why a session id string could not be parsed.
+#[derive(Debug, Error, PartialEq, Eq)]
+pub enum SessionIdParseError {
+    /// The string did not start with the `sess_` prefix.
+    #[error("missing 'sess_' prefix")]
+    MissingPrefix,
+    /// The remainder did not have exactly two `_`-separated parts.
+    #[error("expected `sess_<timestamp>_<hex>` (got {found} part(s))")]
+    WrongPartCount { found: usize },
+    /// The timestamp portion was not a valid `i64` milliseconds value.
+    #[error("invalid timestamp: {0}")]
+    InvalidTimestamp(String),
+    /// The random portion was not valid hex.
+    #[error("invalid hex random: {0}")]
+    InvalidHex(String),
+    /// The decoded random bytes were not exactly 8 long.
+    #[error("expected 8 random bytes (got {found})")]
+    WrongRandomLength { found: usize },
+}
 
 /// A unique session identifier.
 ///
@@ -37,25 +58,52 @@ impl SessionId {
     }
 
     /// Parse a session ID from a string.
+    ///
+    /// Returns `None` for any malformed input. Logs the structured cause
+    /// at `debug` so a corrupt id on disk leaves a forensic trail without
+    /// changing the caller's `Option`-returning contract. Use [`try_parse`]
+    /// to inspect the cause directly.
+    ///
+    /// [`try_parse`]: Self::try_parse
     pub fn parse(s: &str) -> Option<Self> {
-        let s = s.strip_prefix("sess_")?;
+        match Self::try_parse(s) {
+            Ok(id) => Some(id),
+            Err(e) => {
+                tracing::debug!("invalid session id {:?}: {}", s, e);
+                None
+            }
+        }
+    }
+
+    /// Parse a session ID from a string, returning the structured cause
+    /// of any failure.
+    pub fn try_parse(s: &str) -> Result<Self, SessionIdParseError> {
+        let s = s
+            .strip_prefix("sess_")
+            .ok_or(SessionIdParseError::MissingPrefix)?;
         let parts: Vec<&str> = s.split('_').collect();
         if parts.len() != 2 {
-            return None;
+            return Err(SessionIdParseError::WrongPartCount { found: parts.len() });
         }
 
-        let ts_millis: i64 = parts[0].parse().ok()?;
-        let timestamp = DateTime::from_timestamp_millis(ts_millis)?;
+        let ts_millis: i64 = parts[0]
+            .parse()
+            .map_err(|_| SessionIdParseError::InvalidTimestamp(parts[0].to_string()))?;
+        let timestamp = DateTime::from_timestamp_millis(ts_millis)
+            .ok_or_else(|| SessionIdParseError::InvalidTimestamp(parts[0].to_string()))?;
         let random_hex = parts[1];
-        let random_bytes = hex::decode(random_hex).ok()?;
+        let random_bytes = hex::decode(random_hex)
+            .map_err(|_| SessionIdParseError::InvalidHex(random_hex.to_string()))?;
         if random_bytes.len() != 8 {
-            return None;
+            return Err(SessionIdParseError::WrongRandomLength {
+                found: random_bytes.len(),
+            });
         }
 
         let mut random = [0u8; 8];
         random.copy_from_slice(&random_bytes);
 
-        Some(Self { timestamp, random })
+        Ok(Self { timestamp, random })
     }
 }
 
@@ -92,7 +140,8 @@ impl<'de> Deserialize<'de> for SessionId {
         D: serde::Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        SessionId::parse(&s).ok_or_else(|| serde::de::Error::custom("Invalid session ID format"))
+        SessionId::try_parse(&s)
+            .map_err(|e| serde::de::Error::custom(format!("Invalid session ID {s:?}: {e}")))
     }
 }
 
@@ -163,5 +212,60 @@ mod tests {
     fn session_id_default() {
         let id = SessionId::default();
         assert!(id.as_str().starts_with("sess_"));
+    }
+
+    // --- M8: structured parse errors via try_parse ---
+
+    #[test]
+    fn try_parse_invalid_prefix_returns_err() {
+        let err = SessionId::try_parse("nope_123_abcd").unwrap_err();
+        assert_eq!(err, SessionIdParseError::MissingPrefix);
+    }
+
+    #[test]
+    fn try_parse_wrong_part_count_returns_err() {
+        // No underscore after sess_ → one part
+        match SessionId::try_parse("sess_123abc").unwrap_err() {
+            SessionIdParseError::WrongPartCount { found } => assert_eq!(found, 1),
+            other => panic!("expected WrongPartCount, got {other:?}"),
+        }
+        // Three parts
+        match SessionId::try_parse("sess_123_abc_extra").unwrap_err() {
+            SessionIdParseError::WrongPartCount { found } => assert_eq!(found, 3),
+            other => panic!("expected WrongPartCount, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_invalid_timestamp_returns_err() {
+        match SessionId::try_parse("sess_notanumber_abcdef0123456789").unwrap_err() {
+            SessionIdParseError::InvalidTimestamp(s) => assert_eq!(s, "notanumber"),
+            other => panic!("expected InvalidTimestamp, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_invalid_hex_returns_err() {
+        match SessionId::try_parse("sess_1700000000000_zzznothex").unwrap_err() {
+            SessionIdParseError::InvalidHex(s) => assert_eq!(s, "zzznothex"),
+            other => panic!("expected InvalidHex, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_wrong_random_length_returns_err() {
+        // Hex decodes but isn't 8 bytes (4 hex chars = 2 bytes).
+        match SessionId::try_parse("sess_1700000000000_abcd").unwrap_err() {
+            SessionIdParseError::WrongRandomLength { found } => assert_eq!(found, 2),
+            other => panic!("expected WrongRandomLength, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn try_parse_round_trips_with_parse() {
+        let id = SessionId::new();
+        let s = id.to_string();
+        let parsed = SessionId::try_parse(&s).unwrap();
+        assert_eq!(id, parsed);
     }
 }

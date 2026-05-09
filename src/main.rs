@@ -58,7 +58,12 @@ fn main() -> ExitCode {
     // Background self-update process: when invoked with this env var,
     // perform the update check/download and exit immediately.
     if std::env::var("BIVVY_SELF_UPDATE_BG").is_ok() {
-        let _ = perform_background_update();
+        if let Err(e) = perform_background_update() {
+            // Background runs always exit 0 so the foreground caller
+            // doesn't see a non-zero status from a detached process.
+            // Log at warn so a debug build can still surface the cause.
+            tracing::warn!("background self-update failed: {}", e);
+        }
         return ExitCode::SUCCESS;
     }
 
@@ -133,7 +138,7 @@ fn main() -> ExitCode {
             if result.success && is_interactive && !is_notification_suppressed() {
                 show_update_notification(ui.as_mut());
             }
-            result.exit_code as u8
+            exit_code_to_u8(result.exit_code)
         }
         Err(e) => {
             ui.error(&format!("Error: {}", e));
@@ -150,4 +155,36 @@ fn main() -> ExitCode {
     }
 
     ExitCode::from(exit_code)
+}
+
+/// Convert a dispatcher exit code (`i32`) to a process exit byte (`u8`).
+///
+/// Codes outside the `0..=255` range collapse to `1` (generic failure)
+/// rather than wrapping silently — wrapping a 256 to 0 would falsely
+/// report success.
+fn exit_code_to_u8(code: i32) -> u8 {
+    u8::try_from(code).unwrap_or(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::exit_code_to_u8;
+
+    #[test]
+    fn exit_code_to_u8_normal_range_passes_through() {
+        assert_eq!(exit_code_to_u8(0), 0);
+        assert_eq!(exit_code_to_u8(1), 1);
+        assert_eq!(exit_code_to_u8(2), 2);
+        assert_eq!(exit_code_to_u8(130), 130);
+        assert_eq!(exit_code_to_u8(255), 255);
+    }
+
+    #[test]
+    fn exit_code_to_u8_out_of_range_collapses_to_failure() {
+        assert_eq!(exit_code_to_u8(256), 1);
+        assert_eq!(exit_code_to_u8(1000), 1);
+        assert_eq!(exit_code_to_u8(-1), 1);
+        assert_eq!(exit_code_to_u8(i32::MAX), 1);
+        assert_eq!(exit_code_to_u8(i32::MIN), 1);
+    }
 }

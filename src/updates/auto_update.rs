@@ -76,7 +76,12 @@ pub fn apply_staged_update() -> Result<Option<String>> {
     // Staged binary replacement only applies to manual installs.
     // For package-manager installs, the manager already updated the binary.
     if !matches!(method, InstallMethod::Manual { .. }) {
-        let _ = clear_staged_update();
+        if let Err(e) = clear_staged_update() {
+            tracing::warn!(
+                "apply_staged_update: failed to clear staged update for non-manual install: {}",
+                e
+            );
+        }
         return Ok(None);
     }
 
@@ -89,7 +94,14 @@ pub fn apply_staged_update() -> Result<Option<String>> {
 
     replace_binary(&staged_binary, &current_exe)?;
 
-    let _ = clear_staged_update();
+    if let Err(e) = clear_staged_update() {
+        // A stale staging directory means the next run may try to apply
+        // the same update twice. Log loudly so a debug build can spot it.
+        tracing::warn!(
+            "apply_staged_update: failed to clear staged update after apply: {}",
+            e
+        );
+    }
 
     Ok(Some(staged.version))
 }
@@ -125,14 +137,18 @@ fn replace_binary(staged: &PathBuf, current: &PathBuf) -> Result<()> {
     let old = current.with_extension("old.exe");
 
     // Clean up any leftover from a previous update
-    let _ = fs::remove_file(&old);
+    if let Err(e) = fs::remove_file(&old) {
+        tracing::debug!("replace_binary: pre-cleanup of {:?} failed: {}", old, e);
+    }
 
     // Windows allows renaming a running executable
     fs::rename(current, &old).context("Failed to rename current binary")?;
     fs::copy(staged, current).context("Failed to copy new binary into place")?;
 
     // Best-effort cleanup (may fail if old binary is still running)
-    let _ = fs::remove_file(&old);
+    if let Err(e) = fs::remove_file(&old) {
+        tracing::debug!("replace_binary: post-cleanup of {:?} failed: {}", old, e);
+    }
 
     Ok(())
 }
@@ -181,7 +197,9 @@ fn write_lock_file() -> Result<()> {
 /// Remove the lock file after the background process completes.
 fn remove_lock_file() {
     if let Some(path) = lock_path() {
-        let _ = fs::remove_file(path);
+        if let Err(e) = fs::remove_file(&path) {
+            tracing::debug!("remove_lock_file: failed to remove {:?}: {}", path, e);
+        }
     }
 }
 

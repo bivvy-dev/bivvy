@@ -107,7 +107,7 @@ impl FixEngine {
                 new_content = format!(
                     "{}{}{}",
                     &new_content[..fix.start],
-                    &fix.replacement,
+                    fix.replacement,
                     &new_content[fix.end..]
                 );
             }

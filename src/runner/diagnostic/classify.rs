@@ -38,92 +38,111 @@ struct RawCategoryMatch {
 // === Category signal patterns ===
 
 static RE_NOT_FOUND: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(not found|could not find|can't find|does not exist|no such|missing|not installed|no module named|cannot find)").unwrap()
+    Regex::new(r"(?i)(not found|could not find|can't find|does not exist|no such|missing|not installed|no module named|cannot find)").expect("BUG: invalid regex literal in RE_NOT_FOUND")
 });
 
 static RE_CONNECTION_REFUSED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(connection refused|cannot connect|could not connect|not running|server not available)").unwrap()
+    Regex::new(r"(?i)(connection refused|cannot connect|could not connect|not running|server not available)").expect("BUG: invalid regex literal in RE_CONNECTION_REFUSED")
 });
 
 static RE_VERSION_MISMATCH: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(version mismatch|incompatible|is not compatible|required version|expected version|engine.*incompatible)").unwrap()
+    Regex::new(r"(?i)(version mismatch|incompatible|is not compatible|required version|expected version|engine.*incompatible)").expect("BUG: invalid regex literal in RE_VERSION_MISMATCH")
 });
 
 /// Structural signal: two different version numbers on the same line
 /// (e.g., "server version: 16.13; pg_dump version: 14.21").
-static RE_VERSION_PAIR: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"version[:\s]+(\d+\.\d+).*version[:\s]+(\d+\.\d+)").unwrap());
+static RE_VERSION_PAIR: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"version[:\s]+(\d+\.\d+).*version[:\s]+(\d+\.\d+)")
+        .expect("BUG: invalid regex literal in RE_VERSION_PAIR")
+});
 
 static RE_SYNC_ISSUE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(out of sync|inconsistent|needs to be updated|lock file|integrity check failed|checksum mismatch|not consistent)").unwrap()
+    Regex::new(r"(?i)(out of sync|inconsistent|needs to be updated|lock file|integrity check failed|checksum mismatch|not consistent)").expect("BUG: invalid regex literal in RE_SYNC_ISSUE")
 });
 
 static RE_PERMISSION_DENIED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(permission denied|access denied|not permitted|EACCES)").unwrap()
+    Regex::new(r"(?i)(permission denied|access denied|not permitted|EACCES)")
+        .expect("BUG: invalid regex literal in RE_PERMISSION_DENIED")
 });
 
 static RE_PORT_CONFLICT: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(already allocated|already in use|address in use|bind failed|EADDRINUSE)")
-        .unwrap()
+        .expect("BUG: invalid regex literal in RE_PORT_CONFLICT")
 });
 
 static RE_BUILD_FAILURE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(failed to build|build failed|compilation failed|native extensions?|linker|extconf\.rb failed)").unwrap()
+    Regex::new(r"(?i)(failed to build|build failed|compilation failed|native extensions?|linker|extconf\.rb failed)").expect("BUG: invalid regex literal in RE_BUILD_FAILURE")
 });
 
-static RE_RESOURCE_LIMIT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)\b(limit|ENOSPC|too many|exceeded|quota)\b").unwrap());
+static RE_RESOURCE_LIMIT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)\b(limit|ENOSPC|too many|exceeded|quota)\b")
+        .expect("BUG: invalid regex literal in RE_RESOURCE_LIMIT")
+});
 
 static RE_AUTH_FAILURE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?i)(certificate|publickey|authentication failed|unauthorized|\b401\b|\b403\b)")
-        .unwrap()
+        .expect("BUG: invalid regex literal in RE_AUTH_FAILURE")
 });
 
 static RE_SYSTEM_CONSTRAINT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)(externally[- ]managed|managed environment|system python)").unwrap()
+    Regex::new(r"(?i)(externally[- ]managed|managed environment|system python)")
+        .expect("BUG: invalid regex literal in RE_SYSTEM_CONSTRAINT")
 });
 
 // === Data extraction patterns ===
 
 static RE_EXTRACT_MODULE_NAME: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)(?:no module named|cannot find module)\s+['"]?(\S+?)['"]?$"#).unwrap()
+    Regex::new(r#"(?i)(?:no module named|cannot find module)\s+['"]?(\S+?)['"]?$"#)
+        .expect("BUG: invalid regex literal in RE_EXTRACT_MODULE_NAME")
 });
 
 static RE_EXTRACT_NOT_FOUND_TARGET: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"(?i)(?:not found|could not find|does not exist|no such|missing|not installed|cannot find)\s*:?\s*['"]?([^\s'",:]+)"#).unwrap()
+    Regex::new(r#"(?i)(?:not found|could not find|does not exist|no such|missing|not installed|cannot find)\s*:?\s*['"]?([^\s'",:]+)"#).expect("BUG: invalid regex literal in RE_EXTRACT_NOT_FOUND_TARGET")
 });
 
-static RE_EXTRACT_COMMAND_NOT_FOUND: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"command not found:\s*(\S+)").unwrap());
+static RE_EXTRACT_COMMAND_NOT_FOUND: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"command not found:\s*(\S+)")
+        .expect("BUG: invalid regex literal in RE_EXTRACT_COMMAND_NOT_FOUND")
+});
 
-static RE_EXTRACT_DB_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"database "([^"]+)" does not exist"#).unwrap());
+static RE_EXTRACT_DB_NAME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"database "([^"]+)" does not exist"#)
+        .expect("BUG: invalid regex literal in RE_EXTRACT_DB_NAME")
+});
 
-static RE_EXTRACT_ROLE_NAME: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"role "([^"]+)" does not exist"#).unwrap());
+static RE_EXTRACT_ROLE_NAME: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"role "([^"]+)" does not exist"#)
+        .expect("BUG: invalid regex literal in RE_EXTRACT_ROLE_NAME")
+});
 
-static RE_EXTRACT_PORT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?:port\s+|:::)(\d{2,5})").unwrap());
+static RE_EXTRACT_PORT: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?:port\s+|:::)(\d{2,5})").expect("BUG: invalid regex literal in RE_EXTRACT_PORT")
+});
 
-static RE_EXTRACT_HOST: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r#"(?:host\s+["\']?)([^\s"',)]+)"#).unwrap());
+static RE_EXTRACT_HOST: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r#"(?:host\s+["\']?)([^\s"',)]+)"#)
+        .expect("BUG: invalid regex literal in RE_EXTRACT_HOST")
+});
 
 static RE_EXTRACT_VERSIONS: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:server version|version):\s*(\d+\.\d+(?:\.\d+)?).*?(?:pg_dump version|version):\s*(\d+\.\d+(?:\.\d+)?)").unwrap()
+    Regex::new(r"(?:server version|version):\s*(\d+\.\d+(?:\.\d+)?).*?(?:pg_dump version|version):\s*(\d+\.\d+(?:\.\d+)?)").expect("BUG: invalid regex literal in RE_EXTRACT_VERSIONS")
 });
 
 static RE_EXTRACT_VERSIONS_ALT: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"version\s+(\d+\.\d+(?:\.\d+)?)\s+.*?version\s+(\d+\.\d+(?:\.\d+)?)").unwrap()
+    Regex::new(r"version\s+(\d+\.\d+(?:\.\d+)?)\s+.*?version\s+(\d+\.\d+(?:\.\d+)?)")
+        .expect("BUG: invalid regex literal in RE_EXTRACT_VERSIONS_ALT")
 });
 
 static RE_EXTRACT_PERMISSION_TARGET: LazyLock<Regex> = LazyLock::new(|| {
     // Match "bash: ./gradlew: Permission denied" or "Permission denied: /path"
     Regex::new(r"(?::\s*(\S+)\s*:\s*[Pp]ermission denied|[Pp]ermission denied[:\s]+([^\s(]+))")
-        .unwrap()
+        .expect("BUG: invalid regex literal in RE_EXTRACT_PERMISSION_TARGET")
 });
 
-static RE_EXTRACT_BUILD_TARGET: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)(?:failed to build|installing)\s+(\S+)").unwrap());
+static RE_EXTRACT_BUILD_TARGET: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"(?i)(?:failed to build|installing)\s+(\S+)")
+        .expect("BUG: invalid regex literal in RE_EXTRACT_BUILD_TARGET")
+});
 
 struct CategoryMatcher {
     category: ErrorCategory,
@@ -264,11 +283,14 @@ pub fn classify(lines: &[TaggedLine]) -> (Vec<super::CategoryMatch>, DiagnosticD
         })
         .collect();
 
-    categories.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Sort by confidence descending. `total_cmp` keeps the ranking
+    // deterministic even if a future code path produces a NaN confidence
+    // (which `partial_cmp` would have reported as Ordering::Equal).
+    debug_assert!(
+        categories.iter().all(|c| !c.confidence.is_nan()),
+        "category confidence must not be NaN"
+    );
+    categories.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 
     (categories, details)
 }
@@ -370,6 +392,39 @@ fn extract_version_details(text: &str, details: &mut DiagnosticDetails) {
 mod tests {
     use super::*;
     use crate::runner::diagnostic::segment::segment;
+
+    /// Force-compile every regex literal in this module so a malformed
+    /// pattern fails CI rather than panicking at first use in production.
+    #[test]
+    fn regex_literals_compile() {
+        let regexes: &[&LazyLock<Regex>] = &[
+            &RE_NOT_FOUND,
+            &RE_CONNECTION_REFUSED,
+            &RE_VERSION_MISMATCH,
+            &RE_VERSION_PAIR,
+            &RE_SYNC_ISSUE,
+            &RE_PERMISSION_DENIED,
+            &RE_PORT_CONFLICT,
+            &RE_BUILD_FAILURE,
+            &RE_RESOURCE_LIMIT,
+            &RE_AUTH_FAILURE,
+            &RE_SYSTEM_CONSTRAINT,
+            &RE_EXTRACT_MODULE_NAME,
+            &RE_EXTRACT_NOT_FOUND_TARGET,
+            &RE_EXTRACT_COMMAND_NOT_FOUND,
+            &RE_EXTRACT_DB_NAME,
+            &RE_EXTRACT_ROLE_NAME,
+            &RE_EXTRACT_PORT,
+            &RE_EXTRACT_HOST,
+            &RE_EXTRACT_VERSIONS,
+            &RE_EXTRACT_VERSIONS_ALT,
+            &RE_EXTRACT_PERMISSION_TARGET,
+            &RE_EXTRACT_BUILD_TARGET,
+        ];
+        for re in regexes {
+            LazyLock::force(re);
+        }
+    }
 
     fn classify_text(text: &str) -> (Vec<super::super::CategoryMatch>, DiagnosticDetails) {
         let lines = segment(text);

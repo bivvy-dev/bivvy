@@ -45,8 +45,7 @@ impl<'a> CacheRevalidator<'a> {
         match self.http.fetch_if_changed(url, etag)? {
             None => {
                 // 304 Not Modified - extend TTL
-                entry.metadata.expires_at =
-                    chrono::Utc::now() + chrono::Duration::seconds(new_ttl_seconds as i64);
+                entry.metadata.expires_at = super::entry::expires_at_from_ttl(new_ttl_seconds);
                 self.store.update(entry)?;
                 Ok(RevalidationResult::Unchanged)
             }
@@ -60,8 +59,7 @@ impl<'a> CacheRevalidator<'a> {
                 entry.metadata.etag = response.etag;
                 entry.metadata.size_bytes = response.content.len() as u64;
                 entry.metadata.cached_at = chrono::Utc::now();
-                entry.metadata.expires_at =
-                    chrono::Utc::now() + chrono::Duration::seconds(new_ttl_seconds as i64);
+                entry.metadata.expires_at = super::entry::expires_at_from_ttl(new_ttl_seconds);
                 self.store.update(entry)?;
 
                 Ok(RevalidationResult::Updated(response.content))
@@ -91,8 +89,7 @@ impl<'a> CacheRevalidator<'a> {
             self.fetch_git(url, git_ref, entry, new_ttl_seconds)
         } else {
             // No updates - extend TTL
-            entry.metadata.expires_at =
-                chrono::Utc::now() + chrono::Duration::seconds(new_ttl_seconds as i64);
+            entry.metadata.expires_at = super::entry::expires_at_from_ttl(new_ttl_seconds);
             self.store.update(entry)?;
             Ok(RevalidationResult::Unchanged)
         }
@@ -119,8 +116,7 @@ impl<'a> CacheRevalidator<'a> {
 
         entry.metadata.commit_sha = Some(result.commit_sha);
         entry.metadata.cached_at = chrono::Utc::now();
-        entry.metadata.expires_at =
-            chrono::Utc::now() + chrono::Duration::seconds(new_ttl_seconds as i64);
+        entry.metadata.expires_at = super::entry::expires_at_from_ttl(new_ttl_seconds);
         self.store.update(entry)?;
 
         Ok(RevalidationResult::Updated(content))

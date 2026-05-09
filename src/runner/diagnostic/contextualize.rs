@@ -9,6 +9,38 @@ use crate::steps::StepStatus;
 use super::classify::ErrorCategory;
 use super::{CategoryMatch, DiagnosticDetails, StepContext, WorkflowState};
 
+#[cfg(test)]
+mod m13_total_cmp_tests {
+    use super::*;
+
+    /// Regression test for M13: equal confidences must preserve insertion
+    /// order under `total_cmp`. (`partial_cmp(...).unwrap_or(Equal)` had
+    /// the same property by accident; switching to `total_cmp` keeps the
+    /// guarantee documented.)
+    #[test]
+    fn total_cmp_is_deterministic_for_equal_confidences() {
+        let mut categories = [
+            CategoryMatch {
+                category: ErrorCategory::NotFound,
+                confidence: 0.5,
+            },
+            CategoryMatch {
+                category: ErrorCategory::PermissionDenied,
+                confidence: 0.5,
+            },
+            CategoryMatch {
+                category: ErrorCategory::PortConflict,
+                confidence: 0.5,
+            },
+        ];
+        categories.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
+        // Equal keys → input order preserved by Rust's stable sort.
+        assert_eq!(categories[0].category, ErrorCategory::NotFound);
+        assert_eq!(categories[1].category, ErrorCategory::PermissionDenied);
+        assert_eq!(categories[2].category, ErrorCategory::PortConflict);
+    }
+}
+
 /// Refine category confidence and details using step + workflow context.
 pub fn contextualize(
     categories: &mut [CategoryMatch],
@@ -27,12 +59,14 @@ pub fn contextualize(
         cat.confidence = cat.confidence.clamp(0.0, 1.0);
     }
 
-    // Re-sort by confidence after adjustments
-    categories.sort_by(|a, b| {
-        b.confidence
-            .partial_cmp(&a.confidence)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    // Re-sort by confidence after adjustments. `total_cmp` gives a total
+    // order over all f32 values (NaN is well-defined), so the ranking is
+    // deterministic even if a future code path produces a NaN confidence.
+    debug_assert!(
+        categories.iter().all(|c| !c.confidence.is_nan()),
+        "category confidence must not be NaN"
+    );
+    categories.sort_by(|a, b| b.confidence.total_cmp(&a.confidence));
 
     // Extract service name from requires if we have a connection_refused
     if categories

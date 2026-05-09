@@ -204,7 +204,11 @@ impl TransientRegion {
     /// drop.
     pub fn freeze_style(&self) {
         if let Some(bar) = &self.bar {
-            bar.set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
+            bar.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{msg}")
+                    .expect("BUG: invalid indicatif spinner template"),
+            );
         }
     }
 
@@ -214,7 +218,11 @@ impl TransientRegion {
     /// a single line via the `{msg}` template).
     pub fn finish_with_line(mut self, line: &str) {
         if let Some(bar) = self.bar.take() {
-            bar.set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
+            bar.set_style(
+                ProgressStyle::default_spinner()
+                    .template("{msg}")
+                    .expect("BUG: invalid indicatif spinner template"),
+            );
             bar.finish_with_message(line.to_string());
         }
     }

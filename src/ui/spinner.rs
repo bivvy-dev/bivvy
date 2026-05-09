@@ -42,7 +42,7 @@ impl ProgressSpinner {
             ProgressStyle::default_spinner()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
                 .template(&format!("{}{{spinner:.magenta}} {{msg}}", prefix))
-                .unwrap(),
+                .expect("BUG: invalid indicatif spinner template"),
         );
         raw_bar.set_message(message.to_string());
         raw_bar.enable_steady_tick(Duration::from_millis(80));
@@ -83,8 +83,11 @@ impl SpinnerHandle for ProgressSpinner {
     fn finish_success(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
         let theme = BivvyTheme::new();
-        self.bar
-            .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
+        self.bar.set_style(
+            ProgressStyle::default_spinner()
+                .template("{msg}")
+                .expect("BUG: invalid indicatif spinner template"),
+        );
         self.bar
             .finish_with_message(format!("{}{}", prefix, theme.format_success(msg)));
     }
@@ -92,8 +95,11 @@ impl SpinnerHandle for ProgressSpinner {
     fn finish_error(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
         let theme = BivvyTheme::new();
-        self.bar
-            .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
+        self.bar.set_style(
+            ProgressStyle::default_spinner()
+                .template("{msg}")
+                .expect("BUG: invalid indicatif spinner template"),
+        );
         self.bar
             .finish_with_message(format!("{}{}", prefix, theme.format_error(msg)));
     }
@@ -101,8 +107,11 @@ impl SpinnerHandle for ProgressSpinner {
     fn finish_skipped(&mut self, msg: &str) {
         let prefix = " ".repeat(self.indent);
         let theme = BivvyTheme::new();
-        self.bar
-            .set_style(ProgressStyle::default_spinner().template("{msg}").unwrap());
+        self.bar.set_style(
+            ProgressStyle::default_spinner()
+                .template("{msg}")
+                .expect("BUG: invalid indicatif spinner template"),
+        );
         self.bar
             .finish_with_message(format!("{}{}", prefix, theme.format_skipped(msg)));
     }
@@ -160,7 +169,10 @@ pub fn live_output_callback(
             text
         };
 
-        let mut buf = buffer.lock().unwrap();
+        // Recover from a poisoned mutex so a previous panic in another
+        // writer doesn't permanently silence live output for the rest
+        // of the run.
+        let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
         buf.push_back(display_text);
         while buf.len() > max_lines {
             buf.pop_front();
@@ -297,5 +309,42 @@ mod tests {
         assert!(!msg.contains(&"x".repeat(100)));
 
         bar.finish();
+    }
+
+    /// Regression test for M5: the production callback at
+    /// [`live_output_callback`] uses `lock().unwrap_or_else(|e|
+    /// e.into_inner())` so a previous writer panic does not silence
+    /// live output for the rest of the run. The inner buffer mutex
+    /// is constructed inside the closure and is not reachable from
+    /// outside, so this test reproduces the wiring directly: build
+    /// the same `Arc<Mutex<VecDeque<String>>>`, poison it via a
+    /// panicking `lock()` guard on a separate thread, and confirm
+    /// the recovery idiom yields a usable guard. If the production
+    /// closure ever drops the `unwrap_or_else` recovery, this test
+    /// remains green — the safety net is the constructor's `lock()`
+    /// site, which is identical to the one verified here.
+    #[test]
+    fn buffer_lock_poison_recovery_idiom_works() {
+        use std::sync::{Arc, Mutex};
+
+        // Reproduce the buffer wiring from `live_output_callback` directly
+        // so we can poison the inner mutex without exposing it from the
+        // public API.
+        let buffer: Arc<Mutex<VecDeque<String>>> = Arc::new(Mutex::new(VecDeque::new()));
+        let buffer_for_poison = Arc::clone(&buffer);
+        let poison_handle = std::thread::spawn(move || {
+            let _guard = buffer_for_poison.lock().unwrap();
+            panic!("force-poison");
+        });
+        // The thread panics with the lock held; once joined, the mutex
+        // is poisoned.
+        let _ = poison_handle.join();
+        assert!(buffer.is_poisoned(), "test setup must poison the mutex");
+
+        // The production closure uses the same recovery idiom we want to
+        // exercise: `lock().unwrap_or_else(|e| e.into_inner())`.
+        let mut buf = buffer.lock().unwrap_or_else(|e| e.into_inner());
+        buf.push_back("post-poison line".to_string());
+        assert_eq!(buf.len(), 1);
     }
 }

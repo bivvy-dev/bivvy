@@ -131,7 +131,11 @@ impl WorkflowDisplay for TerminalWorkflowDisplay {
             return;
         }
         let bar = ProgressBar::new(total as u64);
-        bar.set_style(ProgressStyle::default_bar().template("{msg}").unwrap());
+        bar.set_style(
+            ProgressStyle::default_bar()
+                .template("{msg}")
+                .expect("BUG: invalid indicatif progress-bar template"),
+        );
         bar.set_message(Self::format_bar(&self.theme, 0, total, Duration::ZERO));
         self.pinned = Some(self.surface.pin_bottom(bar));
     }

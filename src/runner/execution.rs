@@ -65,7 +65,15 @@ pub(super) fn execute_step_with_recovery(
     let mut fix_history: HashSet<String> = HashSet::new();
     let mut skipped_by_user = false;
     let mut aborted = false;
-    #[allow(unused_assignments)]
+    // Every break out of the 'step_execution loop assigns final_result
+    // first. The four arms that break are: Completed (sets `final_result`
+    // then breaks), Skipped (sets then breaks), Failed (sets and breaks
+    // when `allow_failure`, `!interactive`, or `>= MAX_STEP_ATTEMPTS`;
+    // otherwise calls handle_recovery_menu, which mutates `final_result`
+    // through a &mut and the loop only breaks when `final_result.is_some()`),
+    // and the wildcard `_` (sets then breaks). The trailing `.expect`
+    // below is therefore unreachable in practice and exists only as a
+    // panic-on-bug guard. No `#[allow(unused_assignments)]` is needed.
     let mut final_result: Option<StepResult> = None;
 
     // Outer loop: step execution (retry/fix re-enter here)
