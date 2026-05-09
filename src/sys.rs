@@ -180,17 +180,25 @@ pub fn find_on_path(binary: &str) -> Option<PathBuf> {
 // === Random bytes ===
 
 /// Fill a buffer with cryptographically secure random bytes.
+///
+/// Returns an error if the platform RNG is unavailable or fails. Callers
+/// for whom RNG failure is fatal (e.g., session/feedback ID generation)
+/// should `.expect("BUG: ...")` with a clear message.
 #[cfg(unix)]
-pub fn random_bytes(buf: &mut [u8]) {
+pub fn random_bytes(buf: &mut [u8]) -> std::io::Result<()> {
     use std::io::Read;
-    std::fs::File::open("/dev/urandom")
-        .and_then(|mut f| f.read_exact(buf))
-        .expect("Failed to read /dev/urandom");
+    let mut f = std::fs::File::open("/dev/urandom")?;
+    f.read_exact(buf)?;
+    Ok(())
 }
 
 /// Fill a buffer with cryptographically secure random bytes.
+///
+/// Returns an error if the platform RNG is unavailable or fails. Callers
+/// for whom RNG failure is fatal (e.g., session/feedback ID generation)
+/// should `.expect("BUG: ...")` with a clear message.
 #[cfg(windows)]
-pub fn random_bytes(buf: &mut [u8]) {
+pub fn random_bytes(buf: &mut [u8]) -> std::io::Result<()> {
     extern "system" {
         fn BCryptGenRandom(
             hAlgorithm: *mut std::ffi::c_void,
@@ -208,7 +216,12 @@ pub fn random_bytes(buf: &mut [u8]) {
             BCRYPT_USE_SYSTEM_PREFERRED_RNG,
         )
     };
-    assert!(status >= 0, "BCryptGenRandom failed with status {status}");
+    if status < 0 {
+        return Err(std::io::Error::other(format!(
+            "BCryptGenRandom failed with status {status}"
+        )));
+    }
+    Ok(())
 }
 
 // === Glob pattern matching ===
@@ -240,7 +253,7 @@ pub fn glob(pattern: &str) -> Result<Vec<PathBuf>, String> {
 
     // Walk the directory tree and collect all files
     let mut all_paths = Vec::new();
-    walk_dir_recursive(&base_dir, &mut all_paths);
+    walk_dir_recursive(&base_dir, &mut all_paths, MAX_GLOB_DEPTH);
 
     // Match each path against the relative pattern
     let mut matches: Vec<PathBuf> = Vec::new();
@@ -260,16 +273,35 @@ pub fn glob(pattern: &str) -> Result<Vec<PathBuf>, String> {
     Ok(matches)
 }
 
-fn walk_dir_recursive(dir: &Path, results: &mut Vec<PathBuf>) {
+/// Maximum directory depth for `walk_dir_recursive`.
+///
+/// Prevents stack overflow on pathological trees (deeply-nested or
+/// containing symlink loops). 64 is well beyond any reasonable project
+/// layout — `node_modules`, vendored deps, and monorepos all sit far
+/// below this.
+const MAX_GLOB_DEPTH: usize = 64;
+
+fn walk_dir_recursive(dir: &Path, results: &mut Vec<PathBuf>, remaining_depth: usize) {
+    if remaining_depth == 0 {
+        return;
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return,
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        // Skip symlinks entirely. `path.is_dir()` follows symlinks, which
+        // turns a `ln -s . loop` (or any cycle in a vendored tree) into
+        // unbounded recursion. Glob expansion does not need to follow
+        // them — globs traditionally match concrete filesystem entries.
+        let is_symlink = entry.file_type().map(|t| t.is_symlink()).unwrap_or(false);
+        if is_symlink {
+            continue;
+        }
         results.push(path.clone());
         if path.is_dir() {
-            walk_dir_recursive(&path, results);
+            walk_dir_recursive(&path, results, remaining_depth - 1);
         }
     }
 }
@@ -417,7 +449,7 @@ mod tests {
     #[test]
     fn random_bytes_fills_buffer() {
         let mut buf = [0u8; 16];
-        random_bytes(&mut buf);
+        random_bytes(&mut buf).unwrap();
         // Extremely unlikely to be all zeros
         assert!(buf.iter().any(|&b| b != 0));
     }
@@ -426,8 +458,8 @@ mod tests {
     fn random_bytes_produces_different_values() {
         let mut buf1 = [0u8; 16];
         let mut buf2 = [0u8; 16];
-        random_bytes(&mut buf1);
-        random_bytes(&mut buf2);
+        random_bytes(&mut buf1).unwrap();
+        random_bytes(&mut buf2).unwrap();
         assert_ne!(buf1, buf2);
     }
 
@@ -502,6 +534,23 @@ mod tests {
     fn glob_nonexistent_dir_returns_empty() {
         let matches = glob("/nonexistent/path/*.txt").unwrap();
         assert!(matches.is_empty());
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn glob_does_not_recurse_into_symlink_loops() {
+        // Reproduction case from the audit: `ln -s . loop` creates a self-loop
+        // that previously caused unbounded recursion through `walk_dir_recursive`.
+        let temp = TempDir::new().unwrap();
+        fs::write(temp.path().join("real.rs"), "fn main() {}").unwrap();
+        std::os::unix::fs::symlink(temp.path(), temp.path().join("loop")).unwrap();
+
+        let pattern = format!("{}/**/*.rs", temp.path().display());
+        let matches = glob(&pattern).unwrap();
+
+        // Must terminate and find the real file. Must not blow the stack
+        // following `loop -> . -> loop -> ...`.
+        assert!(matches.iter().any(|p| p.ends_with("real.rs")));
     }
 
     // --- open_in_browser ---

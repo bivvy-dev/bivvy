@@ -53,7 +53,9 @@ fn is_valid_var_name(name: &str) -> bool {
         return false;
     }
     let mut chars = name.chars();
-    let first = chars.next().unwrap();
+    let first = chars
+        .next()
+        .expect("BUG: name.is_empty() check above guarantees at least one char");
     if !first.is_ascii_alphabetic() && first != '_' {
         return false;
     }
@@ -213,7 +215,10 @@ fn detect_cycle(
 ) -> Option<String> {
     if rec_stack.contains(step) {
         // Found cycle - format it
-        let cycle_start = path.iter().position(|s| s == step).unwrap();
+        let cycle_start = path
+            .iter()
+            .position(|s| s == step)
+            .expect("BUG: rec_stack contains step iff step is on the current DFS path");
         let cycle: Vec<_> = path[cycle_start..].to_vec();
         return Some(format!("{} -> {}", cycle.join(" -> "), step));
     }

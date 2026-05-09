@@ -98,7 +98,9 @@ impl Command for UpdateCommand {
             return Ok(CommandResult::success());
         }
 
-        let update_cmd = method.update_command().unwrap();
+        let update_cmd = method
+            .update_command()
+            .expect("BUG: supports_auto_update() guarantees update_command() returns Some");
         ui.message(&format!("Updating via: {}", update_cmd));
 
         let parts: Vec<&str> = update_cmd.split_whitespace().collect();

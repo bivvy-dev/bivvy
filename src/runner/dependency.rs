@@ -193,7 +193,9 @@ impl DependencyGraph {
                     match state.get(dep.as_str()) {
                         Some(State::Visiting) => {
                             // Found cycle - build the cycle path
-                            let cycle_start = path.iter().position(|s| s == dep).unwrap();
+                            let cycle_start = path.iter().position(|s| s == dep).expect(
+                                "BUG: state == Visiting iff dep is on the current DFS path",
+                            );
                             let mut cycle: Vec<String> = path[cycle_start..].to_vec();
                             cycle.push(dep.clone());
                             return Some(cycle);
@@ -354,7 +356,13 @@ impl DependencyGraphBuilder {
 
         for (step, deps) in &self.dependencies {
             for dep in deps {
-                dependents.get_mut(dep).unwrap().insert(step.clone());
+                dependents
+                    .get_mut(dep)
+                    .expect(
+                        "BUG: dependents has one entry per step, and missing-dep check above \
+                         guarantees every dep is in steps",
+                    )
+                    .insert(step.clone());
             }
         }
 

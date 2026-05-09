@@ -53,7 +53,8 @@ impl FeedbackEntry {
     /// Create a new feedback entry.
     pub fn new(message: impl Into<String>) -> Self {
         let mut id_bytes = [0u8; 6];
-        crate::sys::random_bytes(&mut id_bytes);
+        crate::sys::random_bytes(&mut id_bytes)
+            .expect("BUG: platform RNG unavailable; feedback ID cannot be generated");
 
         Self {
             id: format!("fb_{}", hex::encode(id_bytes)),

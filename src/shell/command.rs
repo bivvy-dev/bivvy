@@ -333,8 +333,14 @@ pub fn execute_streaming(
         source: Some(e),
     })?;
 
-    let stdout = child.stdout.take().unwrap();
-    let stderr = child.stderr.take().unwrap();
+    let stdout = child
+        .stdout
+        .take()
+        .expect("BUG: cmd.stdout(Stdio::piped()) above guarantees a stdout handle");
+    let stderr = child
+        .stderr
+        .take()
+        .expect("BUG: cmd.stderr(Stdio::piped()) above guarantees a stderr handle");
 
     let (tx, rx) = mpsc::channel();
     let tx_stdout = tx.clone();

@@ -139,7 +139,9 @@ pub fn default_context() -> InstallerContext {
             use std::net::TcpStream;
             use std::time::Duration;
             let timeout = Duration::from_secs(2);
-            let addr: std::net::SocketAddr = "1.1.1.1:443".parse().unwrap();
+            let addr: std::net::SocketAddr = "1.1.1.1:443"
+                .parse()
+                .expect("BUG: '1.1.1.1:443' is a constant valid SocketAddr literal");
             TcpStream::connect_timeout(&addr, timeout).is_ok()
         }),
         prepend_path: Box::new(move |dir: &Path| {

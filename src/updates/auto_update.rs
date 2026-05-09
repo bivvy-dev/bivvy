@@ -119,7 +119,9 @@ fn replace_binary(staged: &PathBuf, current: &PathBuf) -> Result<()> {
     let perms = fs::metadata(current)
         .map(|m| m.permissions())
         .unwrap_or_else(|_| {
-            let mut p = fs::metadata(&temp).unwrap().permissions();
+            let mut p = fs::metadata(&temp)
+                .expect("BUG: fs::copy(staged, &temp) above succeeded, so temp must exist")
+                .permissions();
             p.set_mode(0o755);
             p
         });

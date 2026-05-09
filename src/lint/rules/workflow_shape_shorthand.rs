@@ -161,7 +161,7 @@ fn check_workflow_file(
                     "Workflow file '{}' has a bare-list `workflow:`; wrap it in a mapping with a `steps:` key",
                     path.file_name()
                         .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_default()
+                        .unwrap_or_else(|| path.display().to_string())
                 ),
             )
             .with_span(Span::line(path, line))

@@ -335,11 +335,10 @@ impl SnapshotStore {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.extension().is_some_and(|e| e == "yml") {
-                    let filename = path
-                        .file_name()
-                        .unwrap_or_default()
-                        .to_string_lossy()
-                        .to_string();
+                    let Some(filename) = path.file_name().map(|n| n.to_string_lossy().into_owned())
+                    else {
+                        continue;
+                    };
                     if self.cache.contains_key(&filename) {
                         continue;
                     }

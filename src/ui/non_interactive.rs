@@ -16,22 +16,12 @@ use super::{
 /// type only handles generic [`UserInterface`] traits.
 pub struct NonInteractiveUI {
     mode: OutputMode,
-    #[allow(dead_code)]
-    is_ci: bool,
 }
 
 impl NonInteractiveUI {
     /// Create a new non-interactive UI.
     pub fn new(mode: OutputMode) -> Self {
-        Self {
-            mode,
-            is_ci: crate::shell::is_ci(),
-        }
-    }
-
-    /// Create with explicit CI flag (for testing).
-    pub fn with_ci(mode: OutputMode, is_ci: bool) -> Self {
-        Self { mode, is_ci }
+        Self { mode }
     }
 }
 
@@ -303,17 +293,5 @@ mod tests {
         assert_eq!(result.as_string(), "npm");
 
         std::env::remove_var("MULTISELECT_OVERRIDE_STEPS");
-    }
-
-    #[test]
-    fn ci_mode_is_stored() {
-        let ui = NonInteractiveUI::with_ci(OutputMode::Normal, true);
-        assert!(ui.is_ci);
-    }
-
-    #[test]
-    fn non_ci_mode_when_explicit() {
-        let ui = NonInteractiveUI::with_ci(OutputMode::Normal, false);
-        assert!(!ui.is_ci);
     }
 }

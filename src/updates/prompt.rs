@@ -113,11 +113,16 @@ static SUPPRESS_UPDATE: std::sync::atomic::AtomicBool = std::sync::atomic::Atomi
 ///
 /// Uses a process-local atomic flag instead of mutating the environment.
 pub fn suppress_notification() {
+    // Relaxed is sufficient: this is a single boolean with no other memory
+    // it needs to synchronize with. Eventual visibility is the only
+    // requirement — a transient missed read just shows the notification
+    // one more time.
     SUPPRESS_UPDATE.store(true, std::sync::atomic::Ordering::Relaxed);
 }
 
 /// Check if update notification is suppressed.
 pub fn is_notification_suppressed() -> bool {
+    // See note in `suppress_notification` — Relaxed is intentional.
     SUPPRESS_UPDATE.load(std::sync::atomic::Ordering::Relaxed)
 }
 

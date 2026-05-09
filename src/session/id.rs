@@ -38,7 +38,8 @@ impl SessionId {
     /// Generate a new session ID.
     pub fn new() -> Self {
         let mut random = [0u8; 8];
-        crate::sys::random_bytes(&mut random);
+        crate::sys::random_bytes(&mut random)
+            .expect("BUG: platform RNG unavailable; session ID cannot be generated");
 
         // Truncate to milliseconds for consistent serialization
         let now = Utc::now();

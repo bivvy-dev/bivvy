@@ -433,7 +433,10 @@ impl EnvironmentCircularDependencyRule {
             match states.get(node) {
                 Some(State::Visiting) => {
                     path.push(node);
-                    let cycle_start = path.iter().position(|&n| n == node).unwrap();
+                    let cycle_start = path
+                        .iter()
+                        .position(|&n| n == node)
+                        .expect("BUG: state == Visiting iff node is on the current DFS path");
                     return Some(path[cycle_start..].join(" -> "));
                 }
                 Some(State::Visited) => return None,

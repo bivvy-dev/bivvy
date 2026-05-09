@@ -79,7 +79,11 @@ pub fn parse_interpolation(input: &str) -> Vec<Segment> {
                             chars.next();
                             break;
                         }
-                        var_name.push(chars.next().unwrap());
+                        var_name.push(
+                            chars
+                                .next()
+                                .expect("BUG: peek returned Some, so next must yield a char"),
+                        );
                     }
 
                     segments.push(Segment::Variable(var_name));

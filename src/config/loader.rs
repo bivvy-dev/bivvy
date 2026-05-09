@@ -19,14 +19,11 @@ use std::path::{Path, PathBuf};
 /// --merged` (and the legacy `load_merged_config` entry point) merge all
 /// of them.
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 enum WorkflowSelection<'a> {
     /// Include every workflow file under `.bivvy/workflows/`.
     All,
     /// Include only the workflow file matching the given filename stem.
     One(&'a str),
-    /// Include no workflow files (used by per-target lint paths).
-    None,
 }
 
 /// Paths to configuration files in priority order (later overrides earlier).
@@ -554,7 +551,6 @@ fn collect_config_values(
                 configs.push(workflow_file_to_partial(&file, name)?);
             }
         }
-        WorkflowSelection::None => {}
     }
 
     // 6. Local overrides

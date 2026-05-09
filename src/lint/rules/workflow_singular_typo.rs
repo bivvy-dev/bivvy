@@ -121,7 +121,7 @@ fn check_workflow_file(
         let filename = path
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_default();
+            .unwrap_or_else(|| path.display().to_string());
         diagnostics.push(
             LintDiagnostic::new(
                 rule_id.clone(),

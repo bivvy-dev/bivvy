@@ -98,9 +98,13 @@ impl FromStr for RerunWindow {
         let suffix_len = suffix_char.len_utf8();
         let num_str = &s[..s.len() - suffix_len];
         let suffix = &s[s.len() - suffix_len..];
-        let num: u64 = num_str
-            .parse()
-            .map_err(|_| format!("invalid rerun window '{}': expected a number followed by h/m/d/s (e.g., '4h', '30m', '7d')", s))?;
+        let num: u64 = num_str.parse().map_err(|e| {
+            tracing::debug!("rerun window parse error for '{}': {}", s, e);
+            format!(
+                "invalid rerun window '{}': expected a number followed by h/m/d/s (e.g., '4h', '30m', '7d')",
+                s
+            )
+        })?;
 
         let secs = match suffix {
             "s" => num,
