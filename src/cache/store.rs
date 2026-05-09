@@ -141,7 +141,7 @@ impl CacheStore {
             }
         }
 
-        entries.sort_by(|a, b| b.metadata.cached_at.cmp(&a.metadata.cached_at));
+        entries.sort_by_key(|entry| std::cmp::Reverse(entry.metadata.cached_at));
         Ok(entries)
     }
 

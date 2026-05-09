@@ -4,6 +4,8 @@
 //! including the [`RunRecord`] struct and [`RunHistoryBuilder`] for
 //! building records during execution.
 
+use std::time::Instant;
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -44,6 +46,7 @@ pub enum RunStatus {
 pub struct RunHistoryBuilder {
     workflow: String,
     start_time: DateTime<Utc>,
+    start_instant: Instant,
     steps_run: Vec<String>,
     steps_skipped: Vec<String>,
 }
@@ -54,6 +57,7 @@ impl RunHistoryBuilder {
         Self {
             workflow: workflow.to_string(),
             start_time: Utc::now(),
+            start_instant: Instant::now(),
             steps_run: Vec::new(),
             steps_skipped: Vec::new(),
         }
@@ -69,12 +73,17 @@ impl RunHistoryBuilder {
         self.steps_skipped.push(step.to_string());
     }
 
+    fn elapsed_ms(&self) -> u64 {
+        u64::try_from(self.start_instant.elapsed().as_millis()).unwrap_or(u64::MAX)
+    }
+
     /// Finish with success.
     pub fn finish_success(self) -> RunRecord {
+        let duration_ms = self.elapsed_ms();
         RunRecord {
             timestamp: self.start_time,
             workflow: self.workflow,
-            duration_ms: (Utc::now() - self.start_time).num_milliseconds() as u64,
+            duration_ms,
             status: RunStatus::Success,
             steps_run: self.steps_run,
             steps_skipped: self.steps_skipped,
@@ -84,10 +93,11 @@ impl RunHistoryBuilder {
 
     /// Finish with failure.
     pub fn finish_failed(self, error: &str) -> RunRecord {
+        let duration_ms = self.elapsed_ms();
         RunRecord {
             timestamp: self.start_time,
             workflow: self.workflow,
-            duration_ms: (Utc::now() - self.start_time).num_milliseconds() as u64,
+            duration_ms,
             status: RunStatus::Failed,
             steps_run: self.steps_run,
             steps_skipped: self.steps_skipped,
@@ -97,10 +107,11 @@ impl RunHistoryBuilder {
 
     /// Finish as interrupted.
     pub fn finish_interrupted(self) -> RunRecord {
+        let duration_ms = self.elapsed_ms();
         RunRecord {
             timestamp: self.start_time,
             workflow: self.workflow,
-            duration_ms: (Utc::now() - self.start_time).num_milliseconds() as u64,
+            duration_ms,
             status: RunStatus::Interrupted,
             steps_run: self.steps_run,
             steps_skipped: self.steps_skipped,
@@ -178,5 +189,20 @@ mod tests {
 
         assert!(record.steps_run.is_empty());
         assert!(record.steps_skipped.is_empty());
+    }
+
+    #[test]
+    fn run_history_duration_uses_monotonic_clock() {
+        let builder = RunHistoryBuilder::start("monotonic");
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let record = builder.finish_success();
+
+        // Instant-based elapsed cannot be negative; the cast is safe.
+        // We assert it is a sensible positive value.
+        assert!(
+            record.duration_ms >= 15 && record.duration_ms < 60_000,
+            "expected ~20ms elapsed, got {}",
+            record.duration_ms
+        );
     }
 }

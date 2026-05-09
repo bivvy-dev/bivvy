@@ -40,8 +40,13 @@ pub enum BivvyError {
     StepExecutionError { step: String, message: String },
 
     /// Shell command failed.
-    #[error("Command failed with exit code {code:?}: {command}")]
-    CommandFailed { command: String, code: Option<i32> },
+    #[error("Command failed with exit code {code:?}: {command}{}", source.as_ref().map(|e| format!(" ({}: {})", e.kind(), e)).unwrap_or_default())]
+    CommandFailed {
+        command: String,
+        code: Option<i32>,
+        #[source]
+        source: Option<std::io::Error>,
+    },
 
     /// A required tool or service is missing and cannot be auto-installed.
     #[error("Missing requirement '{requirement}': {message}")]
@@ -140,10 +145,41 @@ mod tests {
         let err = BivvyError::CommandFailed {
             command: "npm install".into(),
             code: Some(1),
+            source: None,
         };
         let msg = err.to_string();
         assert!(msg.contains("npm install"));
         assert!(msg.contains("1"));
+    }
+
+    #[test]
+    fn command_failed_displays_io_kind_when_source_present() {
+        let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "binary missing");
+        let err = BivvyError::CommandFailed {
+            command: "missing-bin".into(),
+            code: None,
+            source: Some(io_err),
+        };
+        let msg = err.to_string();
+        assert!(msg.contains("missing-bin"));
+        // io::ErrorKind::NotFound's Display includes "not found"
+        let lower = msg.to_lowercase();
+        assert!(
+            lower.contains("not found"),
+            "expected message to surface io kind, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn command_failed_exposes_source_via_error_trait() {
+        use std::error::Error;
+        let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no exec bit");
+        let err = BivvyError::CommandFailed {
+            command: "blocked".into(),
+            code: None,
+            source: Some(io_err),
+        };
+        assert!(err.source().is_some());
     }
 
     #[test]

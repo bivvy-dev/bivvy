@@ -88,7 +88,7 @@ impl TerminalWorkflowDisplay {
 
     /// Format the bar message string with bracket bar + counts.
     fn format_bar(theme: &BivvyTheme, current: usize, total: usize, elapsed: Duration) -> String {
-        let filled = if total > 0 { (current * 16) / total } else { 0 };
+        let filled = (current * 16).checked_div(total).unwrap_or(0);
         let empty = 16usize.saturating_sub(filled);
         let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
         format!(
@@ -295,7 +295,7 @@ impl WorkflowDisplay for NonInteractiveWorkflowDisplay {
         if !self.mode.shows_status() {
             return;
         }
-        let filled = if total > 0 { (current * 16) / total } else { 0 };
+        let filled = (current * 16).checked_div(total).unwrap_or(0);
         let empty = 16usize.saturating_sub(filled);
         let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
         println!(

@@ -3,7 +3,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 /// Metadata for a session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -33,6 +33,11 @@ pub struct SessionMetadata {
     /// Command-specific context.
     #[serde(default)]
     pub context: SessionContext,
+    /// Monotonic start instant. Used to compute elapsed time without being
+    /// vulnerable to wall-clock skew. Not persisted (regenerated on restore
+    /// would be meaningless across processes).
+    #[serde(skip)]
+    start_instant: Option<Instant>,
 }
 
 /// Command-specific context data.
@@ -86,6 +91,7 @@ impl SessionMetadata {
             stdout: String::new(),
             stderr: String::new(),
             context: SessionContext::default(),
+            start_instant: Some(Instant::now()),
         }
     }
 
@@ -109,11 +115,26 @@ impl SessionMetadata {
     }
 
     /// Get session duration.
+    ///
+    /// Prefers the monotonic `Instant` captured at session start. Falls back
+    /// to wall-clock subtraction for sessions reconstructed from disk
+    /// (where `start_instant` is `None`); negative deltas are clamped to
+    /// zero and a warning is logged so the anomaly is visible.
     pub fn duration(&self) -> Option<Duration> {
+        if let Some(instant) = self.start_instant {
+            return Some(instant.elapsed());
+        }
         match (self.start_time, self.end_time) {
             (Some(start), Some(end)) => {
-                let diff = end.signed_duration_since(start);
-                Some(Duration::from_millis(diff.num_milliseconds() as u64))
+                let ms = end.signed_duration_since(start).num_milliseconds();
+                if ms < 0 {
+                    tracing::warn!(
+                        "session wall-clock duration negative ({} ms); clamping to zero",
+                        ms
+                    );
+                    return Some(Duration::ZERO);
+                }
+                Some(Duration::from_millis(ms as u64))
             }
             _ => None,
         }
@@ -228,5 +249,37 @@ mod tests {
 
         assert_eq!(parsed.command, "run");
         assert_eq!(parsed.exit_code, Some(0));
+    }
+
+    #[test]
+    fn session_metadata_wall_clock_fallback_clamps_negative() {
+        // Simulate a SessionMetadata reconstructed from disk: start_instant
+        // is None (because it is #[serde(skip)]). When start_time is in the
+        // future relative to end_time, duration() must clamp to zero rather
+        // than wrap into a huge u64.
+        let mut meta = SessionMetadata::new("run", vec![]);
+        meta.start_instant = None;
+        let now = Utc::now();
+        meta.start_time = Some(now + chrono::Duration::seconds(60));
+        meta.end_time = Some(now);
+
+        let duration = meta.duration().expect("duration should be Some");
+        assert_eq!(duration, Duration::ZERO);
+    }
+
+    #[test]
+    fn session_metadata_uses_monotonic_clock_when_present() {
+        let mut meta = SessionMetadata::new("run", vec![]);
+        std::thread::sleep(Duration::from_millis(20));
+        meta.finalize(0, String::new(), String::new());
+
+        let duration = meta.duration().expect("duration should be Some");
+        // Even if the wall clock jumped, the monotonic Instant gives
+        // a positive elapsed value in the expected range.
+        assert!(
+            duration >= Duration::from_millis(15) && duration < Duration::from_secs(60),
+            "expected ~20ms elapsed, got {:?}",
+            duration
+        );
     }
 }

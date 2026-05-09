@@ -99,7 +99,7 @@ impl FixEngine {
 
         // Sort fixes by start position (reverse order for safe replacement)
         let mut sorted_fixes = fixes.to_vec();
-        sorted_fixes.sort_by(|a, b| b.start.cmp(&a.start));
+        sorted_fixes.sort_by_key(|fix| std::cmp::Reverse(fix.start));
 
         let mut new_content = content;
         for fix in &sorted_fixes {

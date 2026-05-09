@@ -132,13 +132,22 @@ impl BivvyTheme {
 }
 
 /// Check if colors should be enabled.
+///
+/// Honors three signals, in this order:
+/// 1. The `NO_COLOR` env var (https://no-color.org/).
+/// 2. The console crate's in-process toggle (`console::colors_enabled()`),
+///    which `--no-color` sets at startup. This avoids mutating the global
+///    process environment from `main`.
+/// 3. Whether stdout is a TTY.
 pub fn should_use_colors() -> bool {
-    // Check NO_COLOR env var (https://no-color.org/)
     if std::env::var("NO_COLOR").is_ok() {
         return false;
     }
 
-    // Check if stdout is a TTY
+    if !console::colors_enabled() {
+        return false;
+    }
+
     console::Term::stdout().is_term()
 }
 
@@ -239,5 +248,18 @@ mod tests {
         let _ = theme.key.apply_to("Workflow:");
         let _ = theme.value.apply_to("default");
         let _ = theme.blocked.apply_to("⊘");
+    }
+
+    #[test]
+    fn should_use_colors_respects_console_toggle() {
+        // The console crate's process-wide toggle is what `--no-color`
+        // flips in main. Disabling it here must drive `should_use_colors`
+        // to false even when NO_COLOR is unset and stdout is a TTY.
+        // Restore the previous state at the end so we don't leak the
+        // toggle to other tests in the same process.
+        let prior = console::colors_enabled();
+        console::set_colors_enabled(false);
+        assert!(!should_use_colors());
+        console::set_colors_enabled(prior);
     }
 }

@@ -205,9 +205,10 @@ pub fn execute(command: &str, options: &CommandOptions) -> Result<CommandResult>
     }
 
     // Execute
-    let output = cmd.output().map_err(|_| BivvyError::CommandFailed {
+    let output = cmd.output().map_err(|e| BivvyError::CommandFailed {
         command: command.to_string(),
         code: None,
+        source: Some(e),
     })?;
 
     // Re-claim foreground after the child's process group exits.
@@ -258,6 +259,31 @@ pub fn execute_check(command: &str, cwd: Option<&Path>) -> bool {
         .unwrap_or(false)
 }
 
+/// Join a reader thread and surface a panic as a hard error.
+///
+/// `execute_streaming` spawns one reader thread per stdio stream. If
+/// either panics, joining returns `Err` and the captured output is
+/// incomplete; we promote that to `BivvyError::CommandFailed` instead
+/// of silently substituting an empty string.
+fn join_reader(
+    handle: thread::JoinHandle<String>,
+    command: &str,
+    stream: &'static str,
+) -> Result<String> {
+    handle.join().map_err(|_| {
+        tracing::error!(
+            "{} reader thread panicked while capturing command: {}",
+            stream,
+            command
+        );
+        BivvyError::CommandFailed {
+            command: command.to_string(),
+            code: None,
+            source: None,
+        }
+    })
+}
+
 /// Execute a command with streaming output.
 pub fn execute_streaming(
     command: &str,
@@ -301,9 +327,10 @@ pub fn execute_streaming(
     cmd.stdout(Stdio::piped());
     cmd.stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|_| BivvyError::CommandFailed {
+    let mut child = cmd.spawn().map_err(|e| BivvyError::CommandFailed {
         command: command.to_string(),
         code: None,
+        source: Some(e),
     })?;
 
     let stdout = child.stdout.take().unwrap();
@@ -341,12 +368,13 @@ pub fn execute_streaming(
         callback.write_line(line);
     }
 
-    let stdout_output = stdout_handle.join().unwrap_or_default();
-    let stderr_output = stderr_handle.join().unwrap_or_default();
+    let stdout_output = join_reader(stdout_handle, command, "stdout")?;
+    let stderr_output = join_reader(stderr_handle, command, "stderr")?;
 
-    let status = child.wait().map_err(|_| BivvyError::CommandFailed {
+    let status = child.wait().map_err(|e| BivvyError::CommandFailed {
         command: command.to_string(),
         code: None,
+        source: Some(e),
     })?;
 
     // Re-claim foreground after the child's process group exits.
@@ -568,6 +596,33 @@ mod tests {
         let result = execute_quiet("echo hello", None).unwrap();
         assert!(result.success);
         assert!(result.stdout.contains("hello"));
+    }
+
+    #[test]
+    fn join_reader_promotes_panic_to_command_failed() {
+        let handle = thread::spawn(|| -> String {
+            panic!("simulated reader thread panic");
+        });
+        let err = join_reader(handle, "fake-cmd", "stdout").unwrap_err();
+        match err {
+            BivvyError::CommandFailed {
+                command,
+                code,
+                source,
+            } => {
+                assert_eq!(command, "fake-cmd");
+                assert!(code.is_none());
+                assert!(source.is_none());
+            }
+            other => panic!("expected CommandFailed, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn join_reader_returns_captured_output_on_success() {
+        let handle = thread::spawn(|| "hello".to_string());
+        let captured = join_reader(handle, "fake-cmd", "stdout").unwrap();
+        assert_eq!(captured, "hello");
     }
 
     #[test]

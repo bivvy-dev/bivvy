@@ -2,7 +2,7 @@
 
 use std::process::ExitCode;
 
-use bivvy::cli::{Cli, CommandDispatcher, Commands};
+use bivvy::cli::{resolve_project_root, Cli, CommandDispatcher, Commands};
 use bivvy::shell::is_ci;
 use bivvy::ui::{create_ui, OutputMode};
 use bivvy::updates::{
@@ -79,17 +79,27 @@ fn main() -> ExitCode {
         OutputMode::Normal
     };
 
-    // Handle --no-color
+    // Handle --no-color via the console crate's in-process toggles instead
+    // of mutating NO_COLOR at the environment level. `set_var` is unsafe in
+    // multithreaded contexts (and `unsafe fn` in Rust 2024); the console
+    // crate supports a thread-safe override that indicatif and the rest of
+    // the UI layer also honor.
     if cli.no_color {
-        std::env::set_var("NO_COLOR", "1");
+        console::set_colors_enabled(false);
+        console::set_colors_enabled_stderr(false);
     }
 
-    // Determine project root
-    let project_root = cli
-        .project
-        .as_ref()
-        .cloned()
-        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    // Determine project root. When `--project` is not set and the current
+    // working directory cannot be resolved (deleted cwd, permission error,
+    // etc.), bail with a clear error rather than silently treating "" as
+    // the project root.
+    let project_root = match resolve_project_root(cli.project.clone(), std::env::current_dir()) {
+        Ok(p) => p,
+        Err(message) => {
+            eprintln!("Error: {}", message);
+            return ExitCode::from(2);
+        }
+    };
 
     // Check if non-interactive (CI mode or explicit flag)
     let is_interactive = match &cli.command {

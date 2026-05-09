@@ -53,6 +53,9 @@ pub struct MockUI {
     prompts_shown: Vec<String>,
     /// Fallback response for any prompt key not in `prompt_responses` or `prompt_queues`.
     default_prompt_response: Option<String>,
+    /// Set of prompt keys that should fail with an error instead of returning a value.
+    /// Used to exercise UI-failure paths.
+    failing_prompt_keys: std::collections::HashSet<String>,
 }
 
 impl MockUI {
@@ -101,6 +104,14 @@ impl MockUI {
     /// prompts whose key includes the step name, which depends on template detection).
     pub fn set_default_prompt_response(&mut self, response: &str) {
         self.default_prompt_response = Some(response.to_string());
+    }
+
+    /// Mark a prompt key so that calling `prompt()` with it returns an error.
+    ///
+    /// Used by tests that need to exercise the "prompt failure" path in
+    /// callers (closed pipe, terminal error, etc.).
+    pub fn fail_prompt(&mut self, key: &str) {
+        self.failing_prompt_keys.insert(key.to_string());
     }
 
     /// Set whether this mock behaves as interactive.
@@ -239,6 +250,12 @@ impl OutputWriter for MockUI {
 impl Prompter for MockUI {
     fn prompt(&mut self, prompt: &Prompt) -> Result<PromptResult> {
         self.prompts_shown.push(prompt.key.clone());
+
+        if self.failing_prompt_keys.contains(&prompt.key) {
+            return Err(crate::error::BivvyError::ShellError {
+                message: format!("simulated prompt failure for '{}'", prompt.key),
+            });
+        }
 
         let is_confirm = matches!(prompt.prompt_type, PromptType::Confirm);
         let is_multiselect = matches!(prompt.prompt_type, PromptType::MultiSelect { .. });

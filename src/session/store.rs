@@ -78,7 +78,7 @@ impl SessionStore {
         }
 
         // Sort by timestamp descending
-        sessions.sort_by(|a, b| b.id.timestamp().cmp(&a.id.timestamp()));
+        sessions.sort_by_key(|session| std::cmp::Reverse(session.id.timestamp()));
         sessions.truncate(limit);
 
         Ok(sessions)

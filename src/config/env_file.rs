@@ -71,19 +71,19 @@ impl EnvFileParser {
         Some((key, value))
     }
 
-    /// Remove surrounding quotes from a value.
+    /// Remove surrounding matching quotes from a value.
+    ///
+    /// UTF-8 safe: uses `strip_prefix`/`strip_suffix` so a quoted value
+    /// whose first or last codepoint is multibyte does not panic on a
+    /// byte-offset slice.
     fn unquote(value: &str) -> String {
-        if (value.starts_with('"') && value.ends_with('"'))
-            || (value.starts_with('\'') && value.ends_with('\''))
-        {
-            if value.len() >= 2 {
-                value[1..value.len() - 1].to_string()
-            } else {
-                value.to_string()
-            }
-        } else {
-            value.to_string()
+        if let Some(inner) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+            return inner.to_string();
         }
+        if let Some(inner) = value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+            return inner.to_string();
+        }
+        value.to_string()
     }
 
     /// Load and parse an env file from a path.
@@ -215,6 +215,21 @@ KEY2=value2
         let vars = EnvFileParser::parse(content).unwrap();
 
         assert_eq!(vars.len(), 2);
+    }
+
+    #[test]
+    fn handles_multibyte_quoted_value() {
+        // Quoted value with a multibyte character at the closing boundary.
+        let content = "GREETING=\"caf\u{00E9}\"";
+        let vars = EnvFileParser::parse(content).unwrap();
+        assert_eq!(vars.get("GREETING"), Some(&"caf\u{00E9}".to_string()));
+    }
+
+    #[test]
+    fn keeps_mismatched_quotes() {
+        let content = "MIXED=\"caf\u{00E9}'";
+        let vars = EnvFileParser::parse(content).unwrap();
+        assert_eq!(vars.get("MIXED"), Some(&"\"caf\u{00E9}'".to_string()));
     }
 
     #[test]

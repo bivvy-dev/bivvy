@@ -46,14 +46,24 @@ impl EventConsumer for StateRecorder {
                 } else {
                     StepStatus::Failed
                 };
-                if let Ok(mut store) = self.store.lock() {
-                    store.record_step_result(name, status, Duration::from_millis(*duration_ms));
-                }
+                let mut store = self.store.lock().unwrap_or_else(|e| {
+                    tracing::warn!(
+                        "state store mutex poisoned while recording step '{}'; recovering and continuing",
+                        name
+                    );
+                    e.into_inner()
+                });
+                store.record_step_result(name, status, Duration::from_millis(*duration_ms));
             }
             BivvyEvent::StepSkipped { name, .. } => {
-                if let Ok(mut store) = self.store.lock() {
-                    store.record_step_result(name, StepStatus::Skipped, Duration::ZERO);
-                }
+                let mut store = self.store.lock().unwrap_or_else(|e| {
+                    tracing::warn!(
+                        "state store mutex poisoned while recording skipped step '{}'; recovering and continuing",
+                        name
+                    );
+                    e.into_inner()
+                });
+                store.record_step_result(name, StepStatus::Skipped, Duration::ZERO);
             }
             _ => {}
         }
@@ -137,5 +147,43 @@ mod tests {
         });
         // The shared store is still accessible
         assert!(store.lock().unwrap().is_step_complete("test"));
+    }
+
+    /// Poison the shared store by panicking inside a held lock guard, then
+    /// drive `StepCompleted` and `StepSkipped` events through a new
+    /// recorder. With the prior `if let Ok(...)` pattern, both events would
+    /// silently drop. With `into_inner` recovery, both records persist.
+    #[test]
+    fn records_step_completion_when_store_mutex_is_poisoned() {
+        let (store, _tmp) = make_shared_store();
+
+        // Poison the mutex.
+        let poisoner = store.clone();
+        let _ = std::thread::spawn(move || {
+            let _guard = poisoner.lock().unwrap();
+            panic!("intentional poison for test");
+        })
+        .join();
+        assert!(store.is_poisoned(), "expected mutex to be poisoned");
+
+        let mut recorder = StateRecorder::new(store.clone());
+        recorder.on_event(&BivvyEvent::StepCompleted {
+            name: "build".to_string(),
+            success: true,
+            exit_code: Some(0),
+            duration_ms: 1500,
+            error: None,
+        });
+        recorder.on_event(&BivvyEvent::StepSkipped {
+            name: "deploy".to_string(),
+            reason: "user_declined".to_string(),
+        });
+
+        let recovered = store.lock().unwrap_or_else(|e| e.into_inner());
+        assert!(recovered.is_step_complete("build"));
+        assert_eq!(
+            recovered.steps.get("deploy").map(|s| s.status),
+            Some(StepStatus::Skipped)
+        );
     }
 }

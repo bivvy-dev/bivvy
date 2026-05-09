@@ -21,6 +21,25 @@ pub struct InstallerContext<'a> {
     pub prepend_path: &'a dyn Fn(&Path),
 }
 
+/// Confirm a yes/no prompt, distinguishing UI failures from user "no".
+///
+/// Returns:
+/// - `Ok(true)` when the user confirms.
+/// - `Ok(false)` when the user declines or the prompt resolves to a
+///   non-boolean (defensive: callers wired Confirm prompts).
+/// - `Err(BivvyError::ShellError)` when the prompt itself fails (closed
+///   pipe, terminal error, mock returning `Err`). The caller propagates
+///   the error so the workflow aborts with a clear cause instead of
+///   silently treating the fault as a decline.
+fn confirm_prompt(ui: &mut dyn UserInterface, prompt: &Prompt) -> Result<bool> {
+    match ui.prompt(prompt) {
+        Ok(result) => Ok(result.as_bool().unwrap_or(false)),
+        Err(e) => Err(BivvyError::ShellError {
+            message: format!("Prompt '{}' failed: {}", prompt.key, e),
+        }),
+    }
+}
+
 /// Handle all requirement gaps for a step.
 ///
 /// Returns `Ok(true)` if the step can proceed, `Ok(false)` if
@@ -40,7 +59,7 @@ pub fn handle_gaps(
 
     for gap in gaps {
         let outcome = if interactive {
-            handle_gap_interactive(gap, checker, ui, ctx)
+            handle_gap_interactive(gap, checker, ui, ctx)?
         } else {
             handle_gap_non_interactive(gap, ui)
         };
@@ -139,8 +158,8 @@ fn handle_gap_interactive(
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
     ctx: &InstallerContext<'_>,
-) -> Outcome {
-    match &gap.status {
+) -> Result<Outcome> {
+    Ok(match &gap.status {
         RequirementStatus::Satisfied => Outcome::Resolved,
         RequirementStatus::Inactive {
             binary_path,
@@ -158,7 +177,7 @@ fn handle_gap_interactive(
             checker,
             ui,
             ctx,
-        ),
+        )?,
         RequirementStatus::Missing {
             install_template,
             install_hint,
@@ -169,7 +188,7 @@ fn handle_gap_interactive(
             checker,
             ui,
             ctx,
-        ),
+        )?,
         RequirementStatus::SystemOnly {
             warning,
             install_template,
@@ -181,11 +200,11 @@ fn handle_gap_interactive(
             checker,
             ui,
             ctx,
-        ),
+        )?,
         RequirementStatus::Unknown => Outcome::Blocked {
             requirement: gap.requirement.clone(),
         },
-    }
+    })
 }
 
 fn handle_gap_non_interactive(gap: &GapResult, ui: &mut dyn OutputWriter) -> Outcome {
@@ -243,11 +262,11 @@ fn handle_service_down(
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
     ctx: &InstallerContext<'_>,
-) -> Outcome {
+) -> Result<Outcome> {
     let Some(cmd) = start_command else {
-        return Outcome::Skip {
+        return Ok(Outcome::Skip {
             reason: format!("Service '{}' is not running. {}", requirement, start_hint),
-        };
+        });
     };
 
     let prompt = Prompt {
@@ -257,26 +276,20 @@ fn handle_service_down(
         default: Some("yes".to_string()),
     };
 
-    let confirmed = ui
-        .prompt(&prompt)
-        .ok()
-        .and_then(|r| r.as_bool())
-        .unwrap_or(false);
-
-    if !confirmed {
-        return Outcome::Skip {
+    if !confirm_prompt(ui, &prompt)? {
+        return Ok(Outcome::Skip {
             reason: format!("Service '{}' is not running. {}", requirement, start_hint),
-        };
+        });
     }
 
-    if (ctx.run_command)(cmd) {
+    Ok(if (ctx.run_command)(cmd) {
         checker.invalidate(requirement);
         Outcome::Resolved
     } else {
         Outcome::Skip {
             reason: format!("Failed to start '{}'. {}", requirement, start_hint),
         }
-    }
+    })
 }
 
 // 6C: Missing — install offer
@@ -287,22 +300,22 @@ fn handle_missing(
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
     ctx: &InstallerContext<'_>,
-) -> Outcome {
+) -> Result<Outcome> {
     let hint = install_hint.unwrap_or("Install manually");
 
     if install_template.is_none() {
-        return Outcome::Skip {
+        return Ok(Outcome::Skip {
             reason: format!("Missing requirement '{}'. {}", requirement, hint),
-        };
+        });
     }
 
     if !(ctx.check_network)() {
-        return Outcome::Skip {
+        return Ok(Outcome::Skip {
             reason: format!(
                 "Installation of '{}' requires network access, which isn't available.",
                 requirement
             ),
-        };
+        });
     }
 
     match checker.resolve_install_deps(requirement) {
@@ -321,18 +334,13 @@ fn handle_missing(
                     prompt_type: PromptType::Confirm,
                     default: Some("yes".to_string()),
                 };
-                let confirmed = ui
-                    .prompt(&dep_prompt)
-                    .ok()
-                    .and_then(|r| r.as_bool())
-                    .unwrap_or(false);
-                if !confirmed {
-                    return Outcome::Skip {
+                if !confirm_prompt(ui, &dep_prompt)? {
+                    return Ok(Outcome::Skip {
                         reason: format!(
                             "Dependency '{}' for '{}' not installed.",
                             dep, requirement
                         ),
-                    };
+                    });
                 }
                 checker.invalidate(dep);
             }
@@ -352,16 +360,10 @@ fn handle_missing(
         default: Some("yes".to_string()),
     };
 
-    let confirmed = ui
-        .prompt(&prompt)
-        .ok()
-        .and_then(|r| r.as_bool())
-        .unwrap_or(false);
-
-    if !confirmed {
-        return Outcome::Skip {
+    if !confirm_prompt(ui, &prompt)? {
+        return Ok(Outcome::Skip {
             reason: format!("Missing requirement '{}'. {}", requirement, hint),
-        };
+        });
     }
 
     let install_success = if let Some(hint_cmd) = install_hint {
@@ -371,19 +373,19 @@ fn handle_missing(
     };
 
     if !install_success {
-        return Outcome::Skip {
+        return Ok(Outcome::Skip {
             reason: format!(
                 "Installation of '{}' failed. Check output above.",
                 requirement
             ),
-        };
+        });
     }
 
     // Install exited 0 — invalidate cache and verify the tool is now on PATH
     checker.invalidate(requirement);
     let status = checker.check_one(requirement);
 
-    if status.is_satisfied() {
+    Ok(if status.is_satisfied() {
         Outcome::Resolved
     } else {
         Outcome::Skip {
@@ -392,7 +394,7 @@ fn handle_missing(
                 requirement
             ),
         }
-    }
+    })
 }
 
 // 6D: SystemOnly — warn + optional managed install
@@ -403,11 +405,11 @@ fn handle_system_only(
     checker: &mut GapChecker<'_>,
     ui: &mut dyn UserInterface,
     ctx: &InstallerContext<'_>,
-) -> Outcome {
+) -> Result<Outcome> {
     ui.warning(warning);
 
     if install_template.is_none() {
-        return Outcome::CanProceed;
+        return Ok(Outcome::CanProceed);
     }
 
     let prompt = Prompt {
@@ -417,21 +419,15 @@ fn handle_system_only(
         default: Some("no".to_string()),
     };
 
-    let confirmed = ui
-        .prompt(&prompt)
-        .ok()
-        .and_then(|r| r.as_bool())
-        .unwrap_or(false);
-
-    if !confirmed {
-        return Outcome::CanProceed;
+    if !confirm_prompt(ui, &prompt)? {
+        return Ok(Outcome::CanProceed);
     }
 
-    let result = handle_missing(requirement, install_template, None, checker, ui, ctx);
-    match result {
+    let result = handle_missing(requirement, install_template, None, checker, ui, ctx)?;
+    Ok(match result {
         Outcome::Resolved => Outcome::Resolved,
         _ => Outcome::CanProceed,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -1233,6 +1229,140 @@ mod tests {
         assert!(
             (ctx.run_command)("bivvy_test_tool"),
             "tool should be found after prepend_path"
+        );
+    }
+
+    // --- H3: Prompt failure propagates as Err ---
+
+    #[test]
+    fn service_down_prompt_failure_is_propagated() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.fail_prompt("start_postgres");
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "postgres".to_string(),
+            status: RequirementStatus::ServiceDown {
+                binary_present: true,
+                install_template: None,
+                start_command: Some("brew services start postgresql@16".to_string()),
+                start_hint: "Start PostgreSQL manually".to_string(),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        match result {
+            Err(BivvyError::ShellError { message }) => {
+                assert!(
+                    message.contains("start_postgres"),
+                    "expected message to identify the prompt key, got: {message}"
+                );
+            }
+            other => panic!("expected ShellError, got: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn missing_install_prompt_failure_is_propagated() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.fail_prompt("install_ruby");
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "ruby".to_string(),
+            status: RequirementStatus::Missing {
+                install_template: Some("mise-ruby".to_string()),
+                install_hint: Some("Install Ruby via mise".to_string()),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        assert!(
+            matches!(result, Err(BivvyError::ShellError { .. })),
+            "expected ShellError on prompt failure, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn missing_dep_prompt_failure_is_propagated() {
+        use crate::config::{CustomRequirement, CustomRequirementCheck};
+        use std::collections::HashMap;
+
+        let mut custom = HashMap::new();
+        // A custom requirement whose install template depends on something
+        // (we use the built-in dep resolution path; here we exercise the
+        // dependency-prompt failure indirectly by failing the top-level
+        // install prompt's dependency resolution. The key test is that
+        // failing any prompt aborts via Err rather than skipping.)
+        custom.insert(
+            "needs-dep".to_string(),
+            CustomRequirement {
+                check: CustomRequirementCheck::CommandSucceeds {
+                    command: "false".to_string(),
+                },
+                install_template: Some("needs-dep-install".to_string()),
+                install_hint: Some("install-needs-dep".to_string()),
+            },
+        );
+
+        let registry = RequirementRegistry::new().with_custom(&custom);
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.fail_prompt("install_needs-dep");
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "needs-dep".to_string(),
+            status: RequirementStatus::Missing {
+                install_template: Some("needs-dep-install".to_string()),
+                install_hint: Some("install-needs-dep".to_string()),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        assert!(
+            matches!(result, Err(BivvyError::ShellError { .. })),
+            "expected ShellError on prompt failure, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn system_only_managed_install_prompt_failure_is_propagated() {
+        let registry = RequirementRegistry::new();
+        let probe = make_probe();
+        let temp = TempDir::new().unwrap();
+        let mut checker = make_checker(&registry, &probe, &temp);
+        let mut ui = MockUI::new();
+        ui.set_interactive(true);
+        ui.fail_prompt("managed_install_ruby");
+        let ctx = stub_ctx(true, true);
+
+        let gaps = vec![GapResult {
+            requirement: "ruby".to_string(),
+            status: RequirementStatus::SystemOnly {
+                path: PathBuf::from("/usr/bin/ruby"),
+                install_template: Some("mise-ruby".to_string()),
+                warning: "System Ruby detected".to_string(),
+            },
+        }];
+
+        let result = handle_gaps(&gaps, &mut checker, &mut ui, true, &ctx);
+        assert!(
+            matches!(result, Err(BivvyError::ShellError { .. })),
+            "expected ShellError on prompt failure, got: {result:?}"
         );
     }
 

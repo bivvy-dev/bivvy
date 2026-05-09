@@ -50,7 +50,13 @@ impl HistoryCommand {
             return None;
         }
 
-        let (num_str, unit) = s.split_at(s.len() - 1);
+        // Split off the trailing unit character. Using `chars().next_back()`
+        // keeps multibyte characters intact instead of slicing on a byte
+        // boundary inside a UTF-8 codepoint.
+        let unit_char = s.chars().next_back()?;
+        let unit_len = unit_char.len_utf8();
+        let num_str = &s[..s.len() - unit_len];
+        let unit = &s[s.len() - unit_len..];
         let num: i64 = num_str.parse().ok()?;
 
         match unit {
@@ -426,6 +432,13 @@ mod tests {
         assert!(HistoryCommand::parse_since("abc").is_none());
         assert!(HistoryCommand::parse_since("").is_none());
         assert!(HistoryCommand::parse_since("5x").is_none());
+    }
+
+    #[test]
+    fn parse_since_multibyte_returns_none() {
+        // Japanese day character is multibyte. Byte-slicing the last char
+        // would panic; the new chars()-based split returns None.
+        assert!(HistoryCommand::parse_since("5\u{65E5}").is_none());
     }
 
     #[test]

@@ -171,14 +171,12 @@ fn parse_log_file(path: &Path) -> Option<LogLastRun> {
         let event_type = value.get("type").and_then(|t| t.as_str()).unwrap_or("");
 
         match event_type {
-            "session_started" => {
-                if session_timestamp.is_none() {
-                    session_timestamp = value
-                        .get("ts")
-                        .and_then(|t| t.as_str())
-                        .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-                        .map(|dt| dt.with_timezone(&chrono::Utc));
-                }
+            "session_started" if session_timestamp.is_none() => {
+                session_timestamp = value
+                    .get("ts")
+                    .and_then(|t| t.as_str())
+                    .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+                    .map(|dt| dt.with_timezone(&chrono::Utc));
             }
             "step_outcome" => {
                 let name = match value.get("name").and_then(|n| n.as_str()) {

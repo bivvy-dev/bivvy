@@ -62,48 +62,44 @@ fn apply_step_context_boost(
     step_ctx: &StepContext<'_>,
 ) {
     match cat.category {
-        ErrorCategory::ConnectionRefused => {
-            // Boost if step requires a service
+        // Boost if step requires a service
+        ErrorCategory::ConnectionRefused
             if step_ctx.requires.iter().any(|r| {
                 r.contains("postgres")
                     || r.contains("redis")
                     || r.contains("mysql")
                     || r.contains("mongo")
                     || r.contains("server")
-            }) {
-                cat.confidence += 0.15;
-            }
+            }) =>
+        {
+            cat.confidence += 0.15;
         }
-        ErrorCategory::NotFound => {
-            // Boost if step command is a known install/dependency command
-            if is_install_command(step_ctx.command) {
-                cat.confidence += 0.15;
-            }
+        // Boost if step command is a known install/dependency command
+        ErrorCategory::NotFound if is_install_command(step_ctx.command) => {
+            cat.confidence += 0.15;
         }
-        ErrorCategory::VersionMismatch => {
-            // Boost when version details were extracted — having actual version
-            // numbers is strong confirmation of the diagnosis.
-            if details.version_have.is_some() && details.version_need.is_some() {
-                cat.confidence += 0.15;
-            }
+        // Boost when version details were extracted — having actual version
+        // numbers is strong confirmation of the diagnosis.
+        ErrorCategory::VersionMismatch
+            if details.version_have.is_some() && details.version_need.is_some() =>
+        {
+            cat.confidence += 0.15;
         }
-        ErrorCategory::SyncIssue => {
-            // Boost if step command is a package manager
-            if is_package_manager_command(step_ctx.command) {
-                cat.confidence += 0.15;
-            }
+        // Boost if step command is a package manager
+        ErrorCategory::SyncIssue if is_package_manager_command(step_ctx.command) => {
+            cat.confidence += 0.15;
         }
-        ErrorCategory::SystemConstraint => {
-            // Boost if pip/python context
-            if step_ctx.command.contains("pip") || step_ctx.command.contains("python") {
-                cat.confidence += 0.15;
-            }
+        // Boost if pip/python context
+        ErrorCategory::SystemConstraint
+            if step_ctx.command.contains("pip") || step_ctx.command.contains("python") =>
+        {
+            cat.confidence += 0.15;
         }
-        ErrorCategory::AuthFailure => {
-            // Boost if git/ssh context
-            if step_ctx.command.contains("git") || step_ctx.command.contains("ssh") {
-                cat.confidence += 0.15;
-            }
+        // Boost if git/ssh context
+        ErrorCategory::AuthFailure
+            if step_ctx.command.contains("git") || step_ctx.command.contains("ssh") =>
+        {
+            cat.confidence += 0.15;
         }
         _ => {}
     }
@@ -116,18 +112,16 @@ fn apply_workflow_heuristics(
     workflow_state: &WorkflowState<'_>,
 ) {
     match cat.category {
-        ErrorCategory::ConnectionRefused => {
-            // If a service-start step already succeeded, the service may have crashed
-            if has_service_step_succeeded(step_ctx, workflow_state) {
-                cat.confidence += 0.1;
-            }
+        // If a service-start step already succeeded, the service may have crashed
+        ErrorCategory::ConnectionRefused
+            if has_service_step_succeeded(step_ctx, workflow_state) =>
+        {
+            cat.confidence += 0.1;
         }
-        ErrorCategory::NotFound => {
-            // If an install step for same ecosystem already succeeded,
-            // the issue is likely a wrong package name, not a missing install
-            if has_install_step_succeeded(step_ctx, workflow_state) {
-                cat.confidence += 0.1;
-            }
+        // If an install step for same ecosystem already succeeded,
+        // the issue is likely a wrong package name, not a missing install
+        ErrorCategory::NotFound if has_install_step_succeeded(step_ctx, workflow_state) => {
+            cat.confidence += 0.1;
         }
         _ => {}
     }

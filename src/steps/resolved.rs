@@ -398,9 +398,26 @@ impl ResolvedStep {
 }
 
 /// Resolve a rerun window string to a `RerunWindow`, falling back to the default.
+///
+/// If `window_str` is `Some` and fails to parse, this logs a warning and
+/// falls back to the default. The hard surface for malformed values is
+/// the `rerun-window-format` lint rule, which fires during config
+/// validation; the runtime warning is a secondary defense for callers
+/// who skip lint.
 fn resolve_rerun_window(window_str: Option<&str>) -> crate::runner::RerunWindow {
     match window_str {
-        Some(s) => s.parse().unwrap_or_default(),
+        Some(s) => match s.parse() {
+            Ok(window) => window,
+            Err(e) => {
+                tracing::warn!(
+                    "invalid rerun_window value '{}' ({}); falling back to default. \
+                     Run 'bivvy lint' to surface this as an error.",
+                    s,
+                    e
+                );
+                crate::runner::RerunWindow::default()
+            }
+        },
         None => crate::runner::RerunWindow::default(),
     }
 }

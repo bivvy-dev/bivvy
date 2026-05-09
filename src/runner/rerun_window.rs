@@ -86,7 +86,18 @@ impl FromStr for RerunWindow {
             return Err("empty rerun window string".to_string());
         }
 
-        let (num_str, suffix) = s.split_at(s.len() - 1);
+        // Split off the trailing suffix character. Using `chars().next_back()`
+        // keeps multibyte characters intact instead of slicing on a byte
+        // boundary inside a UTF-8 codepoint.
+        let suffix_char = s.chars().next_back().ok_or_else(|| {
+            format!(
+                "invalid rerun window '{}': expected a number followed by h/m/d/s (e.g., '4h', '30m', '7d')",
+                s
+            )
+        })?;
+        let suffix_len = suffix_char.len_utf8();
+        let num_str = &s[..s.len() - suffix_len];
+        let suffix = &s[s.len() - suffix_len..];
         let num: u64 = num_str
             .parse()
             .map_err(|_| format!("invalid rerun window '{}': expected a number followed by h/m/d/s (e.g., '4h', '30m', '7d')", s))?;
@@ -348,6 +359,14 @@ mod tests {
         let yaml = serde_yaml::to_string(&w).unwrap();
         let parsed: RerunWindow = serde_yaml::from_str(&yaml).unwrap();
         assert_eq!(parsed, w);
+    }
+
+    #[test]
+    fn parse_multibyte_suffix_returns_err() {
+        // Japanese day character is multibyte. Byte-slicing the last char
+        // would panic; the new chars()-based split returns Err instead.
+        let result = RerunWindow::from_str("5\u{65E5}");
+        assert!(result.is_err(), "expected Err, got {result:?}");
     }
 
     #[test]

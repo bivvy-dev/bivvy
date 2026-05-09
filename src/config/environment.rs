@@ -68,6 +68,22 @@ pub fn load_env_file_optional(path: &Path) -> HashMap<String, String> {
     load_env_file(path).unwrap_or_default()
 }
 
+/// Strip a single layer of matching `"`/`"` or `'`/`'` quotes, if present.
+///
+/// Returns the original string slice when there are no matching quotes,
+/// when the open and close quote types differ, or when the input is too
+/// short to have both. UTF-8 safe: uses `strip_prefix`/`strip_suffix`
+/// which operate on `char` boundaries.
+fn strip_matching_quotes(value: &str) -> &str {
+    if let Some(inner) = value.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        return inner;
+    }
+    if let Some(inner) = value.strip_prefix('\'').and_then(|s| s.strip_suffix('\'')) {
+        return inner;
+    }
+    value
+}
+
 /// Parse dotenv-style content.
 fn parse_dotenv(content: &str, source_path: &Path) -> Result<HashMap<String, String>> {
     let mut env = HashMap::new();
@@ -83,15 +99,13 @@ fn parse_dotenv(content: &str, source_path: &Path) -> Result<HashMap<String, Str
         // Parse KEY=value
         if let Some(eq_pos) = line.find('=') {
             let key = line[..eq_pos].trim().to_string();
-            let mut value = line[eq_pos + 1..].trim().to_string();
+            let raw = line[eq_pos + 1..].trim();
 
-            // Remove surrounding quotes if present
-            if ((value.starts_with('"') && value.ends_with('"'))
-                || (value.starts_with('\'') && value.ends_with('\'')))
-                && value.len() >= 2
-            {
-                value = value[1..value.len() - 1].to_string();
-            }
+            // Remove surrounding matching quotes if present. Use
+            // strip_prefix/strip_suffix so that values containing multibyte
+            // characters at either boundary do not panic on byte-offset
+            // slicing.
+            let value = strip_matching_quotes(raw).to_string();
 
             env.insert(key, value);
         } else {
@@ -127,9 +141,9 @@ pub fn is_secret(name: &str, additional_patterns: &[String]) -> bool {
 
 /// Simple glob-style pattern matching (* matches any characters).
 fn matches_pattern(name: &str, pattern: &str) -> bool {
-    if pattern.starts_with('*') && pattern.ends_with('*') && pattern.len() >= 2 {
-        // *MIDDLE* - contains
-        let middle = &pattern[1..pattern.len() - 1];
+    // *MIDDLE* — contains. Use strip_prefix + strip_suffix so multibyte
+    // characters between the asterisks aren't sliced on a byte boundary.
+    if let Some(middle) = pattern.strip_prefix('*').and_then(|p| p.strip_suffix('*')) {
         name.contains(middle)
     } else if let Some(suffix) = pattern.strip_prefix('*') {
         // *SUFFIX - ends with
@@ -261,6 +275,35 @@ mod tests {
         assert_eq!(result.get("A"), Some(&"1".to_string()));
         assert_eq!(result.get("B"), Some(&"3".to_string()));
         assert_eq!(result.get("C"), Some(&"4".to_string()));
+    }
+
+    #[test]
+    fn parse_dotenv_handles_multibyte_quoted_value() {
+        // Quoted value with a multibyte character at the closing boundary.
+        // Byte-offset slicing would panic; strip_prefix/strip_suffix is safe.
+        let content = "GREETING=\"caf\u{00E9}\"";
+        let env = parse_dotenv(content, Path::new("test")).unwrap();
+        assert_eq!(env.get("GREETING"), Some(&"caf\u{00E9}".to_string()));
+    }
+
+    #[test]
+    fn parse_dotenv_keeps_mismatched_quotes() {
+        // Mismatched quotes shouldn't be stripped — neither prefix matches
+        // the suffix, so the value is returned as-is.
+        let content = "MIXED=\"caf\u{00E9}'";
+        let env = parse_dotenv(content, Path::new("test")).unwrap();
+        assert_eq!(env.get("MIXED"), Some(&"\"caf\u{00E9}'".to_string()));
+    }
+
+    #[test]
+    fn matches_pattern_contains_handles_multibyte_middle() {
+        // Pattern *cafe-acute* matches names that contain the multibyte
+        // middle. Byte-slicing the pattern would panic.
+        assert!(matches_pattern(
+            "PREFIX_caf\u{00E9}_SUFFIX",
+            "*caf\u{00E9}*"
+        ));
+        assert!(!matches_pattern("PREFIX_cafe_SUFFIX", "*caf\u{00E9}*"));
     }
 
     #[test]

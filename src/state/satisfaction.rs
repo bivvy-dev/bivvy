@@ -192,12 +192,29 @@ impl SatisfactionCache {
 
     /// Load the cache from a `satisfaction.json` file.
     ///
-    /// If the file doesn't exist or is invalid, returns an empty cache.
+    /// If the file doesn't exist, returns an empty cache silently.
+    /// If the file exists but cannot be parsed, the corrupt file is
+    /// renamed to `<name>.corrupt-<unix_ts>` so it can be inspected,
+    /// a warning is logged, and an empty cache is returned. The next
+    /// flush will recreate `<name>` cleanly.
     pub fn load(path: PathBuf) -> Self {
         let persisted = if path.exists() {
             match std::fs::read_to_string(&path) {
-                Ok(content) => serde_json::from_str(&content).unwrap_or_default(),
-                Err(_) => HashMap::new(),
+                Ok(content) => match serde_json::from_str(&content) {
+                    Ok(parsed) => parsed,
+                    Err(parse_err) => {
+                        Self::quarantine_corrupt(&path, &parse_err.to_string());
+                        HashMap::new()
+                    }
+                },
+                Err(io_err) => {
+                    tracing::warn!(
+                        "could not read satisfaction cache at {}: {}; continuing with empty cache",
+                        path.display(),
+                        io_err
+                    );
+                    HashMap::new()
+                }
             }
         } else {
             HashMap::new()
@@ -207,6 +224,36 @@ impl SatisfactionCache {
             runtime: HashMap::new(),
             persisted,
             path,
+        }
+    }
+
+    /// Move the corrupt cache file aside so a subsequent flush can write
+    /// a fresh one without overwriting the bad copy. Logs a warning
+    /// either way; rename failure is non-fatal because the run still
+    /// needs to proceed with an empty cache.
+    fn quarantine_corrupt(path: &Path, reason: &str) {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let name = path
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "satisfaction.json".to_string());
+        let quarantined = path.with_file_name(format!("{}.corrupt-{}", name, ts));
+        match std::fs::rename(path, &quarantined) {
+            Ok(()) => tracing::warn!(
+                "satisfaction cache at {} is corrupt ({}); moved to {} and continuing with empty cache",
+                path.display(),
+                reason,
+                quarantined.display()
+            ),
+            Err(rename_err) => tracing::warn!(
+                "satisfaction cache at {} is corrupt ({}); failed to move it aside ({}); continuing with empty cache",
+                path.display(),
+                reason,
+                rename_err
+            ),
         }
     }
 
@@ -637,13 +684,34 @@ mod cache_tests {
     }
 
     #[test]
-    fn cache_load_invalid_json_returns_empty() {
+    fn cache_load_invalid_json_returns_empty_and_quarantines_file() {
         let temp = TempDir::new().unwrap();
         let path = temp.path().join("satisfaction.json");
         std::fs::write(&path, "not valid json").unwrap();
 
-        let cache = SatisfactionCache::load(path);
+        let cache = SatisfactionCache::load(path.clone());
         assert_eq!(cache.persisted_len(), 0);
+
+        // The original path no longer holds the bad content (it has been
+        // renamed aside) so subsequent flushes can write a clean cache.
+        assert!(
+            !path.exists(),
+            "expected corrupt cache file to be moved out of the way"
+        );
+
+        // A sibling file matching the quarantine pattern must exist with
+        // the original bad content preserved for inspection.
+        let mut found_quarantine = None;
+        for entry in std::fs::read_dir(temp.path()).unwrap().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if name.starts_with("satisfaction.json.corrupt-") {
+                found_quarantine = Some(entry.path());
+                break;
+            }
+        }
+        let quarantined = found_quarantine.expect("expected quarantined file to exist");
+        let preserved = std::fs::read_to_string(&quarantined).unwrap();
+        assert_eq!(preserved, "not valid json");
     }
 
     #[test]

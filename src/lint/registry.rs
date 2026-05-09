@@ -12,11 +12,12 @@ use super::rules::{
     DeprecatedFieldsRule, EnvironmentCircularDependencyRule, EnvironmentDefaultWorkflowMissingRule,
     InstallTemplateMissingRule, InterpolationSyntaxErrorRule, LocalConfigOverridesSecretRule,
     RedundantEnvNullRule, RedundantEnvironmentOverrideRule, RequiredFieldsRule,
-    SecretWithoutHandlerRule, SelfDependencyRule, ServiceRequirementWithoutHintRule,
-    StepNameCollisionRule, UndefinedDependencyRule, UndefinedWorkflowForceRule,
-    UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule, UnknownRequirementRule,
-    UnreachableEnvironmentOverrideRule, UnusedStepRule, UnusedTemplateSourceRule,
-    WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule, WorkflowSingularTypoRule,
+    RerunWindowFormatRule, SecretWithoutHandlerRule, SelfDependencyRule,
+    ServiceRequirementWithoutHintRule, StepNameCollisionRule, UndefinedDependencyRule,
+    UndefinedWorkflowForceRule, UnknownEnvironmentInOnlyRule, UnknownEnvironmentInStepRule,
+    UnknownRequirementRule, UnreachableEnvironmentOverrideRule, UnusedStepRule,
+    UnusedTemplateSourceRule, WorkflowReferencesTemplateNotStepRule, WorkflowShapeShorthandRule,
+    WorkflowSingularTypoRule,
 };
 use crate::requirements::registry::RequirementRegistry;
 
@@ -69,6 +70,7 @@ impl RuleRegistry {
         registry.register(Box::new(InterpolationSyntaxErrorRule));
         registry.register(Box::new(SecretWithoutHandlerRule));
         registry.register(Box::new(LocalConfigOverridesSecretRule));
+        registry.register(Box::new(RerunWindowFormatRule));
 
         // Requirement rules (registered with default RequirementRegistry;
         // the lint command re-registers with config-aware custom requirements)
