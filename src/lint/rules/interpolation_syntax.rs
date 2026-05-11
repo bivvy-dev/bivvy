@@ -54,14 +54,21 @@ impl LintRule for InterpolationSyntaxErrorRule {
     }
 
     fn check(&self, config: &BivvyConfig) -> Vec<LintDiagnostic> {
-        let known_vars: HashSet<String> = config.vars.keys().cloned().collect();
-        let known_secrets: HashSet<String> = config.secrets.keys().cloned().collect();
-        let known_prompts: HashSet<String> = config
-            .steps
-            .values()
-            .flat_map(|s| s.output_settings.prompts.iter())
-            .map(|p| p.key.clone())
-            .collect();
+        let known = KnownNames {
+            vars: config.vars.keys().cloned().collect(),
+            secrets: config.secrets.keys().cloned().collect(),
+            prompts: config
+                .steps
+                .values()
+                .flat_map(|s| s.output_settings.prompts.iter())
+                .map(|p| p.key.clone())
+                .collect(),
+        };
+        let ctx = InspectCtx {
+            rule_id: self.id(),
+            severity: self.default_severity(),
+            known: &known,
+        };
 
         let mut diagnostics = Vec::new();
 
@@ -71,11 +78,7 @@ impl LintRule for InterpolationSyntaxErrorRule {
                 inspect_string(
                     cmd,
                     &format!("steps.{}.command", step_name),
-                    &self.id(),
-                    self.default_severity(),
-                    &known_vars,
-                    &known_secrets,
-                    &known_prompts,
+                    &ctx,
                     &mut diagnostics,
                 );
             }
@@ -83,11 +86,7 @@ impl LintRule for InterpolationSyntaxErrorRule {
                 inspect_string(
                     val,
                     &format!("steps.{}.env.{}", step_name, key),
-                    &self.id(),
-                    self.default_severity(),
-                    &known_vars,
-                    &known_secrets,
-                    &known_prompts,
+                    &ctx,
                     &mut diagnostics,
                 );
             }
@@ -95,11 +94,7 @@ impl LintRule for InterpolationSyntaxErrorRule {
                 inspect_string(
                     before,
                     &format!("steps.{}.before[{}]", step_name, idx),
-                    &self.id(),
-                    self.default_severity(),
-                    &known_vars,
-                    &known_secrets,
-                    &known_prompts,
+                    &ctx,
                     &mut diagnostics,
                 );
             }
@@ -107,11 +102,7 @@ impl LintRule for InterpolationSyntaxErrorRule {
                 inspect_string(
                     after,
                     &format!("steps.{}.after[{}]", step_name, idx),
-                    &self.id(),
-                    self.default_severity(),
-                    &known_vars,
-                    &known_secrets,
-                    &known_prompts,
+                    &ctx,
                     &mut diagnostics,
                 );
             }
@@ -121,11 +112,7 @@ impl LintRule for InterpolationSyntaxErrorRule {
             inspect_string(
                 val,
                 &format!("settings.env.{}", key),
-                &self.id(),
-                self.default_severity(),
-                &known_vars,
-                &known_secrets,
-                &known_prompts,
+                &ctx,
                 &mut diagnostics,
             );
         }
@@ -135,11 +122,7 @@ impl LintRule for InterpolationSyntaxErrorRule {
                 inspect_string(
                     val,
                     &format!("workflows.{}.env.{}", workflow_name, key),
-                    &self.id(),
-                    self.default_severity(),
-                    &known_vars,
-                    &known_secrets,
-                    &known_prompts,
+                    &ctx,
                     &mut diagnostics,
                 );
             }
@@ -150,18 +133,27 @@ impl LintRule for InterpolationSyntaxErrorRule {
     }
 }
 
-/// Apply syntactic + name-resolution checks to a single string value.
-#[allow(clippy::too_many_arguments)]
-fn inspect_string(
-    value: &str,
-    path: &str,
-    rule_id: &RuleId,
+/// Names known to the interpolation resolver, used to validate `${...}` references.
+struct KnownNames {
+    vars: HashSet<String>,
+    secrets: HashSet<String>,
+    prompts: HashSet<String>,
+}
+
+/// Per-call context bundling the rule's identity and the names it should accept.
+struct InspectCtx<'a> {
+    rule_id: RuleId,
     severity: Severity,
-    known_vars: &HashSet<String>,
-    known_secrets: &HashSet<String>,
-    known_prompts: &HashSet<String>,
-    out: &mut Vec<LintDiagnostic>,
-) {
+    known: &'a KnownNames,
+}
+
+/// Apply syntactic + name-resolution checks to a single string value.
+fn inspect_string(value: &str, path: &str, ctx: &InspectCtx<'_>, out: &mut Vec<LintDiagnostic>) {
+    let rule_id = &ctx.rule_id;
+    let severity = ctx.severity;
+    let known_vars = &ctx.known.vars;
+    let known_secrets = &ctx.known.secrets;
+    let known_prompts = &ctx.known.prompts;
     // 1. Unterminated `${...`. Find every `${` start that isn't escaped
     //    (`$${`) and verify a closing brace exists before EOF.
     let bytes = value.as_bytes();

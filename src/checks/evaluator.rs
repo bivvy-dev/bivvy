@@ -125,28 +125,7 @@ impl<'a> CheckEvaluator<'a> {
                 let resolved = self.interpolate(command);
                 evaluate_execution(&resolved, *validation, self.project_root)
             }
-            Check::Change {
-                target,
-                kind,
-                on_change,
-                require_step,
-                baseline,
-                baseline_snapshot,
-                baseline_git,
-                size_limit,
-                scope,
-                ..
-            } => self.evaluate_change(
-                target,
-                *kind,
-                on_change,
-                require_step.as_deref(),
-                baseline,
-                baseline_snapshot.as_deref(),
-                baseline_git.as_deref(),
-                size_limit,
-                scope,
-            ),
+            change @ Check::Change { .. } => self.evaluate_change(change),
             Check::All { checks, .. } => self.evaluate_all(checks),
             Check::Any { checks, .. } => self.evaluate_any(checks),
         }
@@ -169,22 +148,26 @@ impl<'a> CheckEvaluator<'a> {
         }
     }
 
-    /// Evaluate a change check.
-    #[allow(clippy::too_many_arguments)]
-    fn evaluate_change(
-        &mut self,
-        target: &str,
-        kind: super::ChangeKind,
-        on_change: &super::OnChange,
-        require_step: Option<&str>,
-        baseline: &BaselineConfig,
-        baseline_snapshot: Option<&str>,
-        baseline_git: Option<&str>,
-        size_limit: &super::SizeLimit,
-        scope: &super::SnapshotScope,
-    ) -> CheckResult {
+    /// Evaluate a change check. Expects `check` to be `Check::Change`.
+    fn evaluate_change(&mut self, check: &Check) -> CheckResult {
+        let Check::Change {
+            target,
+            kind,
+            on_change,
+            require_step,
+            baseline,
+            baseline_snapshot,
+            baseline_git,
+            size_limit,
+            scope,
+            ..
+        } = check
+        else {
+            unreachable!("evaluate_change called with non-Change check");
+        };
+
         // Interpolate the target if it's a command
-        let resolved_target = if kind == super::ChangeKind::Command {
+        let resolved_target = if *kind == super::ChangeKind::Command {
             self.interpolate(target)
         } else {
             target.to_string()
@@ -192,7 +175,7 @@ impl<'a> CheckEvaluator<'a> {
 
         // Compute current hash
         let current_hash =
-            match compute_target_hash(&resolved_target, kind, self.project_root, size_limit) {
+            match compute_target_hash(&resolved_target, *kind, self.project_root, size_limit) {
                 HashResult::Ok(hash) => hash,
                 HashResult::SizeLimitExceeded { actual, limit } => {
                     let actual_mb = actual as f64 / (1024.0 * 1024.0);
@@ -214,7 +197,7 @@ impl<'a> CheckEvaluator<'a> {
             };
 
         // Determine baseline name and get stored hash
-        let baseline_name = self.resolve_baseline_name(baseline, baseline_snapshot);
+        let baseline_name = self.resolve_baseline_name(baseline, baseline_snapshot.as_deref());
         let baseline_hash = if let Some(git_ref) = baseline_git {
             self.get_git_baseline(target, git_ref)
         } else {
@@ -226,7 +209,7 @@ impl<'a> CheckEvaluator<'a> {
             &current_hash,
             baseline_hash.as_deref(),
             on_change,
-            require_step,
+            require_step.as_deref(),
         )
     }
 

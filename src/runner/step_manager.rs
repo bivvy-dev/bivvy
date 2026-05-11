@@ -26,7 +26,10 @@ use super::decision::{BlockReason, SkipReason, StepDecision};
 use super::diagnostic;
 use super::display::StepDisplay;
 use super::engine::{self, EngineContext, EvaluationResult};
-use super::execution::{config_prompt_to_ui_prompt, execute_step_with_recovery};
+use super::execution::{
+    config_prompt_to_ui_prompt, execute_step_with_recovery, StepIdentity, StepRunDiagnostics,
+    StepRunEnv, StepRunFlags, StepRunUi,
+};
 use super::patterns::StepContext;
 use super::satisfaction;
 
@@ -71,6 +74,33 @@ pub(super) enum SkipCategory {
     RecoverySkipped,
     /// Other skip reason (generic fallback from engine).
     Other,
+}
+
+/// Read-only snapshot of workflow-wide state that step execution may consult.
+pub(super) struct WorkflowSnapshot<'a> {
+    pub steps: &'a HashMap<String, ResolvedStep>,
+    pub results: &'a [StepResult],
+    pub failed_steps: &'a HashSet<String>,
+    pub user_skipped_steps: &'a HashSet<String>,
+    pub satisfied_steps: &'a HashSet<String>,
+}
+
+/// Mutable execution state threaded through step execution.
+pub(super) struct StepExecState<'a, 'g> {
+    pub context: &'a mut InterpolationContext,
+    pub step_overrides: &'a HashMap<String, StepOverride>,
+    pub gap_checker: &'a mut Option<&'g mut GapChecker<'g>>,
+    pub snapshot_store: &'a mut SnapshotStore,
+    pub state: Option<&'a StateStore>,
+    pub satisfaction_cache: &'a mut SatisfactionCache,
+    pub named_check_results: &'a mut HashMap<String, CheckResult>,
+}
+
+/// Bundled UI channels for step execution.
+pub(super) struct StepRunChannels<'a> {
+    pub ui: &'a mut dyn UserInterface,
+    pub step_display: &'a mut dyn StepDisplay,
+    pub event_bus: &'a mut EventBus,
 }
 
 /// The action taken by a step during execution, returned to the workflow layer.
@@ -164,26 +194,35 @@ impl<'a> StepManager<'a> {
     /// - Event emission for all step-level events
     ///
     /// Returns a `StepAction` describing what happened.
-    #[allow(clippy::too_many_arguments)]
     pub fn execute(
         &self,
         opts: &StepExecutionOptions<'_>,
-        context: &mut InterpolationContext,
-        step_overrides: &HashMap<String, StepOverride>,
-        gap_checker: &mut Option<&mut GapChecker<'_>>,
-        snapshot_store: &mut SnapshotStore,
-        steps: &HashMap<String, ResolvedStep>,
-        state: Option<&StateStore>,
-        satisfaction_cache: &mut SatisfactionCache,
-        failed_steps: &HashSet<String>,
-        user_skipped_steps: &HashSet<String>,
-        satisfied_steps: &HashSet<String>,
-        named_check_results: &mut HashMap<String, CheckResult>,
-        results: &[StepResult],
-        ui: &mut dyn UserInterface,
-        step_display: &mut dyn StepDisplay,
-        event_bus: &mut EventBus,
+        exec_state: StepExecState<'_, '_>,
+        snapshot: &WorkflowSnapshot<'_>,
+        channels: StepRunChannels<'_>,
     ) -> Result<StepAction> {
+        let StepExecState {
+            context,
+            step_overrides,
+            gap_checker,
+            snapshot_store,
+            state,
+            satisfaction_cache,
+            named_check_results,
+        } = exec_state;
+        let StepRunChannels {
+            ui,
+            step_display,
+            event_bus,
+        } = channels;
+        let WorkflowSnapshot {
+            steps,
+            results,
+            failed_steps,
+            user_skipped_steps,
+            satisfied_steps,
+        } = *snapshot;
+
         let step_pad = self.step_pad();
         let step_header = self.step_header_text();
 
@@ -311,7 +350,6 @@ impl<'a> StepManager<'a> {
                         prompt_key,
                         &eval_result,
                         &step_pad,
-                        needs_force,
                         event_bus,
                         ui,
                         step_display,
@@ -441,24 +479,38 @@ impl<'a> StepManager<'a> {
         // ── Execute step with retry and recovery ──
         let step_number = self.step_number();
         let step_indent = self.step_indent();
-        let exec_result = execute_step_with_recovery(
-            self.step,
-            self.step_name,
-            &step_number,
-            step_indent,
-            opts.project_root,
+        let identity = StepIdentity {
+            step: self.step,
+            name: self.step_name,
+            number: &step_number,
+            indent: step_indent,
+        };
+        let run_env = StepRunEnv {
+            project_root: opts.project_root,
             context,
-            opts.base_env,
-            opts.process_env,
+            base_env: opts.base_env,
+            process_env: opts.process_env,
+        };
+        let run_flags = StepRunFlags {
             needs_force,
-            opts.dry_run,
-            opts.interactive,
-            &step_ctx,
-            opts.diagnostic_funnel,
-            &ws,
-            ui,
-            step_display,
-            event_bus,
+            dry_run: opts.dry_run,
+            interactive: opts.interactive,
+            diagnostic_funnel: opts.diagnostic_funnel,
+        };
+        let run_diagnostics = StepRunDiagnostics {
+            step_ctx: &step_ctx,
+            workflow_state: &ws,
+        };
+        let exec_result = execute_step_with_recovery(
+            &identity,
+            &run_env,
+            &run_flags,
+            &run_diagnostics,
+            StepRunUi {
+                ui,
+                step_display,
+                event_bus,
+            },
         )?;
 
         // ── Emit step completion event ──
@@ -643,13 +695,11 @@ impl<'a> StepManager<'a> {
 
     /// Handle a prompt decision. Returns `Some(StepAction)` if the step should
     /// not proceed to execution (user declined), or `None` to fall through.
-    #[allow(clippy::too_many_arguments)]
     fn handle_prompt(
         &self,
         prompt_key: &str,
         eval_result: &EvaluationResult,
         step_pad: &str,
-        _needs_force: bool,
         event_bus: &mut EventBus,
         ui: &mut dyn UserInterface,
         step_display: &mut dyn StepDisplay,

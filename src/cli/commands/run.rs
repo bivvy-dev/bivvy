@@ -22,7 +22,7 @@ use crate::runner::display::{
     NonInteractiveWorkflowDisplay, RunHeader, RunSummary, StepSummary, TerminalWorkflowDisplay,
     WorkflowDisplay,
 };
-use crate::runner::{RunOptions, SkipBehavior, WorkflowRunner};
+use crate::runner::{RunChannels, RunContext, RunInputs, RunOptions, SkipBehavior, WorkflowRunner};
 use crate::state::{ProjectId, StateStore};
 use crate::steps::ResolvedStep;
 use crate::ui::surface::TerminalSurface;
@@ -581,20 +581,29 @@ impl Command for RunCommand {
         };
 
         // Run the workflow with UI-driven interactive prompts
+        let run_ctx = RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: &self.project_root,
+            base_env: &base_env,
+            process_env: &process_env,
+        };
+        let run_inputs = RunInputs {
+            gap_checker: Some(&mut gap_checker),
+            state: Some(&mut state),
+            satisfaction_cache: &mut satisfaction_cache,
+        };
+        let run_channels = RunChannels {
+            ui,
+            workflow_display: workflow_display.as_mut(),
+            event_bus: &mut event_bus,
+        };
         let result = runner.run_with_ui(
-            &options,
-            &ctx,
-            &base_env,
-            &process_env,
-            &self.project_root,
+            &run_ctx,
+            run_inputs,
+            run_channels,
             workflow_non_interactive,
             &step_overrides,
-            Some(&mut gap_checker),
-            Some(&mut state),
-            &mut satisfaction_cache,
-            ui,
-            workflow_display.as_mut(),
-            &mut event_bus,
         )?;
 
         // Update state and snapshots (unless dry-run)

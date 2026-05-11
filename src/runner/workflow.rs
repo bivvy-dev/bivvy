@@ -13,6 +13,7 @@ use crate::error::{BivvyError, Result};
 use crate::logging::EventBus;
 use crate::requirements::checker::GapChecker;
 use crate::snapshots::SnapshotStore;
+use crate::state::satisfaction::SatisfactionCache;
 use crate::state::StateStore;
 use crate::steps::{execute_step, ExecutionOptions, ResolvedStep, StepResult, StepStatus};
 
@@ -36,6 +37,40 @@ pub enum RunProgress<'a> {
     },
     /// A step was skipped.
     StepSkipped { name: &'a str },
+}
+
+/// Immutable inputs that describe how a workflow should be executed.
+///
+/// Bundles the run options, interpolation context, project root, and the
+/// pre-merged env stacks. Callers construct this once per `bivvy run`.
+pub struct RunContext<'a> {
+    /// CLI/config-derived run options (workflow name, skip/force lists, dry-run, etc.).
+    pub options: &'a RunOptions,
+    /// Pre-evaluated variable values for `${...}` interpolation.
+    pub interpolation: &'a InterpolationContext,
+    /// Root of the project being run against.
+    pub project_root: &'a Path,
+    /// YAML-derived env stack (settings + workflow), pre-merged in priority order.
+    pub base_env: &'a HashMap<String, String>,
+    /// Parent process environment, which wins over `base_env` and step-level env.
+    pub process_env: &'a HashMap<String, String>,
+}
+
+/// Mutable inputs threaded through the interactive run.
+pub struct RunInputs<'a> {
+    /// Optional requirement-gap checker (None when gap checks are disabled).
+    pub gap_checker: Option<&'a mut GapChecker<'a>>,
+    /// Optional state store for recording last-run timestamps.
+    pub state: Option<&'a mut StateStore>,
+    /// Cache of step-satisfaction records (loaded from disk, updated in-flight).
+    pub satisfaction_cache: &'a mut SatisfactionCache,
+}
+
+/// UI channels available to the interactive run.
+pub struct RunChannels<'a> {
+    pub ui: &'a mut dyn crate::ui::UserInterface,
+    pub workflow_display: &'a mut dyn super::display::WorkflowDisplay,
+    pub event_bus: &'a mut EventBus,
 }
 
 /// Orchestrates the execution of a workflow.
@@ -129,47 +164,25 @@ impl<'a> WorkflowRunner<'a> {
     }
 
     /// Run the specified workflow.
-    ///
-    /// `base_env` is the YAML-derived env stack (settings + workflow), already
-    /// merged in priority order. `process_env` is the parent process
-    /// environment, which wins over both `base_env` and any step-level env.
-    #[allow(clippy::too_many_arguments)]
-    pub fn run(
-        &mut self,
-        options: &RunOptions,
-        context: &InterpolationContext,
-        base_env: &HashMap<String, String>,
-        process_env: &HashMap<String, String>,
-        project_root: &Path,
-    ) -> Result<WorkflowResult> {
-        let mut event_bus = EventBus::new();
-        self.run_with_progress(
-            options,
-            context,
-            base_env,
-            process_env,
-            project_root,
-            None,
-            None,
-            |_| {},
-            &mut event_bus,
-        )
+    pub fn run(&mut self, ctx: &RunContext<'_>) -> Result<WorkflowResult> {
+        self.run_with_progress(ctx, None, None, |_| {})
     }
 
     /// Run the specified workflow with a progress callback.
-    #[allow(clippy::too_many_arguments)]
     pub fn run_with_progress(
         &mut self,
-        options: &RunOptions,
-        context: &InterpolationContext,
-        base_env: &HashMap<String, String>,
-        process_env: &HashMap<String, String>,
-        project_root: &Path,
+        ctx: &RunContext<'_>,
         mut gap_checker: Option<&mut GapChecker<'_>>,
         mut state: Option<&mut StateStore>,
         mut on_progress: impl FnMut(RunProgress<'_>),
-        _event_bus: &mut EventBus,
     ) -> Result<WorkflowResult> {
+        let RunContext {
+            options,
+            interpolation: context,
+            project_root,
+            base_env,
+            process_env,
+        } = *ctx;
         let start = Instant::now();
         let workflow_name = options.workflow.as_deref().unwrap_or("default");
 

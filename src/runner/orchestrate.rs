@@ -8,24 +8,21 @@
 //! is in [`super::execution::config_prompt_to_ui_prompt`].
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 use std::time::Instant;
 
 use crate::checks::CheckResult;
-use crate::config::interpolation::InterpolationContext;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
-use crate::logging::{BivvyEvent, EventBus, StepOutcomeKind};
-use crate::requirements::checker::GapChecker;
-use crate::state::satisfaction::{SatisfactionCache, SatisfactionRecord};
-use crate::state::StateStore;
+use crate::logging::{BivvyEvent, StepOutcomeKind};
+use crate::state::satisfaction::SatisfactionRecord;
 use crate::ui::theme::BivvyTheme;
-use crate::ui::UserInterface;
 
-use super::display::WorkflowDisplay;
 use super::plan::build_execution_plan;
-use super::step_manager::{SkipCategory, StepAction, StepExecutionOptions, StepManager};
-use super::workflow::{RunOptions, WorkflowResult, WorkflowRunner};
+use super::step_manager::{
+    SkipCategory, StepAction, StepExecState, StepExecutionOptions, StepManager, StepRunChannels,
+    WorkflowSnapshot,
+};
+use super::workflow::{RunChannels, RunContext, RunInputs, WorkflowResult, WorkflowRunner};
 
 impl<'a> WorkflowRunner<'a> {
     /// Run a workflow with full interactive UI support.
@@ -36,26 +33,35 @@ impl<'a> WorkflowRunner<'a> {
     ///
     /// Step-level concerns (check evaluation, prompts, execution, recovery) are
     /// delegated to [`StepManager`].
-    #[allow(clippy::too_many_arguments)]
     pub fn run_with_ui(
         &mut self,
-        options: &RunOptions,
-        context: &InterpolationContext,
-        base_env: &HashMap<String, String>,
-        process_env: &HashMap<String, String>,
-        project_root: &Path,
+        ctx: &RunContext<'_>,
+        inputs: RunInputs<'_>,
+        channels: RunChannels<'_>,
         workflow_non_interactive: bool,
         step_overrides: &HashMap<String, StepOverride>,
-        mut gap_checker: Option<&mut GapChecker<'_>>,
-        state: Option<&mut StateStore>,
-        satisfaction_cache: &mut SatisfactionCache,
-        ui: &mut dyn UserInterface,
-        workflow_display: &mut dyn WorkflowDisplay,
-        event_bus: &mut EventBus,
     ) -> Result<WorkflowResult> {
+        let RunContext {
+            options,
+            interpolation,
+            project_root,
+            base_env,
+            process_env,
+        } = *ctx;
+        let RunInputs {
+            mut gap_checker,
+            state,
+            satisfaction_cache,
+        } = inputs;
+        let RunChannels {
+            ui,
+            workflow_display,
+            event_bus,
+        } = channels;
+
         let start = Instant::now();
         let workflow_name = options.workflow.as_deref().unwrap_or("default");
-        let mut context = context.clone();
+        let mut context = interpolation.clone();
 
         // Topological sort: compute execution order from the dependency graph.
         let graph = self.build_graph(workflow_name)?;
@@ -154,24 +160,28 @@ impl<'a> WorkflowRunner<'a> {
                 provided_requirements: &options.provided_requirements,
             };
 
-            let action = step_mgr.execute(
-                &exec_opts,
-                &mut context,
+            let exec_state = StepExecState {
+                context: &mut context,
                 step_overrides,
-                &mut gap_checker,
-                &mut self.snapshot_store,
-                &self.steps,
-                state.as_deref(),
+                gap_checker: &mut gap_checker,
+                snapshot_store: &mut self.snapshot_store,
+                state: state.as_deref(),
                 satisfaction_cache,
-                &failed_steps,
-                &user_skipped_steps,
-                &satisfied_steps,
-                &mut named_check_results,
-                &results,
+                named_check_results: &mut named_check_results,
+            };
+            let snapshot = WorkflowSnapshot {
+                steps: &self.steps,
+                results: &results,
+                failed_steps: &failed_steps,
+                user_skipped_steps: &user_skipped_steps,
+                satisfied_steps: &satisfied_steps,
+            };
+            let channels = StepRunChannels {
                 ui,
-                step_display.as_mut(),
+                step_display: step_display.as_mut(),
                 event_bus,
-            )?;
+            };
+            let action = step_mgr.execute(&exec_opts, exec_state, &snapshot, channels)?;
 
             // Update workflow state based on step action.
             // The workflow only tracks aggregate state (satisfied/failed/skipped sets)

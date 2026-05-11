@@ -86,13 +86,13 @@ fn run_workflow_in_order() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     assert!(result.success);
@@ -139,13 +139,13 @@ fn run_workflow_with_skip() {
 
     let ctx = InterpolationContext::new();
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     assert!(result.skipped.contains(&"first".to_string()));
@@ -181,13 +181,13 @@ fn dry_run_does_not_execute() {
 
     let ctx = InterpolationContext::new();
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     assert!(result.success);
@@ -220,11 +220,13 @@ fn run_with_progress_emits_events() {
     let mut events = Vec::new();
     let result = runner
         .run_with_progress(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
             None,
             None,
             |progress| match &progress {
@@ -238,7 +240,6 @@ fn run_with_progress_emits_events() {
                     events.push(format!("skip:{}", name));
                 }
             },
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -284,11 +285,13 @@ fn run_with_progress_reports_skips() {
     let mut skipped_names = Vec::new();
     runner
         .run_with_progress(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
             None,
             None,
             |progress| {
@@ -296,7 +299,6 @@ fn run_with_progress_reports_skips() {
                     skipped_names.push(name.to_string());
                 }
             },
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -379,19 +381,27 @@ fn run_with_ui_executes_simple_step() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -434,19 +444,27 @@ fn run_with_ui_interactive_no_check_auto_runs() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -497,19 +515,27 @@ fn run_with_ui_incomplete_check_auto_runs() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -560,19 +586,27 @@ fn run_with_ui_auto_skips_when_satisfied() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -625,19 +659,27 @@ fn run_with_ui_force_reruns_satisfied_step() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -705,21 +747,27 @@ fn run_with_ui_force_all_reruns_every_satisfied_step() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_force_all_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from(
-                "/tmp/bivvy_test_force_all_sat.json",
-            )),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -769,21 +817,27 @@ fn run_with_ui_step_level_force_reruns_satisfied_step() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_step_force_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from(
-                "/tmp/bivvy_test_step_force_sat.json",
-            )),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -870,21 +924,27 @@ fn workflow_force_all_in_yaml_reruns_every_satisfied_step() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_workflow_force_all_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from(
-                "/tmp/bivvy_test_workflow_force_all_sat.json",
-            )),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -964,21 +1024,27 @@ fn workflow_force_list_in_yaml_reruns_only_listed_steps() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_workflow_force_list_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from(
-                "/tmp/bivvy_test_workflow_force_list_sat.json",
-            )),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1047,19 +1113,27 @@ fn run_with_ui_silent_skip_when_not_interactive() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1111,19 +1185,27 @@ fn run_with_ui_silent_skip_when_prompt_on_rerun_false() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1165,19 +1247,27 @@ fn run_with_ui_sensitive_step_prompts() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1219,19 +1309,27 @@ fn run_with_ui_sensitive_not_skippable_declined_errors() {
 
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner.run_with_ui(
-        &options,
-        &ctx,
-        &HashMap::new(),
-        &HashMap::new(),
-        temp.path(),
+        &RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        },
+        RunInputs {
+            gap_checker: None,
+            state: None,
+            satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                "/tmp/bivvy_test_sat.json",
+            )),
+        },
+        RunChannels {
+            ui: &mut ui,
+            workflow_display: &mut workflow_display,
+            event_bus: &mut EventBus::new(),
+        },
         false,
         &HashMap::new(),
-        None,
-        None,
-        &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-        &mut ui,
-        &mut workflow_display,
-        &mut EventBus::new(),
     );
 
     assert!(result.is_err());
@@ -1277,19 +1375,28 @@ fn run_with_ui_workflow_non_interactive_suppresses_prompts() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
+            true,
+            // workflow_non_interactive
             &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-            true, // workflow_non_interactive
-            &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1348,19 +1455,27 @@ fn run_with_ui_step_override_disables_prompt_on_rerun() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &overrides,
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1404,13 +1519,13 @@ fn failed_step_stops_dependent_step() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     // Should return Ok (not Err), but marked as failed
@@ -1455,13 +1570,13 @@ fn allow_failure_continues_to_next_step() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     // Workflow reports failure (a step failed)
@@ -1516,13 +1631,13 @@ fn step_execution_error_does_not_abort_workflow() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     // Workflow completed (not Err), but not fully successful
@@ -1573,13 +1688,13 @@ fn step_execution_error_stops_when_not_allow_failure() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     // Returns Ok (not Err), marked as failed
@@ -1628,19 +1743,27 @@ fn run_with_ui_step_error_continues_with_allow_failure() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1682,19 +1805,27 @@ fn run_with_ui_shows_error_output_on_failure() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1730,19 +1861,27 @@ fn run_with_ui_error_block_indent_single_step() {
     let mut workflow_display = MockWorkflowDisplay::new();
     runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1789,19 +1928,27 @@ fn run_with_ui_error_block_indent_two_digit_total() {
     let mut workflow_display = MockWorkflowDisplay::new();
     runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -1861,13 +2008,13 @@ fn allow_failure_lets_all_dependent_steps_run() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     assert!(!result.success);
@@ -1918,13 +2065,13 @@ fn independent_steps_continue_after_failure() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     assert!(!result.success);
@@ -1981,13 +2128,13 @@ fn transitive_dependency_blocked() {
     let ctx = InterpolationContext::new();
 
     let result = runner
-        .run(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
-        )
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
         .unwrap();
 
     assert!(!result.success);
@@ -2031,19 +2178,27 @@ fn run_with_ui_auto_runs_all_steps_without_prompting() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2086,19 +2241,27 @@ fn run_with_ui_confirm_step_skipped_when_declined() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2138,19 +2301,27 @@ fn run_with_ui_no_prompt_when_not_skippable() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2188,19 +2359,27 @@ fn run_with_ui_no_prompt_when_non_interactive() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2247,19 +2426,27 @@ fn run_with_ui_satisfied_step_auto_skips_no_prompts() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2303,19 +2490,27 @@ fn run_with_ui_blocked_step_shows_warning() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2371,19 +2566,27 @@ fn run_with_ui_proceeds_when_all_satisfied() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: Some(&mut checker),
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            Some(&mut checker),
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2431,19 +2634,27 @@ fn run_with_ui_warns_on_system_only() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: Some(&mut checker),
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            Some(&mut checker),
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2488,19 +2699,27 @@ fn run_with_ui_errors_on_unknown_requirement() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: Some(&mut checker),
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            Some(&mut checker),
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2546,19 +2765,27 @@ fn run_with_ui_non_interactive_fails_on_missing() {
 
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner.run_with_ui(
-        &options,
-        &ctx,
-        &HashMap::new(),
-        &HashMap::new(),
-        temp.path(),
+        &RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        },
+        RunInputs {
+            gap_checker: Some(&mut checker),
+            state: None,
+            satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                "/tmp/bivvy_test_sat.json",
+            )),
+        },
+        RunChannels {
+            ui: &mut ui,
+            workflow_display: &mut workflow_display,
+            event_bus: &mut EventBus::new(),
+        },
         false,
         &HashMap::new(),
-        Some(&mut checker),
-        None,
-        &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-        &mut ui,
-        &mut workflow_display,
-        &mut EventBus::new(),
     );
 
     let result = result.unwrap();
@@ -2606,19 +2833,27 @@ fn run_with_ui_interactive_warns_on_missing() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: Some(&mut checker),
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            Some(&mut checker),
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2658,19 +2893,27 @@ fn run_with_ui_no_gaps_when_requires_empty() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: Some(&mut checker),
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            Some(&mut checker),
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2709,7 +2952,13 @@ fn run_filters_only_environments() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &global_env,
+        })
         .unwrap();
 
     // ci_only should be skipped in development
@@ -2747,7 +2996,13 @@ fn run_includes_matching_only_environments() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &global_env,
+        })
         .unwrap();
 
     // ci_only should run in ci environment
@@ -2782,7 +3037,13 @@ fn run_empty_only_environments_runs_always() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &global_env,
+        })
         .unwrap();
 
     assert_eq!(result.steps.len(), 1);
@@ -2821,7 +3082,13 @@ fn run_only_environments_skipped_steps_in_result() {
     let temp = TempDir::new().unwrap();
 
     let result = runner
-        .run(&options, &ctx, &HashMap::new(), &global_env, temp.path())
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: temp.path(),
+            base_env: &HashMap::new(),
+            process_env: &global_env,
+        })
         .unwrap();
 
     assert_eq!(result.steps.len(), 1);
@@ -2862,11 +3129,13 @@ fn run_with_progress_respects_only_environments() {
     let mut skipped_names = Vec::new();
     let result = runner
         .run_with_progress(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &global_env,
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &global_env,
+            },
             None,
             None,
             |progress| {
@@ -2874,7 +3143,6 @@ fn run_with_progress_respects_only_environments() {
                     skipped_names.push(name.to_string());
                 }
             },
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -2964,19 +3232,27 @@ fn recovery_retry_succeeds() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3030,19 +3306,27 @@ fn recovery_skip_does_not_block_dependents() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3095,19 +3379,27 @@ fn recovery_abort_stops_workflow() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3158,19 +3450,27 @@ fn recovery_abort_includes_partial_results() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3215,19 +3515,27 @@ fn auto_retry_before_menu() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3276,19 +3584,27 @@ fn auto_retry_succeeds() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3339,19 +3655,27 @@ fn allow_failure_suppresses_menu() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3392,19 +3716,27 @@ fn non_interactive_no_menu() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3450,19 +3782,27 @@ fn non_interactive_auto_retry() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3503,19 +3843,27 @@ fn recovery_detail_in_skip() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3560,19 +3908,27 @@ fn recovery_detail_in_retry() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3617,19 +3973,27 @@ fn hint_shown_on_low_confidence() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3699,19 +4063,27 @@ fn recovery_fix_confirmed_retries() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 
@@ -3752,19 +4124,27 @@ fn recovery_fix_declined_reprompts() {
     let mut workflow_display = MockWorkflowDisplay::new();
     let result = runner
         .run_with_ui(
-            &options,
-            &ctx,
-            &HashMap::new(),
-            &HashMap::new(),
-            temp.path(),
+            &RunContext {
+                options: &options,
+                interpolation: &ctx,
+                project_root: temp.path(),
+                base_env: &HashMap::new(),
+                process_env: &HashMap::new(),
+            },
+            RunInputs {
+                gap_checker: None,
+                state: None,
+                satisfaction_cache: &mut SatisfactionCache::empty(std::path::PathBuf::from(
+                    "/tmp/bivvy_test_sat.json",
+                )),
+            },
+            RunChannels {
+                ui: &mut ui,
+                workflow_display: &mut workflow_display,
+                event_bus: &mut EventBus::new(),
+            },
             false,
             &HashMap::new(),
-            None,
-            None,
-            &mut SatisfactionCache::empty(std::path::PathBuf::from("/tmp/bivvy_test_sat.json")),
-            &mut ui,
-            &mut workflow_display,
-            &mut EventBus::new(),
         )
         .unwrap();
 

@@ -19,4 +19,6 @@ pub mod workflow;
 pub use dependency::{DependencyGraph, DependencyGraphBuilder, SkipBehavior};
 pub use plan::{build_execution_plan, ExecutionPlan};
 pub use rerun_window::RerunWindow;
-pub use workflow::{RunOptions, RunProgress, WorkflowResult, WorkflowRunner};
+pub use workflow::{
+    RunChannels, RunContext, RunInputs, RunOptions, RunProgress, WorkflowResult, WorkflowRunner,
+};

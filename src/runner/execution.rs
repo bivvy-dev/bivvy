@@ -37,30 +37,73 @@ pub(super) struct StepExecutionResult {
     pub aborted: bool,
 }
 
+/// Identity and display layout for the step being executed.
+pub(super) struct StepIdentity<'a> {
+    pub step: &'a ResolvedStep,
+    pub name: &'a str,
+    pub number: &'a str,
+    pub indent: usize,
+}
+
+/// Environment and interpolation context for step execution.
+pub(super) struct StepRunEnv<'a> {
+    pub project_root: &'a Path,
+    pub context: &'a InterpolationContext,
+    pub base_env: &'a HashMap<String, String>,
+    pub process_env: &'a HashMap<String, String>,
+}
+
+/// Flags controlling step execution behavior.
+pub(super) struct StepRunFlags {
+    pub needs_force: bool,
+    pub dry_run: bool,
+    pub interactive: bool,
+    pub diagnostic_funnel: bool,
+}
+
+/// Mutable UI channels available to the step execution lifecycle.
+pub(super) struct StepRunUi<'a> {
+    pub ui: &'a mut dyn UserInterface,
+    pub step_display: &'a mut dyn StepDisplay,
+    pub event_bus: &'a mut EventBus,
+}
+
+/// Diagnostic helpers passed through to error analysis and the recovery menu.
+pub(super) struct StepRunDiagnostics<'a> {
+    pub step_ctx: &'a StepContext<'a>,
+    pub workflow_state: &'a diagnostic::WorkflowState<'a>,
+}
+
 /// Execute a step with retry and interactive recovery.
 ///
 /// This handles the full execution lifecycle: spinner display, output capture,
 /// auto-retries, and the interactive recovery menu (retry/fix/shell/skip/abort).
-#[allow(clippy::too_many_arguments)]
 pub(super) fn execute_step_with_recovery(
-    step: &ResolvedStep,
-    step_name: &str,
-    step_number: &str,
-    step_indent: usize,
-    project_root: &Path,
-    context: &InterpolationContext,
-    base_env: &HashMap<String, String>,
-    process_env: &HashMap<String, String>,
-    needs_force: bool,
-    dry_run: bool,
-    interactive: bool,
-    step_ctx: &StepContext<'_>,
-    diagnostic_funnel: bool,
-    workflow_state: &diagnostic::WorkflowState<'_>,
-    ui: &mut dyn UserInterface,
-    step_display: &mut dyn StepDisplay,
-    event_bus: &mut EventBus,
+    identity: &StepIdentity<'_>,
+    env: &StepRunEnv<'_>,
+    flags: &StepRunFlags,
+    diagnostics: &StepRunDiagnostics<'_>,
+    run_ui: StepRunUi<'_>,
 ) -> Result<StepExecutionResult> {
+    let step = identity.step;
+    let step_name = identity.name;
+    let step_number = identity.number;
+    let step_indent = identity.indent;
+    let project_root = env.project_root;
+    let context = env.context;
+    let base_env = env.base_env;
+    let process_env = env.process_env;
+    let needs_force = flags.needs_force;
+    let dry_run = flags.dry_run;
+    let interactive = flags.interactive;
+    let diagnostic_funnel = flags.diagnostic_funnel;
+    let step_ctx = diagnostics.step_ctx;
+    let workflow_state = diagnostics.workflow_state;
+    let StepRunUi {
+        ui,
+        step_display,
+        event_bus,
+    } = run_ui;
     let mut retry_count: u32 = 0;
     let mut fix_history: HashSet<String> = HashSet::new();
     let mut skipped_by_user = false;
@@ -244,27 +287,39 @@ pub(super) fn execute_step_with_recovery(
                 }
 
                 // Interactive recovery menu
-                handle_recovery_menu(
-                    step,
-                    step_name,
-                    step_indent,
+                let failure = FailureContext {
                     result,
-                    &combined_output,
+                    combined_output: &combined_output,
                     fix,
                     hint,
-                    &resolutions,
+                    resolutions: &resolutions,
                     diagnostic_funnel,
-                    &mut fix_history,
-                    &mut retry_count,
-                    &mut skipped_by_user,
-                    &mut aborted,
-                    &mut final_result,
-                    project_root,
-                    base_env,
-                    process_env,
-                    ui,
-                    step_display,
-                    event_bus,
+                };
+                let mut outcome = RecoveryOutcome {
+                    fix_history: &mut fix_history,
+                    retry_count: &mut retry_count,
+                    skipped_by_user: &mut skipped_by_user,
+                    aborted: &mut aborted,
+                    final_result: &mut final_result,
+                };
+                handle_recovery_menu(
+                    RecoveryStep {
+                        step,
+                        name: step_name,
+                        indent: step_indent,
+                    },
+                    failure,
+                    &mut outcome,
+                    RecoveryEnv {
+                        project_root,
+                        base_env,
+                        process_env,
+                    },
+                    StepRunUi {
+                        ui,
+                        step_display,
+                        event_bus,
+                    },
                 )?;
                 if final_result.is_some() {
                     break 'step_execution;
@@ -286,33 +341,76 @@ pub(super) fn execute_step_with_recovery(
     })
 }
 
-/// Handle the interactive recovery menu after a step failure.
-///
-/// Sets `final_result` if the user chose to skip or abort. Returns `Ok(())`
-/// to let the caller decide whether to continue or break the execution loop.
-#[allow(clippy::too_many_arguments)]
-fn handle_recovery_menu(
-    step: &ResolvedStep,
-    step_name: &str,
-    step_indent: usize,
+/// Immutable description of a step failure, fed to the recovery menu.
+struct FailureContext<'a> {
+    /// The failing step result; consumed if the user skips/aborts.
     result: StepResult,
-    combined_output: &str,
+    combined_output: &'a str,
     fix: Option<FixSuggestion>,
     hint: Option<String>,
-    resolutions: &[diagnostic::ResolutionCandidate],
+    resolutions: &'a [diagnostic::ResolutionCandidate],
     diagnostic_funnel: bool,
-    fix_history: &mut HashSet<String>,
-    retry_count: &mut u32,
-    skipped_by_user: &mut bool,
-    aborted: &mut bool,
-    final_result: &mut Option<StepResult>,
-    project_root: &Path,
-    base_env: &HashMap<String, String>,
-    process_env: &HashMap<String, String>,
-    ui: &mut dyn UserInterface,
-    step_display: &mut dyn StepDisplay,
-    event_bus: &mut EventBus,
+}
+
+/// Mutable recovery state that the menu updates on the way out.
+struct RecoveryOutcome<'a> {
+    fix_history: &'a mut HashSet<String>,
+    retry_count: &'a mut u32,
+    skipped_by_user: &'a mut bool,
+    aborted: &'a mut bool,
+    final_result: &'a mut Option<StepResult>,
+}
+
+/// Minimal step identity needed by the recovery menu (no `step_number` here).
+struct RecoveryStep<'a> {
+    step: &'a ResolvedStep,
+    name: &'a str,
+    indent: usize,
+}
+
+/// Environment paths/env-vars required to run fix commands and debug shells.
+struct RecoveryEnv<'a> {
+    project_root: &'a Path,
+    base_env: &'a HashMap<String, String>,
+    process_env: &'a HashMap<String, String>,
+}
+
+/// Handle the interactive recovery menu after a step failure.
+///
+/// Sets `final_result` (via `outcome`) if the user chose to skip or abort.
+/// Returns `Ok(())` to let the caller decide whether to continue or break
+/// the execution loop.
+fn handle_recovery_menu(
+    target: RecoveryStep<'_>,
+    failure: FailureContext<'_>,
+    outcome: &mut RecoveryOutcome<'_>,
+    env: RecoveryEnv<'_>,
+    run_ui: StepRunUi<'_>,
 ) -> Result<()> {
+    let RecoveryStep {
+        step,
+        name: step_name,
+        indent: step_indent,
+    } = target;
+    let RecoveryEnv {
+        project_root,
+        base_env,
+        process_env,
+    } = env;
+    let FailureContext {
+        result,
+        combined_output,
+        fix,
+        hint,
+        resolutions,
+        diagnostic_funnel,
+    } = failure;
+    let StepRunUi {
+        ui,
+        step_display,
+        event_bus,
+    } = run_ui;
+
     let pad = " ".repeat(step_indent);
     event_bus.emit(&BivvyEvent::RecoveryStarted {
         step: step_name.to_string(),
@@ -321,14 +419,20 @@ fn handle_recovery_menu(
     let has_hint = hint.is_some();
     loop {
         let action = if diagnostic_funnel {
-            recovery::prompt_recovery_multi(ui, step_name, resolutions, fix_history, step_indent)?
+            recovery::prompt_recovery_multi(
+                ui,
+                step_name,
+                resolutions,
+                outcome.fix_history,
+                step_indent,
+            )?
         } else {
             recovery::prompt_recovery(
                 ui,
                 step_name,
                 fix.as_ref(),
                 has_hint,
-                fix_history,
+                outcome.fix_history,
                 step_indent,
             )?
         };
@@ -340,7 +444,7 @@ fn handle_recovery_menu(
                     action: "retry".to_string(),
                     command: None,
                 });
-                *retry_count += 1;
+                *outcome.retry_count += 1;
                 return Ok(());
             }
             RecoveryAction::Fix(ref cmd) | RecoveryAction::CustomFix(ref cmd) => {
@@ -357,13 +461,13 @@ fn handle_recovery_menu(
                         command: Some(cmd.clone()),
                     });
                     let fix_ok = recovery::run_fix(&cmd, project_root, &step.env_vars.env)?;
-                    fix_history.insert(cmd.clone());
+                    outcome.fix_history.insert(cmd.clone());
                     if fix_ok {
                         step_display.message(&format!("{}Fix command succeeded.", pad));
                     } else {
                         step_display.message(&format!("{}Fix command failed.", pad));
                     }
-                    *retry_count += 1;
+                    *outcome.retry_count += 1;
                     return Ok(());
                 }
                 // User declined the fix — re-show recovery menu
@@ -389,10 +493,10 @@ fn handle_recovery_menu(
                     action: "skip".to_string(),
                     command: None,
                 });
-                *skipped_by_user = true;
+                *outcome.skipped_by_user = true;
                 let mut r = result;
                 r.recovery_detail = Some("skipped by user after failure".to_string());
-                *final_result = Some(r);
+                *outcome.final_result = Some(r);
                 return Ok(());
             }
             RecoveryAction::Abort => {
@@ -401,10 +505,10 @@ fn handle_recovery_menu(
                     action: "abort".to_string(),
                     command: None,
                 });
-                *aborted = true;
+                *outcome.aborted = true;
                 let mut r = result;
                 r.recovery_detail = Some("aborted by user".to_string());
-                *final_result = Some(r);
+                *outcome.final_result = Some(r);
                 return Ok(());
             }
         }
