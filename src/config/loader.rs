@@ -2121,6 +2121,77 @@ workflow:
     }
 
     #[test]
+    fn load_for_run_captures_unknown_field_in_workflow_file_step() {
+        // A step typo inside a workflow file must survive the merge round-trip
+        // (workflow-file steps are serialized back to a Value and re-parsed)
+        // so it is reported by `unknown_field_warnings`.
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        let workflows_dir = bivvy.join("workflows");
+        fs::create_dir_all(&workflows_dir).unwrap();
+
+        fs::write(bivvy.join("config.yml"), "app_name: Test").unwrap();
+
+        fs::write(
+            workflows_dir.join("ci.yml"),
+            r#"
+steps:
+  build:
+    command: "cargo build"
+    comand: "cargo build"
+workflow:
+  steps:
+    - build
+"#,
+        )
+        .unwrap();
+
+        let config = load_for_run(temp.path(), "ci").unwrap();
+        let warnings = config.unknown_field_warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("Unknown field 'comand' in step 'build' will be ignored.")),
+            "expected workflow-file step typo to be captured, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn load_for_run_captures_unknown_settings_field_across_merge() {
+        // A `settings:` typo flows through the merge pipeline as a raw value and
+        // must still land in the catch-all after the final typed parse, so it is
+        // reported by `unknown_field_warnings`.
+        let temp = TempDir::new().unwrap();
+        let bivvy = temp.path().join(".bivvy");
+        fs::create_dir_all(&bivvy).unwrap();
+
+        fs::write(
+            bivvy.join("config.yml"),
+            r#"
+app_name: Test
+settings:
+  paralel: true
+steps:
+  build:
+    command: "cargo build"
+workflows:
+  default:
+    steps: [build]
+"#,
+        )
+        .unwrap();
+
+        let config = load_for_run(temp.path(), "default").unwrap();
+        let warnings = config.unknown_field_warnings();
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("Unknown field 'paralel' in settings will be ignored.")),
+            "expected settings typo to survive the merge, got: {warnings:?}"
+        );
+    }
+
+    #[test]
     fn load_for_run_workflow_step_overrides_project_step() {
         // Resolution chain: project (3) → workflow file (5) → local (6).
         // Workflow files override project config; local overrides everything.

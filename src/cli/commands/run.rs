@@ -324,7 +324,14 @@ impl Command for RunCommand {
             );
         }
 
-        for warning in &deprecation_warnings {
+        // Surface nested config typos (e.g. `paralel:`, `comand:`) that serde
+        // silently drops because `deny_unknown_fields` is incompatible with the
+        // flattened `settings`/step sub-structs. These are display-only: unknown
+        // fields are not deprecations, so they stay out of the `ConfigLoaded`
+        // event's `deprecation_warnings` vector.
+        let unknown_field_warnings = config.unknown_field_warnings();
+
+        for warning in deprecation_warnings.iter().chain(&unknown_field_warnings) {
             ui.warning(warning);
         }
 
@@ -1539,6 +1546,75 @@ workflows:
         cmd.execute(&mut ui).unwrap();
 
         assert!(!ui.has_warning("--ci is deprecated"));
+    }
+
+    #[test]
+    fn execute_warns_on_unknown_config_fields_but_still_runs() {
+        // A typo under `settings:` (`paralel`) and inside a step (`comand`) is
+        // dropped by serde because the flattened schema cannot use serde's
+        // `deny_unknown_fields`. Bivvy must warn about both yet still load the
+        // config and run the step successfully.
+        let config = r#"
+app_name: Test Project
+settings:
+  paralel: true
+steps:
+  hello:
+    command: echo hello
+    comand: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        let result = cmd.execute(&mut ui).unwrap();
+
+        assert!(
+            ui.has_warning(
+                "Unknown field 'paralel' in settings will be ignored. \
+                 Run 'bivvy lint' to check your config."
+            ),
+            "expected a warning for the settings typo, got: {:?}",
+            ui.warnings()
+        );
+        assert!(
+            ui.has_warning(
+                "Unknown field 'comand' in step 'hello' will be ignored. \
+                 Run 'bivvy lint' to check your config."
+            ),
+            "expected a warning for the step typo, got: {:?}",
+            ui.warnings()
+        );
+        // The config still loaded and the step still ran.
+        assert!(result.success);
+        assert_eq!(result.exit_code, 0);
+    }
+
+    #[test]
+    fn execute_clean_config_has_no_unknown_field_warning() {
+        let config = r#"
+app_name: Test Project
+settings:
+  parallel: true
+steps:
+  hello:
+    command: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = RunArgs::default();
+        let cmd = RunCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        assert!(!ui.has_warning("will be ignored"));
     }
 
     #[test]

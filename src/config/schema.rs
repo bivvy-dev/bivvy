@@ -6,7 +6,7 @@
 use crate::checks::{Check, SatisfactionCondition};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 
 /// Helper for `serde_yaml::Value` fields — accepts any valid YAML/JSON value.
@@ -278,9 +278,11 @@ impl DefaultsSettings {
 /// (e.g., `settings.parallel` in YAML, not `settings.execution.parallel`).
 ///
 /// `deny_unknown_fields` is applied via the `schemars`-only attribute because
-/// serde's variant is incompatible with `#[serde(flatten)]`. The schema
-/// therefore rejects unknown fields in editors, while runtime deserialization
-/// continues to silently ignore them (preserving backward compatibility).
+/// serde's variant is incompatible with `#[serde(flatten)]`, so the schema
+/// rejects unknown fields in editors. At runtime the config still loads, but
+/// unrecognized keys are captured by the [`unknown`](Settings::unknown)
+/// catch-all so [`BivvyConfig::unknown_field_warnings`] can surface typos and
+/// removed fields instead of dropping them silently.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 #[schemars(deny_unknown_fields)]
@@ -304,6 +306,21 @@ pub struct Settings {
     /// Default values for step behavior flags.
     #[serde(default, skip_serializing_if = "DefaultsSettings::is_default")]
     pub defaults: DefaultsSettings,
+
+    /// Unrecognized keys under `settings:`. Because `deny_unknown_fields` is
+    /// incompatible with `#[serde(flatten)]`, this catch-all captures typos and
+    /// removed fields that serde would otherwise silently drop, so they can be
+    /// surfaced as warnings. Empty in normal use.
+    #[serde(flatten)]
+    #[schemars(skip)]
+    pub unknown: BTreeMap<String, serde_yaml::Value>,
+}
+
+impl Settings {
+    /// Names of unrecognized `settings:` keys, sorted.
+    pub fn unknown_field_keys(&self) -> Vec<&str> {
+        self.unknown.keys().map(String::as_str).collect()
+    }
 }
 
 fn default_output() -> OutputMode {
@@ -527,9 +544,11 @@ pub struct EnvironmentScopingConfig {
 /// Configuration for a single setup step
 ///
 /// `deny_unknown_fields` is applied via the `schemars`-only attribute because
-/// serde's variant is incompatible with `#[serde(flatten)]`. The schema
-/// therefore rejects unknown fields in editors, while runtime deserialization
-/// continues to silently ignore them (preserving backward compatibility).
+/// serde's variant is incompatible with `#[serde(flatten)]`, so the schema
+/// rejects unknown fields in editors. At runtime the config still loads, but
+/// unrecognized keys are captured by the [`unknown`](StepConfig::unknown)
+/// catch-all so [`BivvyConfig::unknown_field_warnings`] can surface typos and
+/// removed fields instead of dropping them silently.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
 #[serde(default)]
 #[schemars(deny_unknown_fields)]
@@ -601,6 +620,21 @@ pub struct StepConfig {
     /// to `check: { type: change, target: ... }`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub watches: Vec<String>,
+
+    /// Unrecognized keys within this step. Because `deny_unknown_fields` is
+    /// incompatible with `#[serde(flatten)]`, this catch-all captures typos and
+    /// removed fields that serde would otherwise silently drop, so they can be
+    /// surfaced as warnings. Empty in normal use.
+    #[serde(flatten)]
+    #[schemars(skip)]
+    pub unknown: BTreeMap<String, serde_yaml::Value>,
+}
+
+impl StepConfig {
+    /// Names of unrecognized keys within this step, sorted.
+    pub fn unknown_field_keys(&self) -> Vec<&str> {
+        self.unknown.keys().map(String::as_str).collect()
+    }
 }
 
 fn default_true() -> bool {
@@ -1128,6 +1162,39 @@ impl BivvyConfig {
 
         warnings
     }
+
+    /// Collect warnings for unrecognized fields under `settings:` and within
+    /// each step. These fields are captured by the flattened catch-all maps
+    /// because `deny_unknown_fields` cannot be combined with `#[serde(flatten)]`.
+    ///
+    /// The config still loads (the unknown fields are ignored at runtime); the
+    /// warnings exist so typos and removed fields are not dropped silently.
+    /// Messages are ordered deterministically: settings fields first, then
+    /// steps sorted by name.
+    pub fn unknown_field_warnings(&self) -> Vec<String> {
+        let mut warnings = Vec::new();
+
+        for key in self.settings.unknown_field_keys() {
+            warnings.push(format!(
+                "Unknown field '{key}' in settings will be ignored. \
+                 Run 'bivvy lint' to check your config."
+            ));
+        }
+
+        let mut step_names: Vec<&String> = self.steps.keys().collect();
+        step_names.sort();
+        for step_name in step_names {
+            let step = &self.steps[step_name];
+            for key in step.unknown_field_keys() {
+                warnings.push(format!(
+                    "Unknown field '{key}' in step '{step_name}' will be ignored. \
+                     Run 'bivvy lint' to check your config."
+                ));
+            }
+        }
+
+        warnings
+    }
 }
 
 #[cfg(test)]
@@ -1328,7 +1395,7 @@ settings:
     }
 
     #[test]
-    fn ignores_removed_logging_and_log_path_fields() {
+    fn captures_removed_log_path_field_as_unknown() {
         let yaml = r#"
 settings:
   logging: true
@@ -1337,8 +1404,154 @@ settings:
     output: verbose
 "#;
         let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
-        // logging and log_path are silently ignored; defaults.output still works
+        // `logging` is a real field; `log_path` was removed and is now captured
+        // as an unknown field rather than silently dropped. The config still
+        // loads and real fields still work.
+        assert!(config.settings.logging.logging);
         assert_eq!(config.settings.defaults.output, OutputMode::Verbose);
+        assert_eq!(config.settings.unknown_field_keys(), vec!["log_path"]);
+    }
+
+    #[test]
+    fn captures_unknown_settings_field() {
+        let yaml = r#"
+settings:
+  paralel: true
+  max_parallel: 8
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        // The typo lands in `unknown`; the correctly-spelled field still parses.
+        assert_eq!(config.settings.unknown_field_keys(), vec!["paralel"]);
+        assert_eq!(config.settings.execution.max_parallel, 8);
+    }
+
+    #[test]
+    fn known_settings_fields_are_not_unknown() {
+        // At least one field from every flattened sub-struct, to prove the
+        // catch-all never steals a real key.
+        let yaml = r#"
+settings:
+  # LoggingSettings
+  logging: false
+  log_retention_days: 7
+  log_retention_mb: 100
+  # ExecutionSettings
+  parallel: true
+  max_parallel: 8
+  history_retention: 25
+  diagnostic_funnel: false
+  auto_update: false
+  default_rerun_window: "2h"
+  # EnvVarSettings
+  env:
+    FOO: bar
+  env_file: ".env"
+  secret_env: [MY_TOKEN]
+  # EnvironmentProfileSettings
+  default_environment: ci
+  environments:
+    ci:
+      default_workflow: default
+  # non-flatten defaults
+  defaults:
+    output: quiet
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(
+            config.settings.unknown_field_keys().is_empty(),
+            "no real field should be captured, got: {:?}",
+            config.settings.unknown_field_keys()
+        );
+    }
+
+    #[test]
+    fn unknown_field_nested_under_settings_defaults_still_hard_errors() {
+        // `DefaultsSettings` is a non-flattened struct with serde
+        // `deny_unknown_fields`, so a typo under `settings.defaults` is a hard
+        // parse error (pre-existing behavior), unlike direct `settings:`/step
+        // keys which are captured and warned about.
+        let yaml = r#"
+settings:
+  defaults:
+    outpt: quiet
+"#;
+        let result: Result<BivvyConfig, _> = serde_yaml::from_str(yaml);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn captures_unknown_step_field() {
+        let yaml = r#"
+steps:
+  custom:
+    comand: "cargo build"
+    command: "cargo build"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(config.steps["custom"].unknown_field_keys(), vec!["comand"]);
+        assert_eq!(
+            config.steps["custom"].execution.command,
+            Some("cargo build".to_string())
+        );
+    }
+
+    #[test]
+    fn step_aliases_are_not_unknown() {
+        // `completed_check` (alias for `check`) and `requires` (alias for
+        // `tools`) must be consumed, not flagged as unknown.
+        let yaml = r#"
+steps:
+  deps:
+    command: "bundle install"
+    completed_check:
+      type: presence
+      target: "vendor/bundle"
+    requires: [ruby]
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.steps["deps"].unknown_field_keys().is_empty());
+        assert!(config.steps["deps"].execution.check.is_some());
+        assert_eq!(config.steps["deps"].requires, vec!["ruby"]);
+    }
+
+    #[test]
+    fn unknown_field_warnings_lists_settings_and_steps() {
+        let yaml = r#"
+settings:
+  paralel: true
+steps:
+  build:
+    command: "cargo build"
+    comand: "typo"
+  test:
+    command: "cargo test"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        let warnings = config.unknown_field_warnings();
+        assert_eq!(
+            warnings,
+            vec![
+                "Unknown field 'paralel' in settings will be ignored. \
+                 Run 'bivvy lint' to check your config."
+                    .to_string(),
+                "Unknown field 'comand' in step 'build' will be ignored. \
+                 Run 'bivvy lint' to check your config."
+                    .to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn unknown_field_warnings_empty_for_clean_config() {
+        let yaml = r#"
+settings:
+  parallel: true
+steps:
+  build:
+    command: "cargo build"
+"#;
+        let config: BivvyConfig = serde_yaml::from_str(yaml).unwrap();
+        assert!(config.unknown_field_warnings().is_empty());
     }
 
     #[test]

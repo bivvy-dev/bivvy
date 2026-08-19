@@ -945,8 +945,15 @@ impl Command for LintCommand {
             );
         }
 
-        // Display deprecation warnings to the user
-        for warning in &deprecation_warnings {
+        // Surface nested config typos (e.g. `paralel:`, `comand:`) that serde
+        // silently drops because `deny_unknown_fields` is incompatible with the
+        // flattened `settings`/step sub-structs. These are display-only: unknown
+        // fields are not deprecations, so they stay out of the `ConfigLoaded`
+        // event's `deprecation_warnings` vector.
+        let unknown_field_warnings = config.unknown_field_warnings();
+
+        // Display deprecation warnings and unknown-field warnings to the user
+        for warning in deprecation_warnings.iter().chain(&unknown_field_warnings) {
             ui.warning(warning);
         }
 
@@ -1147,6 +1154,47 @@ mod tests {
 
         assert!(!result.success);
         assert_eq!(result.exit_code, 2);
+    }
+
+    #[test]
+    fn lint_warns_on_unknown_nested_fields() {
+        // Typos under `settings:` and inside a step are dropped by serde
+        // (flatten + no deny_unknown_fields), so lint must surface them. This
+        // is the check the `bivvy run` warning points users to.
+        let config = r#"
+app_name: test-app
+settings:
+  paralel: true
+steps:
+  hello:
+    command: echo hello
+    comand: echo hello
+workflows:
+  default:
+    steps: [hello]
+"#;
+        let temp = setup_project(config);
+        let args = LintArgs::default();
+        let cmd = LintCommand::new(temp.path(), args);
+        let mut ui = MockUI::new();
+
+        cmd.execute(&mut ui).unwrap();
+
+        let output = collect_output(&ui);
+        assert!(
+            output.contains(
+                "Unknown field 'paralel' in settings will be ignored. \
+                 Run 'bivvy lint' to check your config."
+            ),
+            "expected settings typo warning, got:\n{output}"
+        );
+        assert!(
+            output.contains(
+                "Unknown field 'comand' in step 'hello' will be ignored. \
+                 Run 'bivvy lint' to check your config."
+            ),
+            "expected step typo warning, got:\n{output}"
+        );
     }
 
     #[test]

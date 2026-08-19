@@ -125,6 +125,15 @@ The pinned bar is suppressed when:
 
 `bivvy run` performs a two-phase load. Phase 1 reads only `.bivvy/config.yml` to resolve the workflow name (honoring the active environment's `default_workflow`). Phase 2 then walks the full resolution chain — `extends:` → `~/.bivvy/config.yml` → `.bivvy/config.yml` → `.bivvy/steps/*.yml` → the named `.bivvy/workflows/<name>.yml` → `.bivvy/config.local.yml` — with only the requested workflow file in the chain. Sibling workflow files are not parsed, so a malformed neighbor cannot break a run of an unrelated workflow. See [Portable Workflow Files](../configuration/workflows.md#portable-workflow-files) for the full resolution order.
 
+## Configuration Warnings
+
+If a config file has an unrecognized field under `settings:` or inside a step
+(for example the typo `paralel:` instead of `parallel:`, or a removed field),
+`bivvy run` prints a warning that names the field and then continues. The
+unknown field is ignored, so the rest of the configuration still loads, but the
+setting you intended has no effect until the spelling is fixed. Run
+[`bivvy lint`](lint.md) to catch these before a run.
+
 ## Failure Recovery
 
 When a step fails, Bivvy analyzes the error output and presents an interactive
