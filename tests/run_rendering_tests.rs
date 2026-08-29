@@ -33,13 +33,31 @@ use tempfile::TempDir;
 const TEST_HOME_SUBDIR: &str = ".test_home";
 
 /// Pin `HOME` and the XDG base-directory variables to a sandbox so the
-/// child process never reads or writes real user state.
+/// child process never reads or writes real user state, and strip the CI
+/// detection variables so bivvy renders in its interactive `development`
+/// mode. Without the latter, a CI runner's variables (`CI`,
+/// `GITHUB_ACTIONS`, ...) make bivvy classify the environment as `ci` and
+/// emit verbose, non-interactive output that diverges from the recorded
+/// rendering snapshots.
 fn apply_home_isolation(cmd: &mut Command, home: &Path) {
     cmd.env("HOME", home);
     cmd.env("XDG_CONFIG_HOME", home.join(".config"));
     cmd.env("XDG_DATA_HOME", home.join(".local").join("share"));
     cmd.env("XDG_CACHE_HOME", home.join(".cache"));
     cmd.env("XDG_STATE_HOME", home.join(".local").join("state"));
+
+    for ci_var in [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "CIRCLECI",
+        "JENKINS_URL",
+        "TRAVIS",
+        "BUILDKITE",
+        "TF_BUILD",
+    ] {
+        cmd.env_remove(ci_var);
+    }
 }
 
 /// Create a temporary project with `.bivvy/config.yml` populated and a
