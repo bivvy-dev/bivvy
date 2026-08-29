@@ -345,6 +345,7 @@ fn spawn_zsh(project_dir: &std::path::Path) -> Session {
 
     let mut cmd = Command::new("/bin/zsh");
     cmd.arg("-i");
+    cmd.arg("-o").arg("NO_GLOBAL_RCS");
     cmd.current_dir(project_dir);
     cmd.env("HOME", &home);
     cmd.env("ZDOTDIR", &zdotdir);
