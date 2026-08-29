@@ -356,6 +356,24 @@ fn spawn_zsh(project_dir: &std::path::Path) -> Session {
     cmd.env("XDG_CACHE_HOME", home.join(".cache"));
     cmd.env("XDG_STATE_HOME", home.join(".local/state"));
 
+    // Neutralize CI auto-detection so bivvy runs in its interactive
+    // `development` mode regardless of the host environment. When these
+    // variables leak in from a CI runner, bivvy classifies the environment
+    // as `ci`, suppresses progress bars, and skips the interactive recovery
+    // menu, diverging from the behavior these tests exercise.
+    for ci_var in [
+        "CI",
+        "GITHUB_ACTIONS",
+        "GITLAB_CI",
+        "CIRCLECI",
+        "JENKINS_URL",
+        "TRAVIS",
+        "BUILDKITE",
+        "TF_BUILD",
+    ] {
+        cmd.env_remove(ci_var);
+    }
+
     let mut session = Session::spawn(cmd).expect("Failed to spawn zsh");
     session.set_expect_timeout(Some(TIMEOUT));
     session
