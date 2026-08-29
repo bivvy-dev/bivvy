@@ -1,13 +1,13 @@
-/target
-Cargo.lock
 *.swp
 *.swo
 .DS_Store
-.bivvy/config.local.yml
+*.profraw
+
+/target
+Cargo.lock
 
 .env
 
-.local
 *.local
 *.local.*
 
