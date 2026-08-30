@@ -98,6 +98,11 @@ steps:
     command: "cargo test --all-features"
     depends_on: [build]
 
+  ci-test:
+    title: "CI Test"
+    command: "env -u TERM cargo build --release"
+    depends_on: [test]
+
   lint:
     title: "Lint"
     command: "cargo fmt -- --check && cargo clippy --all-targets --all-features -- -D warnings"

@@ -8,7 +8,7 @@ steps:
   version-bump:
     template: rust/version-bump
     force: true
-    depends_on: [cargo-edit]
+    depends_on: [release-preflight]
 
   version-commit:
     title: "Commit version bump"
@@ -23,7 +23,7 @@ steps:
 
   release-preflight:
     title: "Release preflight"
-    depends_on: [version-commit]
+    depends_on: [ci-test, build]
     precondition:
       type: all
       checks:
@@ -34,7 +34,7 @@ steps:
           command: "git diff --quiet && git diff --cached --quiet"
           validation: success
         - type: execution
-          command: "! git rev-parse $(grep '^version = ' Cargo.toml | head -1 | sed 's/version = \"\\(.*\\)\"/\\1/') >/dev/null 2>&1"
+          command: "! git rev-parse --verify --quiet \"refs/tags/$${VERSION}\""
           validation: success
     command: |
       VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
@@ -42,10 +42,10 @@ steps:
 
   release-tag:
     title: "Tag and push release"
+    depends_on: [version-commit]
     command: |
       VERSION=$(grep '^version = ' Cargo.toml | head -1 | sed 's/version = "\(.*\)"/\1/')
       git tag "$${VERSION}" && git push origin main && git push origin "$${VERSION}"
-    depends_on: [release-preflight, lint, test, build]
 
 workflow:
   steps:
@@ -57,6 +57,7 @@ workflow:
     - build
     - lint
     - test
+    - ci-test
     - release-preflight
     - version-bump
     - version-commit
