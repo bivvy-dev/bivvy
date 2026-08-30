@@ -46,6 +46,20 @@ fn apply_home_isolation(cmd: &mut Command, home: &Path) {
     cmd.env("XDG_CACHE_HOME", home.join(".cache"));
     cmd.env("XDG_STATE_HOME", home.join(".local").join("state"));
 
+    // Pin TERM to a cursor-capable value. These snapshots record bivvy's
+    // interactive run-path rendering (in-place spinner and progress-bar
+    // redraws via indicatif). That path is only selected when
+    // `TerminalSurface::try_new` succeeds, which requires
+    // `colors_supported()` -- false when TERM is unset or `dumb`. CI run
+    // steps (e.g. GitHub Actions) leave TERM unset, which drops bivvy into
+    // the non-interactive display; combined with the CI-variable stripping
+    // below (which sets `is_ci = false`), that display prints its
+    // progress-bar lines as plain scrollback residue, diverging from the
+    // recorded snapshots. Pinning TERM makes the rendering path
+    // deterministic across machines, exactly like the fixed vt100 window
+    // size.
+    cmd.env("TERM", "xterm-256color");
+
     for ci_var in [
         "CI",
         "GITHUB_ACTIONS",

@@ -43,6 +43,13 @@ fn apply_home_isolation(cmd: &mut Command, home: &Path) {
     cmd.env("XDG_DATA_HOME", home.join(".local").join("share"));
     cmd.env("XDG_CACHE_HOME", home.join(".cache"));
     cmd.env("XDG_STATE_HOME", home.join(".local").join("state"));
+    // Pin TERM to a cursor-capable value so the interactive run-path
+    // rendering is selected deterministically. CI run steps (e.g. GitHub
+    // Actions) leave TERM unset, which pushes bivvy toward its
+    // non-interactive display; pinning TERM keeps the spawned child on the
+    // same rendering path across machines, matching the CI-variable
+    // stripping below.
+    cmd.env("TERM", "xterm-256color");
     for var in [
         "CI",
         "GITHUB_ACTIONS",
