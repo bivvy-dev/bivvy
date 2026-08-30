@@ -87,7 +87,7 @@ Bivvy remembers what's done.
 
   Steps:
     ✓ brew                 2h ago
-    ⚠ ruby                 stale
+    ✓ ruby                 2h ago
     ✓ node                 2h ago
     ✓ docker               2h ago
     ◌ db                   never run
@@ -105,7 +105,7 @@ ruby:
     target: "Gemfile.lock"
 ```
 
-Changed `Gemfile.lock`? Ruby step is stale. Didn't change it? Skip.
+Changed `Gemfile.lock`? The ruby step runs. Didn't change it? It's skipped.
 
 No more "just run the whole script to be safe."
 

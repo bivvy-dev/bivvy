@@ -4187,3 +4187,134 @@ fn runner_env_override_depends_on_cycle_detected() {
     let cycle = graph.find_cycle();
     assert!(cycle.is_some());
 }
+
+#[test]
+fn run_records_change_check_baseline_after_successful_step() {
+    use crate::checks::SnapshotScope;
+    use crate::checks::{BaselineConfig, ChangeKind, Check, OnChange, SizeLimit};
+    use crate::snapshots::{SnapshotKey, SnapshotStore};
+
+    let project_dir = TempDir::new().unwrap();
+    let snap_dir = TempDir::new().unwrap();
+    let lockfile = project_dir.path().join("package.lock");
+    fs::write(&lockfile, "version=1").unwrap();
+
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+    )
+    .unwrap();
+
+    let check = Check::Change {
+        name: None,
+        target: "package.lock".to_string(),
+        kind: ChangeKind::File,
+        on_change: OnChange::Proceed,
+        require_step: None,
+        baseline: BaselineConfig::EachRun,
+        baseline_snapshot: None,
+        baseline_git: None,
+        size_limit: SizeLimit::default(),
+        scope: SnapshotScope::Project,
+    };
+
+    let mut step = make_step("install", "exit 0", vec![]);
+    step.execution.check = Some(check.clone());
+
+    let mut steps = HashMap::new();
+    steps.insert("install".to_string(), step);
+
+    let snapshot_store = SnapshotStore::new(snap_dir.path().to_path_buf());
+    let mut runner = WorkflowRunner::with_snapshot_store(&config, steps, snapshot_store);
+
+    let options = RunOptions::default();
+    let ctx = InterpolationContext::new();
+
+    let result = runner
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: project_dir.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
+        .unwrap();
+
+    assert!(result.success);
+
+    let config_hash = check.config_hash();
+    let key = SnapshotKey::project("install", config_hash);
+    let baseline = runner.snapshot_store_mut().get_baseline(&key, "_last_run");
+    assert!(
+        baseline.is_some(),
+        "baseline must be recorded after successful step execution"
+    );
+}
+
+#[test]
+fn dry_run_does_not_record_change_check_baseline() {
+    use crate::checks::SnapshotScope;
+    use crate::checks::{BaselineConfig, ChangeKind, Check, OnChange, SizeLimit};
+    use crate::snapshots::{SnapshotKey, SnapshotStore};
+
+    let project_dir = TempDir::new().unwrap();
+    let snap_dir = TempDir::new().unwrap();
+    fs::write(project_dir.path().join("package.lock"), "version=1").unwrap();
+
+    let config: BivvyConfig = serde_yaml::from_str(
+        r#"
+            workflows:
+              default:
+                steps: [install]
+        "#,
+    )
+    .unwrap();
+
+    let check = Check::Change {
+        name: None,
+        target: "package.lock".to_string(),
+        kind: ChangeKind::File,
+        on_change: OnChange::Proceed,
+        require_step: None,
+        baseline: BaselineConfig::EachRun,
+        baseline_snapshot: None,
+        baseline_git: None,
+        size_limit: SizeLimit::default(),
+        scope: SnapshotScope::Project,
+    };
+
+    let mut step = make_step("install", "exit 0", vec![]);
+    step.execution.check = Some(check.clone());
+
+    let mut steps = HashMap::new();
+    steps.insert("install".to_string(), step);
+
+    let snapshot_store = SnapshotStore::new(snap_dir.path().to_path_buf());
+    let mut runner = WorkflowRunner::with_snapshot_store(&config, steps, snapshot_store);
+
+    let options = RunOptions {
+        dry_run: true,
+        ..RunOptions::default()
+    };
+    let ctx = InterpolationContext::new();
+
+    let result = runner
+        .run(&RunContext {
+            options: &options,
+            interpolation: &ctx,
+            project_root: project_dir.path(),
+            base_env: &HashMap::new(),
+            process_env: &HashMap::new(),
+        })
+        .unwrap();
+
+    assert!(result.success);
+
+    let config_hash = check.config_hash();
+    let key = SnapshotKey::project("install", config_hash);
+    let baseline = runner.snapshot_store_mut().get_baseline(&key, "_last_run");
+    assert!(baseline.is_none(), "dry-run must not record baselines");
+}

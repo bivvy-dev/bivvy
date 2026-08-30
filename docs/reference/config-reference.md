@@ -77,7 +77,7 @@ At minimum, a step needs either `command` or `template`.
 | `required` | bool | `false` | Cannot be skipped |
 | `auto_run` | bool | — | Auto-run when pipeline says step needs to run. `None` = use global default. |
 | `confirm` | bool | `false` | Always prompt user before running (never auto-runs) |
-| `prompt_on_rerun` | bool | `false` | Ask before re-running |
+| `prompt_on_rerun` | bool | `false` | Ask before re-running a step satisfied only by a recent successful run |
 | `allow_failure` | bool | `false` | Continue workflow on failure |
 | `retry` | int | `0` | Retry attempts on failure |
 | `env` | map | `{}` | Step-specific env vars |
@@ -127,8 +127,8 @@ Tagged union — the `type` field determines which other fields apply. All check
 | `name` | string | — | Optional name for `satisfied_when` refs |
 | `target` | string | — | **Required.** File path, glob pattern, or command to hash |
 | `kind` | `file` \| `glob` \| `command` | `file` | Target type |
-| `on_change` | `proceed` \| `fail` \| `require` | `proceed` | What a detected change means: `proceed` = step should run; `fail` = unexpected drift; `require` = flags `require_step` as needed |
-| `require_step` | string | — | Step to flag when `on_change: require` and change is detected |
+| `on_change` | `proceed` \| `fail` \| `require` | `proceed` | What a detected change means: `proceed` = step should run; `fail` = unexpected drift; `require` = records `require_step` in the check result. `require` does not currently change what Bivvy runs - the check reaches no verdict either way |
+| `require_step` | string | - | Step named in the check result when `on_change: require` and a change is detected |
 | `baseline` | `each_run` \| `first_run` | `each_run` | When the baseline hash is updated |
 | `baseline_snapshot` | string | — | Compare against a named snapshot instead of run-based baseline |
 | `baseline_git` | string | — | Compare against content at a git ref |
@@ -144,6 +144,13 @@ Tagged union — the `type` field determines which other fields apply. All check
 | `checks` | list of [Check](#check) | — | **Required.** Sub-checks to evaluate |
 
 `all`: every sub-check must pass. `any`: at least one sub-check must pass.
+
+Sub-checks that cannot reach a verdict (for example a `change` check on a file
+that does not exist) are neither passes nor failures. `all` still fails as soon
+as one sub-check definitely fails, but if none fail and any were undecided the
+combinator reports no verdict. `any` still passes as soon as one sub-check
+passes, but if every branch was undecided it reports no verdict rather than a
+failure. In both cases Bivvy moves on to the next satisfaction signal.
 
 ### Satisfaction Condition
 

@@ -96,7 +96,9 @@ pub enum SatisfactionEvidence {
     /// Multiple pieces of evidence (for `satisfied_when` with multiple conditions).
     Composite(Vec<SatisfactionEvidence>),
 
-    /// No evidence (step has never been evaluated).
+    /// No evidence to record. Either the step has never been evaluated, or the
+    /// verdict came from something that carries no evidence of its own, such as
+    /// a `check` that failed.
     None,
 }
 

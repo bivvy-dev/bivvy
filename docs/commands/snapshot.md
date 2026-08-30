@@ -31,7 +31,7 @@ bivvy snapshot delete <slug>
 
 ## What It Does
 
-When you configure a step with a `change` check, Bivvy compares the current hash of a target (file, directory, or glob) against a stored baseline to decide whether the step needs to re-run. By default, baselines are updated automatically after each successful run.
+When you configure a step with a `change` check, Bivvy compares the current hash of a target (file, directory, or glob) against a stored baseline to decide whether the step needs to re-run. The first successful run of the step establishes that baseline automatically, and by default it is re-recorded after each subsequent successful run - so you do not have to capture anything by hand for ordinary change detection.
 
 The `snapshot` command lets you capture a **named** baseline at a specific point in time. You can then reference that snapshot in your config so a step re-runs only when its target has changed relative to that fixed point -- not relative to the last run.
 
@@ -83,11 +83,11 @@ steps:
     check:
       type: change
       target: Gemfile.lock
-      on_change: require
+      on_change: proceed
       baseline_snapshot: v1.0
 ```
 
-With this config, `bundle_install` re-runs only when `Gemfile.lock` differs from the hash captured in the `v1.0` snapshot -- regardless of how many times `bivvy run` has executed since.
+With this config, `bundle_install` re-runs only when `Gemfile.lock` differs from the hash captured in the `v1.0` snapshot -- regardless of how many times `bivvy run` has executed since. Use `on_change: proceed` here: it is the mode that means "a change is work that still needs doing".
 
 ## Examples
 

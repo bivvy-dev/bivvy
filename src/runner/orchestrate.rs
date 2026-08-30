@@ -10,6 +10,7 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
+use crate::checks::evaluator::CheckEvaluator;
 use crate::checks::CheckResult;
 use crate::config::schema::StepOverride;
 use crate::error::{BivvyError, Result};
@@ -203,6 +204,21 @@ impl<'a> WorkflowRunner<'a> {
                         step_hash: None,
                     };
                     satisfaction_cache.store(step_name, record);
+
+                    // Record change-check baselines so the next run can compare.
+                    // Skip in dry-run mode since no commands actually ran.
+                    if !options.dry_run {
+                        if let Some(check) = step.execution.effective_check() {
+                            let mut evaluator = CheckEvaluator::new(
+                                project_root,
+                                &context,
+                                &mut self.snapshot_store,
+                            )
+                            .with_step(step_name)
+                            .with_workflow(workflow_name);
+                            evaluator.record_run_baselines(&check);
+                        }
+                    }
 
                     results.push(result);
                 }

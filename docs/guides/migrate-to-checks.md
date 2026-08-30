@@ -113,12 +113,20 @@ For a single watched path, use `check:` instead of `checks:`. See
 [Change checks](../configuration/completed-checks.md#change) for `on_change`,
 `baseline`, and glob/command target kinds.
 
+The first `bivvy run` after converting establishes the baseline for each new
+`change` check rather than comparing against one, so change detection starts
+working from the second run onward. If a converted step has no other check and
+no recent successful run, it will simply run once to set the baseline.
+
 ### `prompt_if_complete:` → `prompt_on_rerun:`
 
 Pure rename. The default also changed: the old `prompt_if_complete` defaulted
 to `true` (always ask before re-running a satisfied step), while
-`prompt_on_rerun` defaults to `false` (silently skip satisfied steps). If you
-relied on the old default, set `prompt_on_rerun: true` explicitly.
+`prompt_on_rerun` defaults to `false` (silently skip a step that ran recently).
+If you relied on the old default, set `prompt_on_rerun: true` explicitly. Note
+that `prompt_on_rerun` only applies to steps satisfied by a recent successful
+run; a step satisfied by `satisfied_when` or a passing `check` is always
+skipped silently.
 
 **Before:**
 

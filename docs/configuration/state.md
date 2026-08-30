@@ -72,7 +72,7 @@ steps:
         on_change: proceed
 ```
 
-Change detection computes a SHA-256 hash of the target and compares it to the stored baseline. If the hashes differ, the step re-runs. Baselines are stored in `~/.bivvy/projects/{hash}/snapshots/` and updated after each successful execution.
+Change detection computes a SHA-256 hash of the target and compares it to the stored baseline. If the hashes differ, the step is not satisfied and re-runs. Baselines are stored in `~/.bivvy/projects/{hash}/snapshots/`. With the default `baseline: each_run`, the baseline is re-recorded after each successful execution; with `baseline: first_run` it is captured once and then frozen. Until a baseline exists - or if the target file is missing - the check reports no verdict and Bivvy falls back to the step's rerun window.
 
 > Still using the legacy `watches:` field? See the [Migrate to the New Check Schema](../guides/migrate-to-checks.md) guide to convert it (along with `completed_check:` and `prompt_if_complete:`) to the modern check fields.
 
