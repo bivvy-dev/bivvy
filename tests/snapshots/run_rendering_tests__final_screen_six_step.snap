@@ -2,16 +2,16 @@
 source: tests/run_rendering_tests.rs
 expression: final_screen
 ---
-[4/6] cargo_help
+[3/6] git_v
+      ✓ Completed (<dur>)
 
+[4/6] cargo_help
       ✓ Completed (<dur>)
 
 [5/6] rustup
-
       ✓ Completed (<dur>)
 
 [6/6] rustc_target
-
       ✓ Completed (<dur>)
 
 ┌─ Summary ──────────────────────────

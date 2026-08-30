@@ -93,20 +93,38 @@ fn spawn_bivvy(args: &[&str], dir: &Path) -> Session {
 const ROWS: u16 = 24;
 const COLS: u16 = 80;
 
-/// Drive a PTY session, accumulating every byte the child writes
-/// until the post-run hint appears or the timeout expires.
-///
-/// We can't rely on EOF because the child sometimes lingers after the
-/// hint (the parent shell isn't done flushing). Polling for the
-/// terminating hint is enough — the run is observably finished by then.
-fn drain_until_done(session: expectrl::Session, timeout: Duration) -> Vec<u8> {
+/// Read every byte currently available on the PTY without blocking.
+fn read_available(fd: i32, accumulated: &mut Vec<u8>) {
+    let mut buf = [0u8; 4096];
+    unsafe {
+        let flags = libc::fcntl(fd, libc::F_GETFL);
+        libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
+        loop {
+            let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
+            if n <= 0 {
+                break;
+            }
+            accumulated.extend_from_slice(&buf[..n as usize]);
+        }
+        libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
+    }
+}
+
+/// Accumulate PTY output into `accumulated` until any of `markers`
+/// appears in the accumulated view or the timeout expires. Returns
+/// `true` once a marker was seen.
+fn drain_until_any(
+    session: &expectrl::Session,
+    markers: &[&str],
+    timeout: Duration,
+    accumulated: &mut Vec<u8>,
+) -> bool {
     let fd = session.get_stream().as_raw_fd();
-    let mut accumulated = Vec::new();
     let start = Instant::now();
 
     loop {
         if start.elapsed() > timeout {
-            break;
+            return false;
         }
 
         let ready = unsafe {
@@ -119,51 +137,46 @@ fn drain_until_done(session: expectrl::Session, timeout: Duration) -> Vec<u8> {
         };
 
         if ready > 0 {
-            let mut buf = [0u8; 4096];
-            unsafe {
-                let flags = libc::fcntl(fd, libc::F_GETFL);
-                libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                loop {
-                    let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                    if n <= 0 {
-                        break;
-                    }
-                    accumulated.extend_from_slice(&buf[..n as usize]);
-                }
-                libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-            }
+            read_available(fd, accumulated);
         }
 
-        // Stop once the post-run hint has rendered — any further output
-        // is tear-down noise from the parent shell, not run output.
-        let view = String::from_utf8_lossy(&accumulated);
-        if view.contains("bivvy status") || view.contains("aborted by user") {
-            // Drain a little more to capture trailing newlines.
-            std::thread::sleep(Duration::from_millis(150));
-            let ready = unsafe {
-                let mut pfd = libc::pollfd {
-                    fd,
-                    events: libc::POLLIN,
-                    revents: 0,
-                };
-                libc::poll(&mut pfd, 1, 100)
+        let view = String::from_utf8_lossy(accumulated);
+        if markers.iter().any(|m| view.contains(m)) {
+            return true;
+        }
+    }
+}
+
+/// Drive a PTY session, accumulating every byte the child writes
+/// until the post-run hint appears or the timeout expires.
+///
+/// We can't rely on EOF because the child sometimes lingers after the
+/// hint (the parent shell isn't done flushing). Polling for the
+/// terminating hint is enough - the run is observably finished by then.
+fn drain_until_done(session: expectrl::Session, timeout: Duration) -> Vec<u8> {
+    let fd = session.get_stream().as_raw_fd();
+    let mut accumulated = Vec::new();
+
+    // Stop once the post-run hint has rendered - any further output
+    // is tear-down noise from the parent shell, not run output.
+    if drain_until_any(
+        &session,
+        &["bivvy status", "aborted by user"],
+        timeout,
+        &mut accumulated,
+    ) {
+        // Drain a little more to capture trailing newlines.
+        std::thread::sleep(Duration::from_millis(150));
+        let ready = unsafe {
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
             };
-            if ready > 0 {
-                let mut buf = [0u8; 4096];
-                unsafe {
-                    let flags = libc::fcntl(fd, libc::F_GETFL);
-                    libc::fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK);
-                    loop {
-                        let n = libc::read(fd, buf.as_mut_ptr() as *mut _, buf.len());
-                        if n <= 0 {
-                            break;
-                        }
-                        accumulated.extend_from_slice(&buf[..n as usize]);
-                    }
-                    libc::fcntl(fd, libc::F_SETFL, flags & !libc::O_NONBLOCK);
-                }
-            }
-            break;
+            libc::poll(&mut pfd, 1, 100)
+        };
+        if ready > 0 {
+            read_available(fd, &mut accumulated);
         }
     }
 
@@ -215,8 +228,8 @@ fn static_regex_replace(haystack: &str, pattern: &str, replacement: &str) -> Str
     re.replace_all(haystack, replacement).into_owned()
 }
 
-/// Render the full byte stream — including scrollback that has
-/// scrolled out of the visible window — by replaying it through a tall
+/// Render the full byte stream - including scrollback that has
+/// scrolled out of the visible window - by replaying it through a tall
 /// emulator and returning every row, blank rows included.
 ///
 /// Interior blank lines are preserved so the snapshot reflects vertical
@@ -365,6 +378,87 @@ workflows:
 
     let transcript = normalize_durations(&raw_transcript);
     insta::assert_snapshot!("multiline_command_no_residue", transcript);
+}
+
+/// Workflow where the middle step requires interactive confirmation.
+///
+/// Regression test for two stale-indicator bugs around prompts:
+///
+/// 1. Stale pinned bar: hiding the multi-progress for a prompt must
+///    clear the rendered workflow bar first. Indicatif's
+///    `set_draw_target` does not erase the last-drawn frame for
+///    terminal targets, so without an explicit clear the
+///    `[██████░░░░░░░░░░] N/M steps · … elapsed` frame gets baked into
+///    scrollback right where the prompt appeared.
+/// 2. Stale spinner line: `enable_steady_tick` draws an immediate
+///    first frame, so it must only be called after the spinner joins
+///    the multi-progress. A frame drawn through the bar's standalone
+///    stderr target sits outside the multi's height accounting, and
+///    right after a prompt (fresh draw target, zero tracked lines) the
+///    next multi draw clears nothing - leaving a permanent
+///    `⠋ Running \`...\`` line above the step result.
+#[test]
+fn renders_confirm_prompt_without_bar_residue() {
+    let config = r#"
+app_name: "Prompt Residue"
+
+steps:
+  rustc_version:
+    title: "rustc version"
+    command: "rustc --version"
+  git_confirm:
+    title: "git version"
+    command: "git --version"
+    confirm: true
+  cargo_version:
+    title: "cargo version"
+    command: "cargo --version"
+
+workflows:
+  default:
+    steps:
+      - rustc_version
+      - git_confirm
+      - cargo_version
+"#;
+    let temp = setup_project(config);
+    let mut session = spawn_bivvy(&["run"], temp.path());
+
+    let mut bytes = Vec::new();
+    let prompted = drain_until_any(&session, &["Yes (y)"], Duration::from_secs(30), &mut bytes);
+    assert!(
+        prompted,
+        "confirmation prompt never appeared in:\n{}",
+        render_full_transcript(&bytes)
+    );
+    session.send("y").unwrap();
+    bytes.extend(drain_until_done(session, Duration::from_secs(30)));
+
+    let raw_transcript = render_full_transcript(&bytes);
+
+    // Neither the pinned workflow bar nor a stale spinner line may
+    // survive into scrollback - not around the prompt, and not after
+    // the run finishes.
+    let residue: Vec<&str> = raw_transcript
+        .lines()
+        .filter(|l| l.contains('█') || l.contains('░') || l.contains("Running `"))
+        .collect();
+    assert!(
+        residue.is_empty(),
+        "expected no progress-bar or spinner residue in scrollback, found:\n{}\nfull transcript:\n{}",
+        residue.join("\n"),
+        raw_transcript
+    );
+
+    // The confirmed step must actually have run after "y" was sent.
+    assert!(
+        raw_transcript.contains("3 run"),
+        "expected the summary to report all three commands ran, got:\n{}",
+        raw_transcript
+    );
+
+    let transcript = normalize_durations(&raw_transcript);
+    insta::assert_snapshot!("confirm_prompt_no_bar_residue", transcript);
 }
 
 /// 24×80 final-screen snapshot of a six-step workflow. Pins what the

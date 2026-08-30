@@ -334,7 +334,14 @@ impl StepDisplay for TerminalStepDisplay {
         let prefix = " ".repeat(self.step_indent);
         self.base_message = format!("Running `{}`...", collapsed);
 
-        let bar = ProgressBar::new_spinner();
+        // The bar starts hidden: a bar's default standalone stderr target
+        // draws immediately on `set_message` and on the first steady tick,
+        // outside the multi-progress's height accounting. Those stray
+        // frames get baked into scrollback as stale "Running ..." lines
+        // (always right after a prompt, where the multi's fresh draw
+        // target has no lines to clear). `transient_above_pinned` swaps
+        // in the multi's remote draw target on mount.
+        let bar = ProgressBar::hidden();
         bar.set_style(
             ProgressStyle::default_spinner()
                 .tick_chars("⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏")
@@ -342,11 +349,13 @@ impl StepDisplay for TerminalStepDisplay {
                 .expect("BUG: invalid indicatif spinner template"),
         );
         bar.set_message(self.base_message.clone());
-        bar.enable_steady_tick(Duration::from_millis(80));
 
         // Reserve max_lines = 1 (spinner row) + tail_capacity.
         let max_lines = 1 + self.tail_capacity;
         let region = self.surface.transient_above_pinned(bar, max_lines);
+        if let Some(bar) = region.bar_clone() {
+            bar.enable_steady_tick(Duration::from_millis(80));
+        }
         self.tail.clear();
         self.region = Some(region);
     }

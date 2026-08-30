@@ -31,8 +31,12 @@
 //! ## Cursor freeing
 //!
 //! Interactive prompts (dialoguer) need exclusive access to the cursor.
-//! [`TerminalSurface::with_cursor_freed`] hides the multi-progress draw
-//! target for the duration of a closure and restores it afterwards.
+//! [`TerminalSurface::with_cursor_freed`] clears the rendered bars,
+//! hides the multi-progress draw target for the duration of a closure,
+//! and restores it afterwards. The clear must happen before the target
+//! swap: `MultiProgress::set_draw_target` does not erase the
+//! last-rendered frame from a terminal target, so skipping it leaves a
+//! stale copy of the pinned bar in scrollback wherever a prompt ran.
 
 use indicatif::{MultiProgress, ProgressBar, ProgressDrawTarget, ProgressStyle};
 use std::sync::Arc;
@@ -120,13 +124,29 @@ impl TerminalSurface {
     /// Hide every bar for the duration of `f`, then restore.
     ///
     /// Used by step prompts. Encapsulates the
-    /// `set_draw_target(hidden) / set_draw_target(stderr)` pattern so the
-    /// rest of the codebase doesn't need to coordinate it.
+    /// `clear / set_draw_target(hidden) / set_draw_target(stderr)`
+    /// pattern so the rest of the codebase doesn't need to coordinate it.
+    ///
+    /// The explicit `clear` matters: indicatif's `set_draw_target` does
+    /// not erase the last-rendered frame when the outgoing target is a
+    /// terminal, so without it the pinned workflow bar gets baked into
+    /// scrollback right where the prompt renders.
+    ///
+    /// The stderr target is restored via a drop guard, so the surface
+    /// becomes visible again (on terminals that can render) even if
+    /// `f` panics.
     pub fn with_cursor_freed<R>(&self, f: impl FnOnce() -> R) -> R {
+        struct RestoreTarget<'a>(&'a MultiProgress);
+        impl Drop for RestoreTarget<'_> {
+            fn drop(&mut self) {
+                self.0.set_draw_target(ProgressDrawTarget::stderr());
+            }
+        }
+
+        let _ = self.multi.clear();
         self.multi.set_draw_target(ProgressDrawTarget::hidden());
-        let result = f();
-        self.multi.set_draw_target(ProgressDrawTarget::stderr());
-        result
+        let _restore = RestoreTarget(&self.multi);
+        f()
     }
 }
 
@@ -307,15 +327,19 @@ mod tests {
 
     #[test]
     fn with_cursor_freed_restores_target_on_panic() {
-        // Verify that on panic the draw target is still restored.
-        // We can only check the no-panic happy path here directly;
-        // the panic path is exercised by std's catch_unwind machinery
-        // via running a panicking closure.
         let surface = TerminalSurface::hidden();
         let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             surface.with_cursor_freed(|| panic!("boom"));
         }));
         assert!(outcome.is_err());
+        // The drop guard restores the stderr draw target even when the
+        // closure panics; without it the multi-progress would be stuck
+        // on the hidden target installed for the prompt. On terminals
+        // that can't render (CI pipes, NO_COLOR, TERM=dumb) the stderr
+        // target itself degrades to hidden, so compare against that
+        // predicate instead of asserting visibility outright.
+        let stderr_renders = console::Term::stderr().features().colors_supported();
+        assert_eq!(surface.multi.is_hidden(), !stderr_renders);
         // After the panic, the surface is still usable.
         surface.println("post-panic");
     }

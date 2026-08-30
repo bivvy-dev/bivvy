@@ -5,23 +5,18 @@ expression: transcript
 
 ⛺ Multiline Bug v<version> · default workflow · 5 steps · env: development
 [1/5] rustc_version — rustc version
-
       ✓ Completed (<dur>)
 
 [2/5] multi_step — Multi-line invocation
-
       ✓ Completed (<dur>)
 
 [3/5] cargo_metadata — cargo --version
-
       ✓ Completed (<dur>)
 
 [4/5] git_status — git status
-
       ✓ Completed (<dur>)
 
 [5/5] rustc_check — rustc --version
-
       ✓ Completed (<dur>)
 
 ┌─ Summary ──────────────────────────

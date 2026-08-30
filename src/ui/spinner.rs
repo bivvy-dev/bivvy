@@ -36,7 +36,15 @@ impl ProgressSpinner {
     }
 
     fn create(message: &str, indent: usize, multi: Option<&MultiProgress>) -> Self {
-        let raw_bar = ProgressBar::new_spinner();
+        // Bars destined for a multi-progress start hidden: a standalone
+        // stderr target draws immediately on `set_message` and on the
+        // first steady tick, outside the multi's height accounting,
+        // leaving a stale spinner line in scrollback. `insert_from_back`
+        // swaps in the multi's remote draw target on mount.
+        let raw_bar = match multi {
+            Some(_) => ProgressBar::hidden(),
+            None => ProgressBar::new_spinner(),
+        };
         let prefix = " ".repeat(indent);
         raw_bar.set_style(
             ProgressStyle::default_spinner()
@@ -45,7 +53,6 @@ impl ProgressSpinner {
                 .expect("BUG: invalid indicatif spinner template"),
         );
         raw_bar.set_message(message.to_string());
-        raw_bar.enable_steady_tick(Duration::from_millis(80));
 
         // If a multi-progress is provided, insert the spinner above the
         // last bar (the pinned workflow progress bar). `insert_from_back(1)`
@@ -55,6 +62,10 @@ impl ProgressSpinner {
         } else {
             raw_bar
         };
+        // Start ticking only after the bar has joined the multi-progress -
+        // `enable_steady_tick` draws an immediate first frame, and drawing
+        // it through the standalone target leaves an uncleared line behind.
+        bar.enable_steady_tick(Duration::from_millis(80));
 
         Self { bar, indent }
     }

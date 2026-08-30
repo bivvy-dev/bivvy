@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use indicatif::{ProgressBar, ProgressStyle};
+use indicatif::{ProgressBar, ProgressDrawTarget, ProgressStyle};
 
 use crate::ui::progress::format_duration;
 use crate::ui::surface::{PinnedBar, TerminalSurface};
@@ -87,12 +87,22 @@ impl TerminalWorkflowDisplay {
     }
 
     /// Format the bar message string with bracket bar + counts.
+    ///
+    /// The message leads with a spacer line so the pinned bar renders one
+    /// row below the scrollback. That line is a single space, not empty:
+    /// indicatif's terminal draw relies on the first line of a frame
+    /// writing at least one character to trigger the line wrap after the
+    /// previous frame's filler (see `draw_to_term`: "the first line will
+    /// automatically wrap due to the filler below"). An empty first line
+    /// writes nothing, the wrap never happens, and the frame occupies one
+    /// less row than indicatif accounts for - the next redraw then clears
+    /// one row too many, eating the line above (e.g. the run header).
     fn format_bar(theme: &BivvyTheme, current: usize, total: usize, elapsed: Duration) -> String {
         let filled = (current * 16).checked_div(total).unwrap_or(0);
         let empty = 16usize.saturating_sub(filled);
         let bar = format!("{}{}", "█".repeat(filled), "░".repeat(empty));
         format!(
-            "\n{} {}/{} steps {} {}",
+            " \n{} {}/{} steps {} {}",
             theme.info.apply_to(format!("[{}]", bar)),
             current,
             total,
@@ -130,7 +140,12 @@ impl WorkflowDisplay for TerminalWorkflowDisplay {
         if !self.mode.shows_status() {
             return;
         }
-        let bar = ProgressBar::new(total as u64);
+        // The bar starts hidden: a bar's default standalone stderr
+        // target draws immediately on `set_message`, outside the
+        // multi-progress's height accounting, baking a stale
+        // `[░░…] 0/N steps` frame into scrollback. `pin_bottom` swaps
+        // in the multi's remote draw target on mount.
+        let bar = ProgressBar::with_draw_target(Some(total as u64), ProgressDrawTarget::hidden());
         bar.set_style(
             ProgressStyle::default_bar()
                 .template("{msg}")
