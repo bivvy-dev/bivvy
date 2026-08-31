@@ -213,10 +213,10 @@ steps:
 
 Each template provides:
 
-- **Command** — the shell command to run
-- **Completed checks** — how Bivvy decides the step is already done (it skips when checks pass)
-- **Watches** — files whose changes mark the step dirty and force a re-run
-- **Environment impact** — `PATH` or shell config changes the step makes
+- **Command** - the shell command to run
+- **Completed checks** - how Bivvy decides the step is already done (it skips when checks pass)
+- **Watches** - files whose changes make the step unsatisfied, so it runs again on the next `bivvy run`
+- **Environment impact** - `PATH` or shell config changes the step makes
 
 ### brew-bundle
 
@@ -245,7 +245,7 @@ Installs Node.js dependencies using Yarn.
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `yarn.lock`
 - **Command**: `yarn install`
-- **Completion check**: `yarn check --verify-tree`
+- **Completion check**: `node_modules` directory exists
 - **Watches**: `yarn.lock`, `package.json`
 - **Environment**: sets `NODE_ENV=development`
 
@@ -318,7 +318,7 @@ Installs Python packages from `requirements.txt`.
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `requirements.txt`, `pyproject.toml`
 - **Command**: `pip install -r requirements.txt`
-- **Completion check**: `pip check`
+- **Completion check**: change detection on `requirements.txt` (no separate completion command)
 - **Watches**: `requirements.txt`
 
 ### poetry-install
@@ -407,7 +407,7 @@ Installs and activates the Node.js version pinned by `.nvmrc` or `.node-version`
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `.nvmrc`, `.node-version`, or `fnm` available
 - **Command**: `fnm install && fnm use`
-- **Completion check**: `fnm current`
+- **Completion check**: `fnm current` reports a version other than `none`
 - **Watches**: `.nvmrc`, `.node-version`
 
 ### rbenv-ruby
@@ -477,7 +477,7 @@ Restores .NET project dependencies.
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `*.sln`, `*.csproj`
 - **Command**: `dotnet restore`
-- **Completion check**: `dotnet restore --no-restore` reports nothing to do
+- **Completion check**: change detection on `*.sln`, `*.csproj`, and `Directory.Build.props` (no separate completion command)
 - **Watches**: `*.sln`, `*.csproj`, `Directory.Build.props`
 
 ### dart-pub-get
@@ -693,6 +693,7 @@ Bootstraps a Lerna monorepo workspace.
 - **Platforms**: macOS, Linux, Windows
 - **Detects**: `lerna.json`
 - **Command**: `npx lerna bootstrap`
+- **Completion check**: `node_modules` directory exists
 - **Watches**: `lerna.json`, `packages/*/package.json`
 
 ## version-bump templates
@@ -787,7 +788,7 @@ Installs Docker Desktop (macOS) or Docker Engine (Linux). On macOS, the template
 
 - **Platforms**: macOS, Linux, Windows
 - **Command**: Platform-specific (manual on macOS, `curl -fsSL https://get.docker.com | sh` on Debian/Ubuntu)
-- **Completion check**: `docker info`
+- **Completion check**: the `docker` binary is on `PATH` (installation only - the step does not require the daemon to be running)
 
 ### mise-install
 
@@ -830,6 +831,7 @@ Installs the project's Node.js version using fnm.
 - **Platforms**: macOS, Linux, Windows
 - **Requires**: `fnm`
 - **Command**: `fnm install && fnm use`
+- **Completion check**: `fnm current` reports a version other than `none`
 
 ### nvm-node
 
@@ -869,7 +871,7 @@ Installs PostgreSQL database server and client tools.
 
 - **Platforms**: macOS, Linux
 - **Command**: Platform-specific (Homebrew on macOS, `apt-get` on Debian/Ubuntu)
-- **Completion check**: `pg_isready -q`
+- **Completion check**: the `psql` binary is on `PATH` (installation only - the step does not require the server to be running)
 
 ### redis-install
 
@@ -877,7 +879,7 @@ Installs Redis in-memory data store.
 
 - **Platforms**: macOS, Linux
 - **Command**: Platform-specific (Homebrew on macOS, `apt-get` on Debian/Ubuntu)
-- **Completion check**: `redis-cli ping`
+- **Completion check**: the `redis-server` binary is on `PATH` (installation only - the step does not require the server to be running)
 
 ### rust-install
 

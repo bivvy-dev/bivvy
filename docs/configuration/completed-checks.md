@@ -1,6 +1,6 @@
 # Checks
 
-Checks report facts about the external world: "does this file exist?", "does this command succeed?", "has this target changed?" When a check passes, Bivvy skips the step (unless `--force` is used). Use `check:` for a single check or `checks:` for multiple (treated as an implicit `all`).
+Checks report facts about the external world: "does this file exist?", "does this command succeed?", "has this target changed?" When a check passes, Bivvy skips the step - unless `--force` is used, a `satisfied_when` condition on the step fails, or the step's precondition fails and blocks it outright. Use `check:` for a single check or `checks:` for multiple (treated as an implicit `all`).
 
 Checks can also be used in [`satisfied_when`](#satisfied_when) conditions, which declare when a step's purpose is already fulfilled.
 
@@ -92,20 +92,49 @@ steps:
 
 The `on_change` field controls what happens when a change is detected:
 
-- `proceed` (default) -- the step runs (change means "work needed")
-- `fail` -- the step fails immediately (change means "unexpected drift")
-- `require` -- flags another step as required via `require_step`
+- `proceed` (default) -- the step runs (change means "work needed"); when the target is unchanged, the step is skipped
+- `fail` -- the step fails immediately (change means "unexpected drift"); when the target is unchanged, the step is skipped
+- `require` -- records another step name via `require_step`
+
+`require` names a *different* step, so the check is written on the step that
+observes the change and points at the step that has to do something about it:
 
 ```yaml
 steps:
   deps:
     command: "yarn install"
     check:
+      type: presence
+      target: "node_modules"
+
+  build:
+    command: "yarn build"
+    depends_on: [deps]
+    check:
       type: change
       target: "yarn.lock"
       on_change: require
       require_step: deps
 ```
+
+`require` records that the named step should run, but it does not currently
+change the decision Bivvy makes about either step: the check reports no
+verdict either way, so the step falls through to its rerun window. Use
+`proceed` when you want a change to actually re-run the step, and `fail` when
+a change should stop the workflow.
+
+### When a change check has no answer
+
+A change check needs two things to reach a verdict: the target has to exist,
+and a baseline has to have been recorded for it. If either is missing, the
+check reports no verdict rather than passing or failing, and Bivvy moves on
+to the next satisfaction signal (the rerun window). The same is true when the
+target cannot be read or is larger than its `size_limit`.
+
+This is what makes it safe to list several possible filenames under
+`checks:` - the ones that are absent stay quiet instead of forcing the step
+to run every time. If you need "this file must exist" to be an actual
+requirement, use a `presence` check instead.
 
 Change checks support different target kinds:
 
@@ -126,7 +155,16 @@ steps:
 
 ### Baselines
 
-Change checks compare the current hash against a stored baseline. By default the baseline updates after each successful run (`each_run`). Use `first_run` to freeze the baseline after the first evaluation:
+Change checks compare the current hash of the target against a stored baseline.
+The first time a step with a change check runs, there is no baseline yet, so
+the check reports no verdict and the run establishes the baseline. From the
+second run onward the comparison is meaningful.
+
+By default the baseline is re-recorded after each successful run (`each_run`),
+so the check answers "has this changed since the last time this step
+succeeded?". Use `first_run` to freeze the baseline at the value captured the
+first time, so the check answers "has this changed since we started watching
+it?":
 
 ```yaml
 steps:
@@ -229,10 +267,21 @@ steps:
           target: "vendor/bundle"
 ```
 
+### Sub-checks with no verdict
+
+A sub-check that cannot reach a verdict - a `change` check on a file that
+does not exist, for example - is neither a pass nor a failure.
+
+`all` still fails as soon as one sub-check definitely fails, but if none fail
+and any were undecided, the combinator reports no verdict. `any` still passes
+as soon as one sub-check passes, but if every branch was undecided it reports
+no verdict rather than a failure. In both cases Bivvy moves on to the next
+satisfaction signal instead of forcing the step to run.
+
 ## Forcing Re-run
 
-Bypass `check:` and `satisfied_when` evaluation for one or more steps.
-Preconditions are not bypassed by either flag.
+Bypass `check:`, `satisfied_when`, and rerun window evaluation for one or
+more steps. Preconditions are not bypassed by either flag.
 
 Force specific steps (comma-separated):
 
@@ -329,10 +378,15 @@ satisfied_when:
 Bivvy evaluates satisfaction in priority order (first match wins):
 
 1. **`satisfied_when`** -- if present and all conditions pass, the step is satisfied. If present and any condition fails, the step is **not** satisfied (no fallthrough to `check` or history).
-2. **`check`/`checks`** -- if the step's check passes, the step is satisfied.
+2. **`check`/`checks`** -- if the step's check passes, the step is satisfied. If it fails, the step is **not** satisfied (no fallthrough to history). A check that cannot reach a verdict does fall through. A `change` check reaches no verdict when it has no recorded baseline yet, when its target is missing or unreadable, when the target exceeds its `size_limit`, or when `on_change: require` is set.
 3. **Execution history** -- if the step ran successfully within its rerun window, the step is satisfied.
 
 If none of these apply, the step needs to run.
+
+This hierarchy is only consulted after the step's dependencies and its
+`precondition` have passed. A failing precondition blocks the step outright,
+so a passing `check` never turns a blocked step into a skipped one. See
+[Preconditions](steps.md#preconditions).
 
 ## Behavior Options
 
@@ -343,6 +397,6 @@ steps:
     check:
       type: presence
       target: "node_modules"
-    prompt_on_rerun: false     # Skip silently if satisfied (default: false)
+    prompt_on_rerun: false     # Skip silently after a recent run (default: false)
     skippable: true            # Allow skipping (default: true)
 ```

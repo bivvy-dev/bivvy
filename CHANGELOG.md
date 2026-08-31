@@ -38,6 +38,9 @@ Pre-release versions are < 2.0.0.
 - `--clear` flag added to `bivvy history` command to clear run history for a project
 
 ### Changed
+- A step whose `check`/`checks` fails is now unsatisfied outright instead of falling through to the rerun window. Previously a successful run inside the window could mark a step satisfied even though its own check had just reported work still to do. Checks that cannot reach a verdict still fall through to execution history
+- `change` checks with `on_change: proceed` had inverted polarity: a changed target skipped the step and an unchanged target ran it. An unchanged target now satisfies the step and a changed target runs it, matching the documented meaning of `proceed`
+- `change` checks with `on_change: require` now report no verdict instead of always passing, so they no longer silently skip the step they are attached to. `require_step` is still recorded in the check result but does not yet influence which steps run
 - `bivvy run <workflow>` now performs a two-phase load: phase 1 reads only `.bivvy/config.yml` to resolve the workflow name; phase 2 deep-merges with only the named workflow file in the chain. Sibling workflow files are not parsed, so a malformed neighbor cannot break a run of an unrelated workflow
 - `bivvy lint` now requires a target. Bare `bivvy lint` lints `.bivvy/config.yml` only. `bivvy lint <name>` resolves to `.bivvy/workflows/<name>.yml` first, then `.bivvy/steps/<name>.yml`. `--workflow <name>` and `--step <name>` are explicit disambiguators. `--all` opts into the legacy full-merge behavior
 - `bivvy list` now uses cheap discovery by default — workflow file bodies are not parsed, only headers (description + step ordering). Pass a positional workflow name to load that single file in detail, or `--all` to restore the legacy full-merge behavior
@@ -61,6 +64,12 @@ Pre-release versions are < 2.0.0.
 - Legacy code removed as part of system redesign
 
 ### Fixed
+- `change` check baselines are now recorded after a step runs successfully, so change detection works without capturing a snapshot by hand. Previously no baseline was ever written during a run, leaving every change check using the default baseline permanently without a verdict
+- A `change` check whose target is missing, unreadable, or larger than its `size_limit` now reports no verdict instead of a failure. A `checks:` list naming several possible filenames no longer forces the step to run every time because the alternatives are absent
+- An `any` check whose sub-checks all reach no verdict now reports no verdict instead of a failure, so it falls through to the rerun window rather than forcing a re-run
+- Bundled install templates for Docker, PostgreSQL, and Redis no longer use liveness probes as completion checks. They now test for the installed binary, so an installed-but-stopped service no longer re-runs the install step or fails the workflow
+- Bundled templates for yarn, pip, and Lerna no longer use completion checks that are removed, unrelated, or network-dependent
+- Unterminated quotes in the completion checks for the fnm and .NET restore templates made those checks fail with a shell syntax error on every run
 - Docker daemon connection-refused errors now produce actionable recovery suggestions instead of a generic menu
 - Bundler recovery bugs and version resolver
 - Process drop in zsh

@@ -14,7 +14,7 @@
 use std::collections::HashMap;
 
 use crate::checks::evaluator::CheckEvaluator;
-use crate::checks::{Check, CheckResult, SatisfactionCondition};
+use crate::checks::{Check, CheckOutcome, CheckResult, SatisfactionCondition};
 use crate::runner::RerunWindow;
 use crate::state::satisfaction::{
     PresenceKind as EvidencePresenceKind, SatisfactionEvidence, SatisfactionSource,
@@ -156,6 +156,12 @@ pub struct ComputedSatisfaction {
 /// 2. Step's check (presence, execution, change) passes
 /// 3. Within rerun window and last run succeeded
 ///
+/// Signals 1 and 2 are the step's own definition of "already done", so when either
+/// is present and definitely fails, the step is unsatisfied and evaluation stops
+/// there. Otherwise a stale successful run could overrule a check that just reported
+/// work still to do. A check that is `Indeterminate` has given no answer, so it falls
+/// through to signal 3, as does a step that declares neither signal.
+///
 /// Returns `ComputedSatisfaction` with the result and evidence.
 ///
 /// # Arguments
@@ -231,7 +237,18 @@ pub fn compute_satisfaction(
                 description: check_result.description.clone(),
             };
         }
-        // Check exists but failed — not satisfied, but we still check rerun window
+        // A definite failure is the step's own answer to "am I already done?", so it
+        // must not be overruled by execution history. An `Indeterminate` outcome is
+        // not an answer at all (a change check with no baseline, say), so that case
+        // still falls through.
+        if matches!(check_result.outcome, CheckOutcome::Failed) {
+            return ComputedSatisfaction {
+                satisfied: false,
+                source: check_to_source(&check),
+                evidence: SatisfactionEvidence::None,
+                description: format!("check failed: {}", check_result.description),
+            };
+        }
     }
 
     // 3. Within rerun window + last run succeeded
@@ -1010,6 +1027,130 @@ mod compute_satisfaction_tests {
         );
         assert!(result.satisfied);
         assert_eq!(result.source, SatisfactionSource::ExecutionHistory);
+    }
+
+    #[test]
+    fn failing_check_blocks_fallthrough_to_rerun_window() {
+        let dir = tempfile::TempDir::new().unwrap();
+        // "output" does NOT exist, so the check fails
+
+        let step = make_step(
+            vec![],
+            Some(Check::Presence {
+                name: None,
+                target: Some("output".to_string()),
+                kind: Some(crate::checks::PresenceKind::File),
+                command: None,
+            }),
+        );
+
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        // A recent successful run would satisfy the rerun window on its own
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::hours(1));
+        let window = RerunWindow::Duration(std::time::Duration::from_secs(4 * 3600));
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+
+        assert!(!result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::PresenceCheck);
+        assert!(
+            result.description.starts_with("check failed: "),
+            "expected a check-failure description, got {:?}",
+            result.description
+        );
+    }
+
+    #[test]
+    fn indeterminate_check_falls_through_to_rerun_window() {
+        let dir = tempfile::TempDir::new().unwrap();
+        std::fs::write(dir.path().join("Gemfile.lock"), "deps").unwrap();
+
+        // A change check with no stored baseline is Indeterminate rather than Failed:
+        // it has given no answer, so execution history still applies.
+        let step = make_step(
+            vec![],
+            Some(Check::Change {
+                name: None,
+                target: "Gemfile.lock".to_string(),
+                kind: crate::checks::ChangeKind::File,
+                on_change: crate::checks::OnChange::Proceed,
+                require_step: None,
+                baseline: crate::checks::BaselineConfig::EachRun,
+                baseline_snapshot: None,
+                baseline_git: None,
+                size_limit: crate::checks::SizeLimit::default(),
+                scope: crate::checks::SnapshotScope::Project,
+            }),
+        );
+
+        let snap_dir = tempfile::TempDir::new().unwrap();
+        let mut snapshots = crate::snapshots::SnapshotStore::new(snap_dir.path().to_path_buf());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator =
+            CheckEvaluator::new(dir.path(), &context, &mut snapshots).with_step("test_step");
+        let named = HashMap::new();
+
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::hours(1));
+        let window = RerunWindow::Duration(std::time::Duration::from_secs(4 * 3600));
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &window,
+            last_success,
+        );
+
+        assert!(
+            result.satisfied,
+            "an indeterminate check must not suppress execution history: {:?}",
+            result.description
+        );
+        assert_eq!(result.source, SatisfactionSource::ExecutionHistory);
+    }
+
+    #[test]
+    fn failing_check_blocks_fallthrough_with_forever_window() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let step = make_step(
+            vec![],
+            Some(Check::Execution {
+                name: None,
+                command: "exit 1".to_string(),
+                validation: Default::default(),
+            }),
+        );
+
+        let mut snapshots = crate::snapshots::SnapshotStore::new(std::env::temp_dir());
+        let context = crate::config::interpolation::InterpolationContext::new();
+        let mut evaluator = CheckEvaluator::new(dir.path(), &context, &mut snapshots);
+        let named = HashMap::new();
+
+        let last_success = Some(chrono::Utc::now() - chrono::Duration::days(365));
+
+        let result = compute_satisfaction(
+            &step,
+            &mut evaluator,
+            &named,
+            "test_step",
+            &RerunWindow::Forever,
+            last_success,
+        );
+
+        assert!(!result.satisfied);
+        assert_eq!(result.source, SatisfactionSource::ExecutionCheck);
     }
 
     #[test]

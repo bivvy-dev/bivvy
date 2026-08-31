@@ -860,6 +860,57 @@ mod tests {
     }
 
     #[test]
+    fn failing_check_overrides_recent_success_and_runs() {
+        let mut step = make_step("build", vec![]);
+        step.behavior.prompt_on_rerun = false;
+        step.execution.check = Some(crate::checks::Check::Execution {
+            name: None,
+            command: "exit 1".to_string(),
+            validation: Default::default(),
+        });
+        let mut steps = HashMap::new();
+        steps.insert("build".to_string(), step);
+
+        let temp = tempfile::TempDir::new().unwrap();
+        let mut snapshots = SnapshotStore::new(temp.path().to_path_buf());
+        let context = InterpolationContext::new();
+        let mut cache = SatisfactionCache::empty(temp.path().join("satisfaction.json"));
+        let failed = HashSet::new();
+        let skipped = HashSet::new();
+        let satisfied = HashSet::new();
+
+        let mut state = crate::state::StateStore::new(
+            &crate::state::ProjectId::from_path(temp.path()).unwrap(),
+        );
+        state.record_step_result(
+            "build",
+            crate::state::StepStatus::Success,
+            std::time::Duration::from_secs(1),
+        );
+
+        let mut ctx = make_context(
+            &steps,
+            &mut snapshots,
+            &context,
+            &mut cache,
+            &failed,
+            &skipped,
+            &satisfied,
+        );
+        ctx.state = Some(&state);
+
+        // Without the check the recent success would auto-skip this step, exactly as
+        // satisfied_via_history_without_prompt_on_rerun_auto_skips asserts.
+        let result = evaluate_step("build", &mut ctx);
+        assert_eq!(
+            result.decision,
+            StepDecision::AutoRun,
+            "a failing check must override execution history, got {:?}",
+            result.decision
+        );
+    }
+
+    #[test]
     fn satisfied_via_history_without_prompt_on_rerun_auto_skips() {
         let mut step = make_step("build", vec![]);
         step.behavior.prompt_on_rerun = false;

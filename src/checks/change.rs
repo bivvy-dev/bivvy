@@ -3,7 +3,7 @@
 //! Detects whether a specific target has changed from a known baseline
 //! by computing a SHA-256 hash and comparing it to a stored value.
 
-use super::{ChangeKind, CheckOutcome, CheckResult, OnChange, SizeLimit};
+use super::{ChangeKind, CheckResult, OnChange, SizeLimit};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
@@ -177,10 +177,26 @@ pub fn check_size_limit(path: &Path, size_limit: &SizeLimit) -> Option<(u64, u64
 /// This is the core logic that interprets the hash comparison result
 /// according to the `on_change` semantics.
 ///
-/// `require_step` is the step name to flag when `on_change` is `Require`
-/// and a change is detected. It's passed separately because the `OnChange`
-/// enum is a unit enum — the step name lives on the Change check's
-/// `require_step` field.
+/// A check answers "is this step's work already done?", so `Passed` means
+/// satisfied (the runner skips the step) and `Failed` means not satisfied
+/// (the runner runs it). The two `on_change` modes read that question
+/// differently:
+///
+/// - [`OnChange::Proceed`] treats the target as an input the step consumes,
+///   so an unchanged target means the work is current (`Passed`) and a changed
+///   target means it is stale (`Failed`).
+/// - [`OnChange::Fail`] treats the target as something the step keeps stable,
+///   so an unchanged target means the invariant holds (`Passed`) and a changed
+///   target is unexpected drift (`Failed`).
+/// - [`OnChange::Require`] reports on the step named by `require_step`, not on
+///   the step hosting the check, so it is always `Indeterminate`.
+///
+/// With no baseline the comparison never happens, so the outcome is
+/// `Indeterminate` and satisfaction falls through to execution history.
+///
+/// `require_step` is the step name reported when `on_change` is `Require`.
+/// It's passed separately because the `OnChange` enum is a unit enum - the
+/// step name lives on the Change check's `require_step` field.
 pub fn evaluate_change_result(
     target: &str,
     current_hash: &str,
@@ -188,55 +204,52 @@ pub fn evaluate_change_result(
     on_change: &OnChange,
     require_step: Option<&str>,
 ) -> CheckResult {
-    match baseline_hash {
-        None => {
-            // No baseline exists — indeterminate
-            CheckResult::indeterminate(
-                format!(
-                    "\u{25C7} No baseline for {} \u{2014} this run will establish it",
-                    target
+    let Some(baseline) = baseline_hash else {
+        return CheckResult::indeterminate(
+            format!(
+                "\u{25C7} No baseline for {} - this run will establish it",
+                target
+            ),
+            format!(
+                "No baseline exists for {}. This run will establish the baseline.",
+                target
+            ),
+        );
+    };
+
+    let changed = current_hash != baseline;
+    match (changed, on_change) {
+        (true, OnChange::Proceed) => CheckResult::failed(
+            format!("\u{25B3} {} changed - step will run", target),
+            format!("{} changed since the last baseline", target),
+        ),
+        (false, OnChange::Proceed) => CheckResult::passed(format!("\u{2713} {} unchanged", target)),
+        (true, OnChange::Fail) => CheckResult::failed(
+            format!("\u{2717} {} changed unexpectedly", target),
+            "File was expected to remain stable",
+        ),
+        (false, OnChange::Fail) => CheckResult::passed(format!("\u{2713} {} unchanged", target)),
+        (_, OnChange::Require) => {
+            let state = if changed { "changed" } else { "unchanged" };
+            match require_step {
+                Some(step_name) => CheckResult::indeterminate_with_details(
+                    format!(
+                        "\u{25C7} {} {} - {} is the required step",
+                        target, state, step_name
+                    ),
+                    format!(
+                        "on_change: require reports on '{}' and gives no verdict for this step",
+                        step_name
+                    ),
+                    format!("Change in {} is tracked for step {}", target, step_name),
                 ),
-                format!(
-                    "No baseline exists for {}. This run will establish the baseline.",
-                    target
+                None => CheckResult::indeterminate(
+                    format!("\u{25C7} {} {} - no require_step set", target, state),
+                    format!(
+                        "on_change: require needs a require_step to name; {} gives no verdict for this step",
+                        target
+                    ),
                 ),
-            )
-        }
-        Some(baseline) => {
-            let changed = current_hash != baseline;
-            match (changed, on_change) {
-                (true, OnChange::Proceed) => CheckResult::passed(format!(
-                    "\u{25B3} {} changed \u{2014} step will run",
-                    target
-                )),
-                (false, OnChange::Proceed) => CheckResult::failed(
-                    format!("\u{2713} {} unchanged", target),
-                    "No changes detected since last run",
-                ),
-                (true, OnChange::Fail) => CheckResult::failed(
-                    format!("\u{2717} {} changed unexpectedly", target),
-                    "File was expected to remain stable",
-                ),
-                (false, OnChange::Fail) => {
-                    CheckResult::passed(format!("\u{2713} {} unchanged", target))
-                }
-                (true, OnChange::Require) => {
-                    let step_name = require_step.unwrap_or("<missing require_step>");
-                    CheckResult {
-                        outcome: CheckOutcome::Passed,
-                        description: format!(
-                            "\u{25B3} {} changed \u{2014} {} is now required",
-                            target, step_name
-                        ),
-                        details: Some(format!(
-                            "Step {} must run due to change in {}",
-                            step_name, target
-                        )),
-                    }
-                }
-                (false, OnChange::Require) => {
-                    CheckResult::passed(format!("\u{2713} {} unchanged", target))
-                }
             }
         }
     }
@@ -272,6 +285,7 @@ pub fn compute_target_hash(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::checks::CheckOutcome;
     use std::fs;
     use tempfile::TempDir;
 
@@ -430,7 +444,7 @@ mod tests {
     // --- Change result evaluation tests ---
 
     #[test]
-    fn proceed_passes_when_changed() {
+    fn proceed_fails_when_changed() {
         let result = evaluate_change_result(
             "Gemfile.lock",
             "hash_new",
@@ -438,12 +452,12 @@ mod tests {
             &OnChange::Proceed,
             None,
         );
-        assert!(result.passed_check());
+        assert!(!result.passed_check());
         assert!(result.description.contains("changed"));
     }
 
     #[test]
-    fn proceed_fails_when_unchanged() {
+    fn proceed_passes_when_unchanged() {
         let result = evaluate_change_result(
             "Gemfile.lock",
             "hash_same",
@@ -451,7 +465,7 @@ mod tests {
             &OnChange::Proceed,
             None,
         );
-        assert!(!result.passed_check());
+        assert!(result.passed_check());
         assert!(result.description.contains("unchanged"));
     }
 
@@ -481,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn require_passes_when_changed() {
+    fn require_is_indeterminate_when_changed() {
         let result = evaluate_change_result(
             "Gemfile.lock",
             "hash_new",
@@ -489,13 +503,12 @@ mod tests {
             &OnChange::Require,
             Some("bundle_install"),
         );
-        assert!(result.passed_check());
+        assert!(matches!(result.outcome, CheckOutcome::Indeterminate(_)));
         assert!(result.description.contains("bundle_install"));
-        assert!(result.description.contains("required"));
     }
 
     #[test]
-    fn require_passes_when_unchanged() {
+    fn require_is_indeterminate_when_unchanged() {
         let result = evaluate_change_result(
             "Gemfile.lock",
             "hash_same",
@@ -503,7 +516,7 @@ mod tests {
             &OnChange::Require,
             Some("bundle_install"),
         );
-        assert!(result.passed_check());
+        assert!(matches!(result.outcome, CheckOutcome::Indeterminate(_)));
     }
 
     #[test]

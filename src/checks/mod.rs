@@ -189,6 +189,46 @@ impl Check {
         let hash = Sha256::digest(yaml.as_bytes());
         hex::encode(hash)[..8].to_string()
     }
+
+    /// Collect every [`Check::Change`] leaf in this check tree, in declaration order.
+    ///
+    /// Combinators are walked recursively; non-change leaves are ignored. Each
+    /// returned leaf owns the `config_hash` that keys its baseline, so callers
+    /// that read and write baselines agree on the key.
+    ///
+    /// ```
+    /// use bivvy::checks::Check;
+    ///
+    /// let check: Check = serde_yaml::from_str(r#"
+    ///     type: all
+    ///     checks:
+    ///       - type: presence
+    ///         target: node_modules
+    ///       - type: change
+    ///         target: package-lock.json
+    /// "#).unwrap();
+    ///
+    /// let leaves = check.change_checks();
+    /// assert_eq!(leaves.len(), 1);
+    /// assert_eq!(leaves[0].type_name(), "change");
+    /// ```
+    pub fn change_checks(&self) -> Vec<&Check> {
+        let mut out = Vec::new();
+        self.collect_change_checks(&mut out);
+        out
+    }
+
+    fn collect_change_checks<'c>(&'c self, out: &mut Vec<&'c Check>) {
+        match self {
+            Check::Change { .. } => out.push(self),
+            Check::All { checks, .. } | Check::Any { checks, .. } => {
+                for check in checks {
+                    check.collect_change_checks(out);
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Subtype for presence checks.
@@ -231,27 +271,35 @@ pub enum ChangeKind {
 
 /// What a detected change means for a change check.
 ///
+/// A check answers "is this step's work already done?", so [`CheckOutcome::Passed`]
+/// means satisfied (skip) and [`CheckOutcome::Failed`] means not satisfied (run).
+///
 /// In YAML:
 /// ```yaml
-/// on_change: proceed       # step should run when target changed
-/// on_change: fail          # check fails when target changed
-/// on_change: require       # flags require_step as needed when target changed
+/// on_change: proceed       # step's work is stale when the target changed
+/// on_change: fail          # target is expected to stay stable
+/// on_change: require       # informational: names another step in require_step
 /// ```
-///
-/// When `on_change: require`, the `require_step` field on the Change check
-/// specifies which step to flag. The check itself always passes.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum OnChange {
-    /// Change detected = check passes (step should run).
-    /// No change = check fails (step has no reason to run).
+    /// The step consumes the target, so a change means its work is out of date.
+    ///
+    /// Change detected = check fails (the step must run).
+    /// No change = check passes (the step's work is still current).
     #[default]
     Proceed,
-    /// Change detected = check fails (something unstable changed).
+    /// The step keeps the target stable, so a change is unexpected drift.
+    ///
+    /// Change detected = check fails (drift).
     /// No change = check passes (stability maintained).
     Fail,
-    /// Change detected = the step named in `require_step` is flagged as required.
-    /// The check itself always passes regardless of change.
+    /// The change is reported against the step named in `require_step`.
+    ///
+    /// This makes a statement about a different step, so it contributes no
+    /// evidence about the step that hosts it. The outcome is always
+    /// [`CheckOutcome::Indeterminate`] and satisfaction falls through to
+    /// execution history.
     Require,
 }
 
@@ -271,7 +319,7 @@ pub enum BaselineConfig {
     /// Baseline updated after each successful run (default).
     #[default]
     EachRun,
-    /// Baseline established on first evaluation, never updated.
+    /// Baseline established after the first successful run, never updated.
     FirstRun,
 }
 
@@ -384,6 +432,23 @@ impl CheckResult {
             outcome: CheckOutcome::Indeterminate(reason.into()),
             description: description.into(),
             details: None,
+        }
+    }
+
+    /// Create an indeterminate result that carries actionable details.
+    ///
+    /// Use this when the check declined to produce a verdict but still has
+    /// something the user can act on, such as the underlying IO error or a
+    /// remediation hint.
+    pub fn indeterminate_with_details(
+        description: impl Into<String>,
+        reason: impl Into<String>,
+        details: impl Into<String>,
+    ) -> Self {
+        Self {
+            outcome: CheckOutcome::Indeterminate(reason.into()),
+            description: description.into(),
+            details: Some(details.into()),
         }
     }
 

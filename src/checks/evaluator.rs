@@ -6,7 +6,7 @@
 //! The evaluator has access to:
 //! - `project_root` — for resolving relative paths
 //! - `interpolation` — for variable resolution in commands
-//! - `snapshots` — for change check baseline reads (read-only during evaluation)
+//! - `snapshots` — for change check baseline reads during evaluation and baseline writes after execution
 //!
 //! It does NOT access the state store, UI, or gap checker.
 
@@ -14,7 +14,7 @@ use super::change::{compute_target_hash, evaluate_change_result, HashResult};
 use super::execution::evaluate_execution;
 use super::presence::evaluate_presence;
 use super::{BaselineConfig, Check, CheckOutcome, CheckResult};
-use crate::config::interpolation::{has_interpolation, resolve_string, InterpolationContext};
+use crate::config::interpolation::{interpolate_if_needed, InterpolationContext};
 use crate::snapshots::{SnapshotKey, SnapshotStore};
 use std::path::Path;
 
@@ -53,8 +53,6 @@ pub struct CheckEvaluator<'a> {
     snapshots: &'a mut SnapshotStore,
     /// Step name for snapshot key construction. Set via [`with_step`](Self::with_step).
     step_name: Option<String>,
-    /// Config hash for snapshot key construction. Set via [`with_step`](Self::with_step).
-    config_hash: Option<String>,
     /// Workflow name for workflow-scoped snapshot keys. Set via [`with_workflow`](Self::with_workflow).
     workflow_name: Option<String>,
 }
@@ -71,7 +69,6 @@ impl<'a> CheckEvaluator<'a> {
             interpolation,
             snapshots,
             step_name: None,
-            config_hash: None,
             workflow_name: None,
         }
     }
@@ -79,14 +76,13 @@ impl<'a> CheckEvaluator<'a> {
     /// Set the step context for change check baseline lookups.
     ///
     /// Must be called before evaluating change checks that need snapshot
-    /// store access. Without this, change checks will return an error.
-    pub fn with_step(
-        mut self,
-        step_name: impl Into<String>,
-        config_hash: impl Into<String>,
-    ) -> Self {
+    /// store access. Without it, change checks are indeterminate because no
+    /// baseline key can be constructed.
+    ///
+    /// The rest of the key comes from each change leaf's own
+    /// [`Check::config_hash`], so the step name is the only context required.
+    pub fn with_step(mut self, step_name: impl Into<String>) -> Self {
         self.step_name = Some(step_name.into());
-        self.config_hash = Some(config_hash.into());
         self
     }
 
@@ -139,16 +135,92 @@ impl<'a> CheckEvaluator<'a> {
         self.evaluate_all(checks)
     }
 
-    /// Interpolate a string if it contains variable references.
-    fn interpolate(&self, input: &str) -> String {
-        if has_interpolation(input) {
-            resolve_string(input, self.interpolation).unwrap_or_else(|_| input.to_string())
-        } else {
-            input.to_string()
+    /// Record change-check baselines for a step after successful execution.
+    ///
+    /// Walks the check tree and records the current target hash for all
+    /// `Change` leaves that use automatic baselines (`_last_run` or
+    /// `_first_run`). Skips named snapshots and git baselines.
+    ///
+    /// For `baseline: first_run`, the baseline is recorded only once — when no
+    /// prior baseline exists for that key.
+    ///
+    /// Call this after a step has run and its result is [`StepStatus::Completed`].
+    pub fn record_run_baselines(&mut self, check: &Check) {
+        self.record_baselines_recursive(check);
+    }
+
+    fn record_baselines_recursive(&mut self, check: &Check) {
+        match check {
+            Check::Change {
+                target,
+                kind,
+                baseline,
+                baseline_snapshot,
+                baseline_git,
+                size_limit,
+                scope,
+                ..
+            } => {
+                if baseline_snapshot.is_some() || baseline_git.is_some() {
+                    return;
+                }
+
+                let resolved_target = if *kind == super::ChangeKind::Command {
+                    self.interpolate(target)
+                } else {
+                    target.to_string()
+                };
+
+                let hash = match super::change::compute_target_hash(
+                    &resolved_target,
+                    *kind,
+                    self.project_root,
+                    size_limit,
+                ) {
+                    super::change::HashResult::Ok(h) => h,
+                    _ => return,
+                };
+
+                let config_hash = check.config_hash();
+                let baseline_name = self.resolve_baseline_name(baseline, None);
+
+                let Some(key) = self.make_snapshot_key(scope, &config_hash) else {
+                    return;
+                };
+
+                if *baseline == super::BaselineConfig::FirstRun
+                    && self.snapshots.get_baseline(&key, &baseline_name).is_some()
+                {
+                    return;
+                }
+
+                self.snapshots
+                    .record_baseline(&key, &baseline_name, hash, resolved_target);
+            }
+            Check::All { checks, .. } | Check::Any { checks, .. } => {
+                for c in checks {
+                    self.record_baselines_recursive(c);
+                }
+            }
+            _ => {}
         }
     }
 
+    /// Interpolate a string if it contains variable references.
+    fn interpolate(&self, input: &str) -> String {
+        interpolate_if_needed(input, self.interpolation)
+    }
+
     /// Evaluate a change check. Expects `check` to be `Check::Change`.
+    ///
+    /// When the target cannot be hashed - it does not exist, hashing errored,
+    /// or it exceeds `size_limit` - the check has no evidence either way and
+    /// returns [`CheckOutcome::Indeterminate`] rather than a failure. A missing
+    /// target is not drift.
+    ///
+    /// The baseline is keyed by this leaf's own [`Check::config_hash`], so
+    /// sibling change checks in the same step keep independent baselines and
+    /// agree with the keys written by `bivvy snapshot capture`.
     fn evaluate_change(&mut self, check: &Check) -> CheckResult {
         let Check::Change {
             target,
@@ -180,19 +252,34 @@ impl<'a> CheckEvaluator<'a> {
                 HashResult::SizeLimitExceeded { actual, limit } => {
                     let actual_mb = actual as f64 / (1024.0 * 1024.0);
                     let limit_mb = limit as f64 / (1024.0 * 1024.0);
-                    return CheckResult::failed(
+                    return CheckResult::indeterminate_with_details(
                         format!(
                             "Change target '{}' exceeds size limit ({:.1} MB > {:.1} MB)",
                             target, actual_mb, limit_mb
+                        ),
+                        format!(
+                            "{} could not be hashed, so no change verdict is available",
+                            target
                         ),
                         "Narrow the target or increase size_limit",
                     );
                 }
                 HashResult::NotFound(msg) => {
-                    return CheckResult::failed(format!("{} not found", target), msg);
+                    return CheckResult::indeterminate_with_details(
+                        format!("{} not found", target),
+                        format!("{} does not exist, so there is nothing to compare", target),
+                        msg,
+                    );
                 }
                 HashResult::Error(msg) => {
-                    return CheckResult::failed(format!("Error hashing {}", target), msg);
+                    return CheckResult::indeterminate_with_details(
+                        format!("Error hashing {}", target),
+                        format!(
+                            "{} could not be hashed, so no change verdict is available",
+                            target
+                        ),
+                        msg,
+                    );
                 }
             };
 
@@ -201,7 +288,7 @@ impl<'a> CheckEvaluator<'a> {
         let baseline_hash = if let Some(git_ref) = baseline_git {
             self.get_git_baseline(target, git_ref)
         } else {
-            self.get_snapshot_baseline(&baseline_name, scope)
+            self.get_snapshot_baseline(&baseline_name, scope, &check.config_hash())
         };
 
         evaluate_change_result(
@@ -234,8 +321,9 @@ impl<'a> CheckEvaluator<'a> {
         &mut self,
         baseline_name: &str,
         scope: &super::SnapshotScope,
+        config_hash: &str,
     ) -> Option<String> {
-        let key = self.make_snapshot_key(scope)?;
+        let key = self.make_snapshot_key(scope, config_hash)?;
         self.snapshots.get_baseline(&key, baseline_name)
     }
 
@@ -260,9 +348,14 @@ impl<'a> CheckEvaluator<'a> {
     }
 
     /// Construct a snapshot key from the current step context.
-    fn make_snapshot_key(&self, scope: &super::SnapshotScope) -> Option<SnapshotKey> {
+    ///
+    /// `config_hash` is the change leaf's own [`Check::config_hash`].
+    fn make_snapshot_key(
+        &self,
+        scope: &super::SnapshotScope,
+        config_hash: &str,
+    ) -> Option<SnapshotKey> {
         let step_name = self.step_name.as_ref()?;
-        let config_hash = self.config_hash.as_deref().unwrap_or("default");
 
         Some(match scope {
             super::SnapshotScope::Project => SnapshotKey::project(step_name.clone(), config_hash),
@@ -325,7 +418,11 @@ impl<'a> CheckEvaluator<'a> {
     /// Evaluate an `Any` combinator.
     ///
     /// At least one check must pass. Short-circuits on first pass.
-    /// If all checks fail (or are indeterminate), the result is failed.
+    ///
+    /// Disjunction precedence is `Passed > Indeterminate > Failed`: the result
+    /// is only `Failed` when every branch actually failed. If nothing passed but
+    /// at least one branch was indeterminate, the combinator is indeterminate,
+    /// because a branch that gave no answer could have been the one that passed.
     fn evaluate_any(&mut self, checks: &[Check]) -> CheckResult {
         if checks.is_empty() {
             return CheckResult::failed(
@@ -336,21 +433,34 @@ impl<'a> CheckEvaluator<'a> {
 
         let mut descriptions = Vec::new();
         let mut last_details = None;
+        let mut indeterminate_reason: Option<String> = None;
 
         for check in checks {
             let result = self.evaluate(check);
             descriptions.push(result.description.clone());
 
-            if result.passed_check() {
-                return CheckResult::passed(format!("Any: {} passed", result.description));
+            match &result.outcome {
+                CheckOutcome::Passed => {
+                    return CheckResult::passed(format!("Any: {} passed", result.description));
+                }
+                CheckOutcome::Indeterminate(reason) => {
+                    indeterminate_reason = Some(reason.clone());
+                }
+                CheckOutcome::Failed => {}
             }
             last_details = result.details;
         }
 
-        CheckResult {
-            outcome: CheckOutcome::Failed,
-            description: format!("Any: none passed ({})", descriptions.join(", ")),
-            details: last_details,
+        match indeterminate_reason {
+            Some(reason) => CheckResult::indeterminate(
+                format!("Any: indeterminate ({})", descriptions.join(", ")),
+                reason,
+            ),
+            None => CheckResult {
+                outcome: CheckOutcome::Failed,
+                description: format!("Any: none passed ({})", descriptions.join(", ")),
+                details: last_details,
+            },
         }
     }
 }
@@ -603,8 +713,8 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("bundle_install", "cfg123");
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("bundle_install");
 
         let check = Check::Change {
             name: None,
@@ -625,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluator_change_with_matching_baseline_proceed_fails() {
+    fn evaluator_change_with_matching_baseline_proceed_passes() {
         let temp = TempDir::new().unwrap();
         let snap_dir = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile.lock"), "gem contents").unwrap();
@@ -633,26 +743,6 @@ mod tests {
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
 
-        // First compute and store the baseline
-        let current_hash = {
-            let hash_result = compute_target_hash(
-                "Gemfile.lock",
-                ChangeKind::File,
-                temp.path(),
-                &SizeLimit::default(),
-            );
-            match hash_result {
-                HashResult::Ok(h) => h,
-                _ => panic!("Expected hash"),
-            }
-        };
-
-        let key = SnapshotKey::project("bundle_install", "cfg123");
-        store.record_baseline(&key, "_last_run", current_hash, "Gemfile.lock".to_string());
-
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("bundle_install", "cfg123");
-
         let check = Check::Change {
             name: None,
             target: "Gemfile.lock".to_string(),
@@ -666,14 +756,30 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
-        // File hasn't changed → on_change: proceed → fails (no reason to run)
+        let current_hash = match compute_target_hash(
+            "Gemfile.lock",
+            ChangeKind::File,
+            temp.path(),
+            &SizeLimit::default(),
+        ) {
+            HashResult::Ok(h) => h,
+            _ => panic!("Expected hash"),
+        };
+
+        let key = SnapshotKey::project("bundle_install", check.config_hash());
+        store.record_baseline(&key, "_last_run", current_hash, "Gemfile.lock".to_string());
+
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("bundle_install");
+
+        // File unchanged since baseline - proceed means "skip when nothing to do"
         let result = eval.evaluate(&check);
-        assert!(!result.passed_check());
+        assert!(result.passed_check());
         assert!(result.description.contains("unchanged"));
     }
 
     #[test]
-    fn evaluator_change_with_different_baseline_proceed_passes() {
+    fn evaluator_change_with_different_baseline_proceed_fails() {
         let temp = TempDir::new().unwrap();
         let snap_dir = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile.lock"), "new contents").unwrap();
@@ -681,18 +787,6 @@ mod tests {
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
 
-        // Store a different baseline hash
-        let key = SnapshotKey::project("bundle_install", "cfg123");
-        store.record_baseline(
-            &key,
-            "_last_run",
-            "sha256:old_hash_value".to_string(),
-            "Gemfile.lock".to_string(),
-        );
-
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("bundle_install", "cfg123");
-
         let check = Check::Change {
             name: None,
             target: "Gemfile.lock".to_string(),
@@ -706,9 +800,20 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
-        // File changed → on_change: proceed → passes (step should run)
+        let key = SnapshotKey::project("bundle_install", check.config_hash());
+        store.record_baseline(
+            &key,
+            "_last_run",
+            "sha256:old_hash_value".to_string(),
+            "Gemfile.lock".to_string(),
+        );
+
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("bundle_install");
+
+        // File changed since baseline - proceed means "run when something changed"
         let result = eval.evaluate(&check);
-        assert!(result.passed_check());
+        assert!(!result.passed_check());
         assert!(result.description.contains("changed"));
     }
 
@@ -720,23 +825,6 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-
-        // Store matching baseline
-        let current_hash = match compute_target_hash(
-            ".env.example",
-            ChangeKind::File,
-            temp.path(),
-            &SizeLimit::default(),
-        ) {
-            HashResult::Ok(h) => h,
-            _ => panic!("Expected hash"),
-        };
-
-        let key = SnapshotKey::project("validate_env", "cfg456");
-        store.record_baseline(&key, "_last_run", current_hash, ".env.example".to_string());
-
-        let mut eval =
-            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("validate_env", "cfg456");
 
         let check = Check::Change {
             name: None,
@@ -750,6 +838,21 @@ mod tests {
             size_limit: SizeLimit::default(),
             scope: SnapshotScope::Project,
         };
+
+        let current_hash = match compute_target_hash(
+            ".env.example",
+            ChangeKind::File,
+            temp.path(),
+            &SizeLimit::default(),
+        ) {
+            HashResult::Ok(h) => h,
+            _ => panic!("Expected hash"),
+        };
+
+        let key = SnapshotKey::project("validate_env", check.config_hash());
+        store.record_baseline(&key, "_last_run", current_hash, ".env.example".to_string());
+
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("validate_env");
 
         let result = eval.evaluate(&check);
         assert!(result.passed_check());
@@ -764,17 +867,6 @@ mod tests {
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
 
-        let key = SnapshotKey::project("validate_env", "cfg456");
-        store.record_baseline(
-            &key,
-            "_last_run",
-            "sha256:old_hash".to_string(),
-            ".env.example".to_string(),
-        );
-
-        let mut eval =
-            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("validate_env", "cfg456");
-
         let check = Check::Change {
             name: None,
             target: ".env.example".to_string(),
@@ -788,30 +880,29 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
+        let key = SnapshotKey::project("validate_env", check.config_hash());
+        store.record_baseline(
+            &key,
+            "_last_run",
+            "sha256:old_hash".to_string(),
+            ".env.example".to_string(),
+        );
+
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("validate_env");
+
         let result = eval.evaluate(&check);
         assert!(!result.passed_check());
         assert!(result.description.contains("changed unexpectedly"));
     }
 
     #[test]
-    fn evaluator_change_on_change_require_flags_step() {
+    fn evaluator_change_on_change_require_is_indeterminate() {
         let temp = TempDir::new().unwrap();
         let snap_dir = TempDir::new().unwrap();
         fs::write(temp.path().join("Gemfile.lock"), "new gem contents").unwrap();
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-
-        let key = SnapshotKey::project("check_gemfile", "cfg789");
-        store.record_baseline(
-            &key,
-            "_last_run",
-            "sha256:old_hash".to_string(),
-            "Gemfile.lock".to_string(),
-        );
-
-        let mut eval =
-            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("check_gemfile", "cfg789");
 
         let check = Check::Change {
             name: None,
@@ -826,10 +917,20 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
+        let key = SnapshotKey::project("check_gemfile", check.config_hash());
+        store.record_baseline(
+            &key,
+            "_last_run",
+            "sha256:old_hash".to_string(),
+            "Gemfile.lock".to_string(),
+        );
+
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("check_gemfile");
+
         let result = eval.evaluate(&check);
-        assert!(result.passed_check());
+        assert!(matches!(result.outcome, CheckOutcome::Indeterminate(_)));
         assert!(result.description.contains("bundle_install"));
-        assert!(result.description.contains("required"));
     }
 
     #[test]
@@ -839,7 +940,7 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step", "cfg");
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step");
 
         let check = Check::Change {
             name: None,
@@ -857,6 +958,10 @@ mod tests {
         let result = eval.evaluate(&check);
         assert!(!result.passed_check());
         assert!(result.description.contains("not found"));
+        assert!(
+            matches!(result.outcome, CheckOutcome::Indeterminate(_)),
+            "missing target must be Indeterminate, not Failed"
+        );
     }
 
     #[test]
@@ -867,7 +972,7 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step", "cfg");
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step");
 
         let check = Check::Change {
             name: None,
@@ -885,6 +990,10 @@ mod tests {
         let result = eval.evaluate(&check);
         assert!(!result.passed_check());
         assert!(result.description.contains("exceeds size limit"));
+        assert!(
+            matches!(result.outcome, CheckOutcome::Indeterminate(_)),
+            "size limit exceeded must be Indeterminate, not Failed"
+        );
     }
 
     #[test]
@@ -895,18 +1004,6 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-
-        // Store a named snapshot baseline
-        let key = SnapshotKey::project("bundle_install", "cfg123");
-        store.capture_named(
-            &key,
-            "v1.0",
-            "sha256:old_release_hash".to_string(),
-            "Gemfile.lock".to_string(),
-        );
-
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("bundle_install", "cfg123");
 
         let check = Check::Change {
             name: None,
@@ -921,9 +1018,20 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
-        // File differs from named snapshot → on_change: proceed → passes
+        let key = SnapshotKey::project("bundle_install", check.config_hash());
+        store.capture_named(
+            &key,
+            "v1.0",
+            "sha256:old_release_hash".to_string(),
+            "Gemfile.lock".to_string(),
+        );
+
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("bundle_install");
+
+        // File differs from named snapshot - proceed means not satisfied (step must run)
         let result = eval.evaluate(&check);
-        assert!(result.passed_check());
+        assert!(!result.passed_check());
     }
 
     #[test]
@@ -1241,6 +1349,132 @@ mod tests {
         assert!(!result.passed_check());
     }
 
+    #[test]
+    fn evaluator_any_indeterminate_when_all_indeterminate() {
+        let temp = TempDir::new().unwrap();
+        let snap_dir = TempDir::new().unwrap();
+        let ctx = make_context();
+        let mut store = make_store(snap_dir.path());
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step");
+
+        let check = Check::Any {
+            name: None,
+            checks: vec![
+                Check::Change {
+                    name: None,
+                    target: "nonexistent1.lock".to_string(),
+                    kind: ChangeKind::File,
+                    on_change: OnChange::Proceed,
+                    require_step: None,
+                    baseline: BaselineConfig::EachRun,
+                    baseline_snapshot: None,
+                    baseline_git: None,
+                    size_limit: SizeLimit::default(),
+                    scope: SnapshotScope::Project,
+                },
+                Check::Change {
+                    name: None,
+                    target: "nonexistent2.lock".to_string(),
+                    kind: ChangeKind::File,
+                    on_change: OnChange::Proceed,
+                    require_step: None,
+                    baseline: BaselineConfig::EachRun,
+                    baseline_snapshot: None,
+                    baseline_git: None,
+                    size_limit: SizeLimit::default(),
+                    scope: SnapshotScope::Project,
+                },
+            ],
+        };
+
+        let result = eval.evaluate(&check);
+        assert!(!result.passed_check());
+        assert!(
+            matches!(result.outcome, CheckOutcome::Indeterminate(_)),
+            "all-Indeterminate Any must be Indeterminate, not Failed"
+        );
+    }
+
+    #[test]
+    fn evaluator_any_indeterminate_beats_failed() {
+        let temp = TempDir::new().unwrap();
+        let snap_dir = TempDir::new().unwrap();
+        let ctx = make_context();
+        let mut store = make_store(snap_dir.path());
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step");
+
+        let check = Check::Any {
+            name: None,
+            checks: vec![
+                Check::Presence {
+                    name: None,
+                    target: Some("missing.txt".to_string()),
+                    kind: Some(PresenceKind::File),
+                    command: None,
+                },
+                Check::Change {
+                    name: None,
+                    target: "nonexistent.lock".to_string(),
+                    kind: ChangeKind::File,
+                    on_change: OnChange::Proceed,
+                    require_step: None,
+                    baseline: BaselineConfig::EachRun,
+                    baseline_snapshot: None,
+                    baseline_git: None,
+                    size_limit: SizeLimit::default(),
+                    scope: SnapshotScope::Project,
+                },
+            ],
+        };
+
+        let result = eval.evaluate(&check);
+        assert!(!result.passed_check());
+        assert!(
+            matches!(result.outcome, CheckOutcome::Indeterminate(_)),
+            "[Failed, Indeterminate] Any must be Indeterminate, not Failed"
+        );
+    }
+
+    #[test]
+    fn evaluator_any_indeterminate_beats_failed_reversed_order() {
+        let temp = TempDir::new().unwrap();
+        let snap_dir = TempDir::new().unwrap();
+        let ctx = make_context();
+        let mut store = make_store(snap_dir.path());
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step");
+
+        let check = Check::Any {
+            name: None,
+            checks: vec![
+                Check::Change {
+                    name: None,
+                    target: "nonexistent.lock".to_string(),
+                    kind: ChangeKind::File,
+                    on_change: OnChange::Proceed,
+                    require_step: None,
+                    baseline: BaselineConfig::EachRun,
+                    baseline_snapshot: None,
+                    baseline_git: None,
+                    size_limit: SizeLimit::default(),
+                    scope: SnapshotScope::Project,
+                },
+                Check::Presence {
+                    name: None,
+                    target: Some("missing.txt".to_string()),
+                    kind: Some(PresenceKind::File),
+                    command: None,
+                },
+            ],
+        };
+
+        let result = eval.evaluate(&check);
+        assert!(!result.passed_check());
+        assert!(
+            matches!(result.outcome, CheckOutcome::Indeterminate(_)),
+            "[Indeterminate, Failed] Any must be Indeterminate, not Failed"
+        );
+    }
+
     // --- evaluate_all_checks helper ---
 
     #[test]
@@ -1282,17 +1516,6 @@ mod tests {
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
 
-        let key = SnapshotKey::project("db_migrate", "cfgglob");
-        store.record_baseline(
-            &key,
-            "_last_run",
-            "sha256:old_glob_hash".to_string(),
-            "*.rb".to_string(),
-        );
-
-        let mut eval =
-            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("db_migrate", "cfgglob");
-
         let check = Check::Change {
             name: None,
             target: "*.rb".to_string(),
@@ -1306,9 +1529,19 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
-        // Current glob hash will differ from stored → passes
+        let key = SnapshotKey::project("db_migrate", check.config_hash());
+        store.record_baseline(
+            &key,
+            "_last_run",
+            "sha256:old_glob_hash".to_string(),
+            "*.rb".to_string(),
+        );
+
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("db_migrate");
+
+        // Current glob hash differs from stored - proceed means not satisfied
         let result = eval.evaluate(&check);
-        assert!(result.passed_check());
+        assert!(!result.passed_check());
     }
 
     // --- Change check with command through evaluator ---
@@ -1320,17 +1553,6 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-
-        let key = SnapshotKey::project("check_version", "cfgcmd");
-        store.record_baseline(
-            &key,
-            "_last_run",
-            "sha256:old_output_hash".to_string(),
-            "echo hello".to_string(),
-        );
-
-        let mut eval =
-            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("check_version", "cfgcmd");
 
         let check = Check::Change {
             name: None,
@@ -1345,8 +1567,19 @@ mod tests {
             scope: SnapshotScope::Project,
         };
 
-        // Note: baseline is FirstRun but we stored as "_last_run"
-        // FirstRun → looks for "_first_run" baseline → won't find it → indeterminate
+        // Store under _last_run but baseline: first_run looks for _first_run - no match
+        let key = SnapshotKey::project("check_version", check.config_hash());
+        store.record_baseline(
+            &key,
+            "_last_run",
+            "sha256:old_output_hash".to_string(),
+            "echo hello".to_string(),
+        );
+
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("check_version");
+
+        // FirstRun looks for "_first_run" baseline, only "_last_run" exists - indeterminate
         let result = eval.evaluate(&check);
         assert!(matches!(result.outcome, CheckOutcome::Indeterminate(_)));
     }
@@ -1370,12 +1603,6 @@ mod tests {
             format!("sha256:{}", hex::encode(Sha256::digest(&output.stdout)))
         };
 
-        let key = SnapshotKey::project("check_version", "cfgcmd2");
-        store.record_baseline(&key, "_first_run", actual_hash, "echo stable".to_string());
-
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("check_version", "cfgcmd2");
-
         let check = Check::Change {
             name: None,
             target: "echo stable".to_string(),
@@ -1388,6 +1615,12 @@ mod tests {
             size_limit: SizeLimit::default(),
             scope: SnapshotScope::Project,
         };
+
+        let key = SnapshotKey::project("check_version", check.config_hash());
+        store.record_baseline(&key, "_first_run", actual_hash, "echo stable".to_string());
+
+        let mut eval =
+            CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("check_version");
 
         // Output hasn't changed from first run → on_change: fail → passes
         let result = eval.evaluate(&check);
@@ -1461,28 +1694,6 @@ mod tests {
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
 
-        // Store baseline under workflow-scoped key
-        let wf_key = SnapshotKey::workflow("bundle_install", "ci", "cfg123");
-        let current_hash = match compute_target_hash(
-            "Gemfile.lock",
-            ChangeKind::File,
-            temp.path(),
-            &SizeLimit::default(),
-        ) {
-            HashResult::Ok(h) => h,
-            _ => panic!("Expected hash"),
-        };
-        store.record_baseline(
-            &wf_key,
-            "_last_run",
-            current_hash,
-            "Gemfile.lock".to_string(),
-        );
-
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("bundle_install", "cfg123")
-            .with_workflow("ci");
-
         let check = Check::Change {
             name: None,
             target: "Gemfile.lock".to_string(),
@@ -1496,9 +1707,31 @@ mod tests {
             scope: SnapshotScope::Workflow,
         };
 
-        // File unchanged → on_change: proceed → fails (no reason to run)
+        let current_hash = match compute_target_hash(
+            "Gemfile.lock",
+            ChangeKind::File,
+            temp.path(),
+            &SizeLimit::default(),
+        ) {
+            HashResult::Ok(h) => h,
+            _ => panic!("Expected hash"),
+        };
+
+        let wf_key = SnapshotKey::workflow("bundle_install", "ci", check.config_hash());
+        store.record_baseline(
+            &wf_key,
+            "_last_run",
+            current_hash,
+            "Gemfile.lock".to_string(),
+        );
+
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
+            .with_step("bundle_install")
+            .with_workflow("ci");
+
+        // File unchanged since baseline - proceed means satisfied (skip)
         let result = eval.evaluate(&check);
-        assert!(!result.passed_check());
+        assert!(result.passed_check());
         assert!(result.description.contains("unchanged"));
     }
 
@@ -1511,20 +1744,6 @@ mod tests {
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
 
-        // Store baseline under project-scoped key only
-        let proj_key = SnapshotKey::project("bundle_install", "cfg123");
-        store.record_baseline(
-            &proj_key,
-            "_last_run",
-            "sha256:some_hash".to_string(),
-            "Gemfile.lock".to_string(),
-        );
-
-        // Evaluate with workflow scope — no workflow baseline exists
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
-            .with_step("bundle_install", "cfg123")
-            .with_workflow("ci");
-
         let check = Check::Change {
             name: None,
             target: "Gemfile.lock".to_string(),
@@ -1538,7 +1757,21 @@ mod tests {
             scope: SnapshotScope::Workflow,
         };
 
-        // Workflow key has no baseline → indeterminate
+        // Store baseline under project-scoped key only (not workflow-scoped)
+        let proj_key = SnapshotKey::project("bundle_install", check.config_hash());
+        store.record_baseline(
+            &proj_key,
+            "_last_run",
+            "sha256:some_hash".to_string(),
+            "Gemfile.lock".to_string(),
+        );
+
+        // Evaluate with workflow scope — no workflow baseline exists
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store)
+            .with_step("bundle_install")
+            .with_workflow("ci");
+
+        // Workflow key has no baseline - indeterminate
         let result = eval.evaluate(&check);
         assert!(matches!(result.outcome, CheckOutcome::Indeterminate(_)));
     }
@@ -1551,22 +1784,6 @@ mod tests {
 
         let ctx = make_context();
         let mut store = make_store(snap_dir.path());
-
-        // Store baseline under project key
-        let key = SnapshotKey::project("step", "cfg");
-        let current_hash = match compute_target_hash(
-            "file.txt",
-            ChangeKind::File,
-            temp.path(),
-            &SizeLimit::default(),
-        ) {
-            HashResult::Ok(h) => h,
-            _ => panic!("Expected hash"),
-        };
-        store.record_baseline(&key, "_last_run", current_hash, "file.txt".to_string());
-
-        // No with_workflow call — falls back to project scope
-        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step", "cfg");
 
         let check = Check::Change {
             name: None,
@@ -1581,8 +1798,25 @@ mod tests {
             scope: SnapshotScope::Workflow,
         };
 
-        // Falls back to project scope, finds baseline → unchanged → fails
+        let current_hash = match compute_target_hash(
+            "file.txt",
+            ChangeKind::File,
+            temp.path(),
+            &SizeLimit::default(),
+        ) {
+            HashResult::Ok(h) => h,
+            _ => panic!("Expected hash"),
+        };
+
+        // Store baseline under project key
+        let key = SnapshotKey::project("step", check.config_hash());
+        store.record_baseline(&key, "_last_run", current_hash, "file.txt".to_string());
+
+        // No with_workflow call - falls back to project scope
+        let mut eval = CheckEvaluator::new(temp.path(), &ctx, &mut store).with_step("step");
+
+        // Falls back to project scope, finds baseline, file unchanged - satisfied (skip)
         let result = eval.evaluate(&check);
-        assert!(!result.passed_check());
+        assert!(result.passed_check());
     }
 }

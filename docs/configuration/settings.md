@@ -110,8 +110,13 @@ Accepted values:
 | Value | Meaning |
 |---|---|
 | `"4h"`, `"30m"`, `"7d"` | Duration string |
-| `"0"` or `"never"` | Always treat the step as if it had never run |
-| `"forever"` | Never re-prompt; the step stays satisfied indefinitely |
+| `"0"` or `"never"` | A previous successful run never counts toward satisfaction |
+| `"forever"` | A previous successful run counts toward satisfaction with no expiry |
+
+This window only controls the execution-history signal. A step's own
+`satisfied_when` conditions and `check`/`checks` are evaluated first, and
+whenever they reach a verdict that verdict wins - so neither value can make
+a step skip work that its own check says is outstanding.
 
 ## Diagnostic Funnel
 
@@ -181,7 +186,7 @@ Set default behavior for all steps:
 settings:
   defaults:
     auto_run: true          # Auto-run unsatisfied steps (default: true)
-    prompt_on_rerun: false  # Skip satisfied steps silently (default: false)
+    prompt_on_rerun: false  # Skip recently-run steps silently (default: false)
     rerun_window: "4h"      # How long a successful run counts as satisfied (default: "4h")
 ```
 

@@ -249,6 +249,31 @@ pub fn resolve_string(input: &str, context: &InterpolationContext) -> Result<Str
     Ok(result)
 }
 
+/// Resolve variables only when the input actually contains any.
+///
+/// Returns the input unchanged when it has no `${variable}` references, and
+/// also when resolution fails because a variable is missing from the context.
+/// Callers that need to surface unresolved variables should use
+/// [`resolve_string`] directly.
+///
+/// ```
+/// use bivvy::config::interpolation::{interpolate_if_needed, InterpolationContext};
+///
+/// let mut context = InterpolationContext::new();
+/// context.vars.insert("lockfile".to_string(), "yarn.lock".to_string());
+///
+/// assert_eq!(interpolate_if_needed("shasum ${lockfile}", &context), "shasum yarn.lock");
+/// assert_eq!(interpolate_if_needed("shasum yarn.lock", &context), "shasum yarn.lock");
+/// assert_eq!(interpolate_if_needed("shasum ${missing}", &context), "shasum ${missing}");
+/// ```
+pub fn interpolate_if_needed(input: &str, context: &InterpolationContext) -> String {
+    if has_interpolation(input) {
+        resolve_string(input, context).unwrap_or_else(|_| input.to_string())
+    } else {
+        input.to_string()
+    }
+}
+
 /// Resolve string with optional default value for missing variables.
 ///
 /// Unlike `resolve_string`, this never fails - missing variables

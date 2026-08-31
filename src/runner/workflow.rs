@@ -262,10 +262,9 @@ impl<'a> WorkflowRunner<'a> {
             // Evaluate completed check using the new CheckEvaluator
             if !options.should_force(step_name) && !step.behavior.force {
                 if let Some(check) = step.execution.effective_check() {
-                    let config_hash = check.config_hash();
                     let mut evaluator =
                         CheckEvaluator::new(project_root, context, &mut self.snapshot_store)
-                            .with_step(step_name, &config_hash)
+                            .with_step(step_name)
                             .with_workflow(workflow_name);
                     let check_result = evaluator.evaluate(&check);
                     if check_result.passed_check() {
@@ -321,6 +320,19 @@ impl<'a> WorkflowRunner<'a> {
             }
 
             let status = result.status();
+
+            // Record change-check baselines after successful execution so that
+            // the next run can compare against the current state. Skip in dry-run
+            // mode since no commands actually ran.
+            if status == StepStatus::Completed && !options.dry_run {
+                if let Some(check) = step.execution.effective_check() {
+                    let mut evaluator =
+                        CheckEvaluator::new(project_root, context, &mut self.snapshot_store)
+                            .with_step(step_name)
+                            .with_workflow(workflow_name);
+                    evaluator.record_run_baselines(&check);
+                }
+            }
 
             results.push(result);
 

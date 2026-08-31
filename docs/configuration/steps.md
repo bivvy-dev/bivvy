@@ -50,9 +50,11 @@ Sensitive steps receive special treatment:
 
 ## Auto-Run Behavior
 
-By default, steps that need to run execute automatically. Steps that are
-already satisfied (via checks, `satisfied_when`, or recent execution
-history) prompt you before re-running. You can control this per-step:
+By default, steps that need to run execute automatically, and steps that
+are already satisfied (via `satisfied_when`, `check`/`checks`, or a recent
+successful run) are skipped silently. Set `prompt_on_rerun: true` to be
+asked before re-running a step that was satisfied only because it ran
+recently. You can control all of this per-step:
 
 ```yaml
 steps:
@@ -60,7 +62,7 @@ steps:
     command: npm install
     auto_run: true           # run without asking (default)
     confirm: false           # always prompt before running (default: false)
-    prompt_on_rerun: false   # skip silently if already satisfied
+    prompt_on_rerun: false   # skip silently after a recent run
     rerun_window: "24h"      # trust a successful run for 24 hours
 ```
 
@@ -207,9 +209,14 @@ opposite semantics:
 
 ### Combining with Completed Checks
 
-When a step has both `check` and `precondition`, the
-completed check is evaluated first. If the step is already complete,
-it is skipped and the precondition is never evaluated.
+When a step has both `check` and `precondition`, the precondition is
+evaluated first. It is a gate on whether running the step is safe at all,
+not on whether the step still has work to do, so it runs before Bivvy asks
+whether the work is already done. If the precondition fails, the step is
+blocked - even if its completed check passes, and even if the step was
+forced with `--force` or `--force-all`. Only once the precondition passes
+does Bivvy evaluate `satisfied_when`, then `check`/`checks`, then execution
+history to decide whether to run or skip.
 
 ```yaml
 steps:
