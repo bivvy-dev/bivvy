@@ -27,6 +27,19 @@ jobs:
           ref: ${{ inputs.tag }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+
+      - name: Verify Cargo.toml version matches tag
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          VERSION=$(grep -E '^version = "[0-9]+\.[0-9]+\.[0-9]+"' Cargo.toml | sed -E 's/^version = "([^"]+)".*/\1/')
+          TAG_VERSION="${TAG#v}"
+          if [ "$VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: Cargo.toml version ($VERSION) does not match release tag ($TAG_VERSION)"
+            exit 1
+          fi
+          echo "Cargo.toml version $VERSION matches tag $TAG_VERSION"
+
       - run: cargo publish
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
